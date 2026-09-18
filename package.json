@@ -1,0 +1,17 @@
+{
+  "name": "d-board",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=web",
+    "dev:api": "npm run dev --workspace=@d-board/api",
+    "build:web": "npm run build --workspace=web",
+    "build:api": "npm run build --workspace=@d-board/api",
+    "typecheck:api": "npm run typecheck --workspace=@d-board/api",
+    "typecheck:web": "npm run build --workspace=web"
+  }
+}

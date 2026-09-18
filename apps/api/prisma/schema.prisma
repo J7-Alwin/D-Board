@@ -1,0 +1,456 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ProjectRole {
+  PROJECT_ADMIN
+  PROJECT_MEMBER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+  COMPLETED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  CANCELLED
+}
+
+enum WorkItemType {
+  TASK
+  BUG
+  FEATURE
+  IMPROVEMENT
+  RESEARCH
+  DOCUMENTATION
+  OTHER
+}
+
+enum WorkItemStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  IN_REVIEW
+  COMPLETED
+}
+
+enum WorkItemPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ActivityType {
+  PROJECT_CREATED
+  WORK_CREATED
+  WORK_ASSIGNED
+  WORK_STATUS_CHANGED
+  WORK_PRIORITY_CHANGED
+  WORK_UPDATED
+  WORK_COMPLETED
+  COMMENT_ADDED
+  COMMENT_UPDATED
+  COMMENT_DELETED
+  MEMBER_ADDED
+  MEMBER_REMOVED
+  NOTE_CREATED
+  NOTE_UPDATED
+  NOTE_PINNED
+  NOTE_UNPINNED
+  NOTE_DELETED
+  NOTE_VISIBILITY_CHANGED
+  CALENDAR_EVENT_CREATED
+  CALENDAR_EVENT_UPDATED
+  CALENDAR_EVENT_DELETED
+  FILE_UPLOADED
+  FILE_RENAMED
+  FILE_DELETED
+}
+
+enum NoteVisibility {
+  TEAM
+  USERS
+}
+
+enum CalendarEventType {
+  MEETING
+  MILESTONE
+  RELEASE
+  DEADLINE
+  OTHER
+}
+
+enum FileCategory {
+  IMAGE
+  PDF
+  DOCUMENT
+  SPREADSHEET
+  PRESENTATION
+  TEXT
+  CODE
+  DATA
+  ARCHIVE
+  OTHER
+}
+
+enum NotificationType {
+  WORK_ASSIGNED
+  WORK_COMMENTED
+  WORK_MENTIONED
+  WORK_STATUS_CHANGED
+  WORK_COMPLETED
+  PROJECT_INVITED
+  INVITATION_ACCEPTED
+  INVITATION_DECLINED
+  MEMBER_ADDED
+  MEMBER_REMOVED
+  NOTE_MENTIONED
+  NOTE_TEAM_UPDATED
+  CALENDAR_EVENT_CREATED
+  CALENDAR_EVENT_UPDATED
+  FILE_SHARED
+  FILE_UPLOADED
+  PROJECT_UPDATED
+  DEADLINE_SOON
+  DEADLINE_OVERDUE
+  SYSTEM
+}
+
+model User {
+  id                     String          @id @default(uuid())
+  fullName               String?
+  username               String          @unique
+  email                  String          @unique
+  passwordHash           String?
+  avatarUrl              String?
+  isEmailVerified        Boolean         @default(false)
+  termsAccepted          Boolean         @default(true)
+  googleId               String?         @unique
+  passwordResetTokenHash String?
+  passwordResetExpiresAt DateTime?
+  bio                    String?
+  headline               String?
+  timezone               String?         @default("UTC")
+  notificationPreferences Json?
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  // Relations
+  createdProjects        Project[]       @relation("CreatedProjects")
+  memberships            ProjectMember[]
+  sentInvitations        Invitation[]    @relation("SentInvitations")
+  receivedInvitations    Invitation[]    @relation("ReceivedInvitations")
+  createdWorkItems       WorkItem[]      @relation("CreatedWorkItems")
+  assignedWorkItems      WorkItem[]      @relation("AssignedWorkItems")
+  comments               Comment[]       @relation("UserComments")
+  activities             Activity[]      @relation("UserActivities")
+  createdNotes           Note[]          @relation("CreatedNotes")
+  updatedNotes           Note[]          @relation("UpdatedNotes")
+  noteMentions           NoteMention[]   @relation("UserNoteMentions")
+  createdCalendarEvents  CalendarEvent[]         @relation("CreatedCalendarEvents")
+  updatedCalendarEvents  CalendarEvent[]         @relation("UpdatedCalendarEvents")
+  calendarAttendees      CalendarEventAttendee[] @relation("UserCalendarAttendees")
+  uploadedAttachments    Attachment[]            @relation("UserAttachments")
+  notifications          Notification[]          @relation("UserNotifications")
+  actedNotifications     Notification[]          @relation("ActorNotifications")
+}
+
+model Project {
+  id              String          @id @default(uuid())
+  name            String
+  key             String?
+  description     String
+  category        String?
+  technologyStack String[]        @default([])
+  startDate       DateTime?
+  endDate         DateTime?
+  repositoryUrl   String?
+  liveUrl         String?
+  avatarUrl       String?
+  status          ProjectStatus   @default(ACTIVE)
+  createdById     String
+  createdBy       User            @relation("CreatedProjects", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  archivedAt      DateTime?
+
+  members         ProjectMember[]
+  invitations     Invitation[]
+  workItems       WorkItem[]
+  activities      Activity[]
+  notes           Note[]
+  calendarEvents  CalendarEvent[]
+  attachments     Attachment[]
+  notifications   Notification[]
+
+  @@index([createdById])
+  @@index([status])
+}
+
+model ProjectMember {
+  id        String      @id @default(uuid())
+  projectId String
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      ProjectRole @default(PROJECT_MEMBER)
+  joinedAt  DateTime    @default(now())
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@index([projectId])
+}
+
+model Invitation {
+  id           String           @id @default(uuid())
+  projectId    String
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invitedEmail String
+  invitedUserId String?
+  invitedUser  User?            @relation("ReceivedInvitations", fields: [invitedUserId], references: [id], onDelete: SetNull)
+  invitedById  String
+  invitedBy    User             @relation("SentInvitations", fields: [invitedById], references: [id], onDelete: Cascade)
+  role         ProjectRole      @default(PROJECT_MEMBER)
+  status       InvitationStatus @default(PENDING)
+  message      String?
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  declinedAt   DateTime?
+  cancelledAt  DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([invitedEmail])
+  @@index([projectId])
+  @@index([status])
+  @@index([invitedUserId])
+}
+
+model WorkItem {
+  id             String           @id @default(uuid())
+  projectId      String
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?
+  type           WorkItemType     @default(TASK)
+  status         WorkItemStatus   @default(TODO)
+  priority       WorkItemPriority @default(MEDIUM)
+  createdById    String
+  createdBy      User             @relation("CreatedWorkItems", fields: [createdById], references: [id], onDelete: Cascade)
+  assignedToId   String?
+  assignedTo     User?            @relation("AssignedWorkItems", fields: [assignedToId], references: [id], onDelete: SetNull)
+  dueDate        DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  comments       Comment[]
+  activities     Activity[]
+  calendarEvents CalendarEvent[]
+  attachments    Attachment[]
+  notifications  Notification[]
+
+  @@index([projectId, status])
+  @@index([assignedToId])
+  @@index([dueDate])
+  @@index([priority])
+  @@index([createdById])
+}
+
+model Comment {
+  id            String         @id @default(uuid())
+  workItemId    String
+  workItem      WorkItem       @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  authorId      String
+  author        User           @relation("UserComments", fields: [authorId], references: [id], onDelete: Cascade)
+  body          String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+  notifications Notification[]
+
+  @@index([workItemId])
+  @@index([authorId])
+}
+
+model Note {
+  id            String         @id @default(uuid())
+  projectId     String
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title         String
+  content       String
+  createdById   String
+  createdBy     User           @relation("CreatedNotes", fields: [createdById], references: [id], onDelete: Cascade)
+  updatedById   String?
+  updatedBy     User?          @relation("UpdatedNotes", fields: [updatedById], references: [id], onDelete: SetNull)
+  visibility    NoteVisibility @default(TEAM)
+  pinned        Boolean        @default(false)
+  color         String?        @default("yellow")
+  tags          String[]       @default([])
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  mentions      NoteMention[]
+  attachments   Attachment[]
+  activities    Activity[]
+  notifications Notification[]
+
+  @@index([projectId, visibility])
+  @@index([createdById])
+  @@index([updatedAt])
+  @@index([pinned])
+}
+
+model NoteMention {
+  id        String   @id @default(uuid())
+  noteId    String
+  note      Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("UserNoteMentions", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([noteId, userId])
+  @@index([userId, noteId])
+  @@index([noteId])
+}
+
+model CalendarEvent {
+  id                String            @id @default(uuid())
+  projectId         String
+  project           Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title             String
+  description       String?
+  type              CalendarEventType @default(MEETING)
+  startAt           DateTime
+  endAt             DateTime
+  allDay            Boolean           @default(false)
+  location          String?
+  createdById       String
+  createdBy         User              @relation("CreatedCalendarEvents", fields: [createdById], references: [id], onDelete: Cascade)
+  updatedById       String?
+  updatedBy         User?             @relation("UpdatedCalendarEvents", fields: [updatedById], references: [id], onDelete: SetNull)
+  relatedWorkItemId String?
+  relatedWorkItem   WorkItem?         @relation(fields: [relatedWorkItemId], references: [id], onDelete: SetNull)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  attendees         CalendarEventAttendee[]
+  activities        Activity[]
+
+  @@index([projectId, startAt])
+  @@index([projectId, type])
+  @@index([createdById])
+  @@index([startAt, endAt])
+}
+
+model CalendarEventAttendee {
+  id              String        @id @default(uuid())
+  calendarEventId String
+  calendarEvent   CalendarEvent @relation(fields: [calendarEventId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User          @relation("UserCalendarAttendees", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+
+  @@unique([calendarEventId, userId])
+  @@index([userId, calendarEventId])
+  @@index([calendarEventId])
+}
+
+model Attachment {
+  id           String        @id @default(uuid())
+  projectId    String
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedById String
+  uploadedBy   User          @relation("UserAttachments", fields: [uploadedById], references: [id], onDelete: Cascade)
+  workItemId   String?
+  workItem     WorkItem?     @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+  noteId       String?
+  note         Note?         @relation(fields: [noteId], references: [id], onDelete: SetNull)
+  originalName String
+  storageKey   String        @unique
+  mimeType     String
+  sizeBytes    Int
+  extension    String
+  category     FileCategory  @default(OTHER)
+  checksum     String?
+  deletedAt    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  activities   Activity[]
+
+  @@index([projectId, category])
+  @@index([projectId, createdAt])
+  @@index([uploadedById])
+  @@index([workItemId])
+  @@index([noteId])
+}
+
+model Activity {
+  id              String         @id @default(uuid())
+  projectId       String
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actorId         String
+  actor           User           @relation("UserActivities", fields: [actorId], references: [id], onDelete: Cascade)
+  workItemId      String?
+  workItem        WorkItem?      @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+  noteId          String?
+  note            Note?          @relation(fields: [noteId], references: [id], onDelete: SetNull)
+  calendarEventId String?
+  calendarEvent   CalendarEvent? @relation(fields: [calendarEventId], references: [id], onDelete: SetNull)
+  attachmentId    String?
+  attachment      Attachment?    @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+  type            ActivityType
+  metadata        Json?
+  createdAt       DateTime       @default(now())
+
+  notifications   Notification[]
+
+  @@index([projectId, createdAt])
+  @@index([workItemId])
+  @@index([noteId])
+  @@index([calendarEventId])
+  @@index([attachmentId])
+  @@index([actorId])
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  recipientId String
+  recipient   User             @relation("UserNotifications", fields: [recipientId], references: [id], onDelete: Cascade)
+  actorId     String?
+  actor       User?            @relation("ActorNotifications", fields: [actorId], references: [id], onDelete: SetNull)
+  projectId   String?
+  project     Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workItemId  String?
+  workItem    WorkItem?        @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+  commentId   String?
+  comment     Comment?         @relation(fields: [commentId], references: [id], onDelete: SetNull)
+  noteId      String?
+  note        Note?            @relation(fields: [noteId], references: [id], onDelete: SetNull)
+  activityId  String?
+  activity    Activity?        @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  type        NotificationType
+  title       String
+  message     String
+  link        String
+  readAt      DateTime?
+  createdAt   DateTime         @default(now())
+
+  @@index([recipientId, readAt, createdAt])
+  @@index([recipientId, createdAt])
+  @@index([projectId])
+}

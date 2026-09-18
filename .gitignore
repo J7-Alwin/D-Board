@@ -1,0 +1,118 @@
+# ==========================================
+# Dependencies
+# ==========================================
+node_modules/
+.pnp
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# ==========================================
+# Environment Variables & Secrets
+# ==========================================
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
+*.pem
+*.key
+*.cert
+credentials.json
+
+# ==========================================
+# Build & Distribution Artifacts
+# ==========================================
+dist/
+dist-ssr/
+build/
+out/
+.next/
+.nuxt/
+.output/
+.turbo/
+*.tsbuildinfo
+
+# ==========================================
+# Generated Database & ORM Files
+# ==========================================
+/apps/api/src/generated/prisma
+prisma/migrations/dev.db
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# ==========================================
+# Logs & Debug Output
+# ==========================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==========================================
+# Storage & Local Uploads
+# ==========================================
+uploads/
+uploads_storage/
+uploads_storage_test/
+temp/
+tmp/
+*.tmp
+
+# ==========================================
+# Testing & Coverage
+# ==========================================
+coverage/
+.nyc_output/
+*.lcov
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# ==========================================
+# IDEs & Editor Artifacts
+# ==========================================
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+
+# ==========================================
+# AI Agents & IDE Assistants Cache
+# ==========================================
+.windsurf/
+.claude/
+.gemini/
+.gemini_scratch*
+inspect_logo.ps1
+
+# ==========================================
+# Operating System Files
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini

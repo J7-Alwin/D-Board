@@ -1,0 +1,338 @@
+import { prisma } from '../prisma.js';
+import { CreateProjectInput, UpdateProjectInput } from '../schemas/project.schema.js';
+import { AppError } from '../middlewares/error.middleware.js';
+
+export class ProjectService {
+  /**
+   * Atomic project creation transaction:
+   * 1. Create Project
+   * 2. Create ProjectMember for creator as PROJECT_ADMIN
+   * 3. Create pending invitations (if any)
+   */
+  async createProject(userId: string, data: CreateProjectInput) {
+    return await prisma.$transaction(async (tx) => {
+      // 1. Create project
+      const project = await tx.project.create({
+        data: {
+          name: data.name,
+          key: data.key ? data.key.toUpperCase() : undefined,
+          description: data.description,
+          category: data.category || undefined,
+          technologyStack: data.technologyStack || [],
+          startDate: data.startDate ? new Date(data.startDate) : undefined,
+          endDate: data.endDate ? new Date(data.endDate) : undefined,
+          repositoryUrl: data.repositoryUrl || undefined,
+          liveUrl: data.liveUrl || undefined,
+          avatarUrl: data.avatarUrl || undefined,
+          createdById: userId,
+        },
+      });
+
+      // 2. Add creator as PROJECT_ADMIN
+      await tx.projectMember.create({
+        data: {
+          projectId: project.id,
+          userId: userId,
+          role: 'PROJECT_ADMIN',
+        },
+      });
+
+      // 3. Process invitations (if provided)
+      if (data.invitations && data.invitations.length > 0) {
+        // De-duplicate emails & exclude creator's own email
+        const creator = await tx.user.findUnique({
+          where: { id: userId },
+          select: { email: true, fullName: true, username: true },
+        });
+
+        const seenEmails = new Set<string>();
+        const validInvitations = data.invitations.filter((inv) => {
+          const email = inv.email.toLowerCase().trim();
+          if (creator && email === creator.email.toLowerCase()) return false;
+          if (seenEmails.has(email)) return false;
+          seenEmails.add(email);
+          return true;
+        });
+
+        for (const inv of validInvitations) {
+          const normalizedEmail = inv.email.toLowerCase().trim();
+          
+          // Check if invited user is already a registered D-Board user
+          const existingUser = await tx.user.findUnique({
+            where: { email: normalizedEmail },
+            select: { id: true },
+          });
+
+          // 7-day expiration for invitations
+          const expiresAt = new Date();
+          expiresAt.setDate(expiresAt.getDate() + 7);
+
+          await tx.invitation.create({
+            data: {
+              projectId: project.id,
+              invitedEmail: normalizedEmail,
+              invitedUserId: existingUser ? existingUser.id : undefined,
+              invitedById: userId,
+              role: inv.role || 'PROJECT_MEMBER',
+              message: inv.message || undefined,
+              status: 'PENDING',
+              expiresAt,
+            },
+          });
+
+          // Dispatch in-app notification if invited user is already registered
+          if (existingUser) {
+            await tx.notification.create({
+              data: {
+                recipientId: existingUser.id,
+                actorId: userId,
+                projectId: project.id,
+                type: 'PROJECT_INVITED',
+                title: 'Project Invitation',
+                message: `${creator?.fullName || 'A team member'} invited you to join "${project.name}".`,
+                link: '/app/invitations',
+              },
+            });
+          }
+        }
+      }
+
+      // Create confirmation notification for project creator
+      await tx.notification.create({
+        data: {
+          recipientId: userId,
+          projectId: project.id,
+          type: 'SYSTEM',
+          title: 'Project Created',
+          message: `Your project workspace "${project.name}" (${project.key || 'PRJ'}) is ready.`,
+          link: `/app/projects/${project.id}`,
+        },
+      });
+
+      // Return created project with member counts
+      const fullProject = await tx.project.findUnique({
+        where: { id: project.id },
+        include: {
+          createdBy: {
+            select: { id: true, fullName: true, username: true, avatarUrl: true },
+          },
+          members: {
+            include: {
+              user: {
+                select: { id: true, fullName: true, username: true, avatarUrl: true },
+              },
+            },
+          },
+          _count: {
+            select: { members: true, invitations: true },
+          },
+        },
+      });
+
+      return fullProject;
+    });
+  }
+
+  /**
+   * Get all projects for an authenticated user (categorized into owned and joined)
+   */
+  async getUserProjects(userId: string) {
+    // Projects where user is a member or creator
+    const projects = await prisma.project.findMany({
+      where: {
+        OR: [
+          { createdById: userId },
+          { members: { some: { userId } } },
+        ],
+      },
+      include: {
+        createdBy: {
+          select: { id: true, fullName: true, username: true, avatarUrl: true },
+        },
+        members: {
+          include: {
+            user: {
+              select: { id: true, fullName: true, username: true, avatarUrl: true },
+            },
+          },
+        },
+        _count: {
+          select: { members: true },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const formatted = projects.map((p) => {
+      const userMember = p.members.find((m) => m.userId === userId);
+      const isOwner = p.createdById === userId || userMember?.role === 'PROJECT_ADMIN';
+      return {
+        id: p.id,
+        name: p.name,
+        key: p.key,
+        description: p.description,
+        category: p.category,
+        technologyStack: p.technologyStack,
+        startDate: p.startDate,
+        endDate: p.endDate,
+        repositoryUrl: p.repositoryUrl,
+        liveUrl: p.liveUrl,
+        avatarUrl: p.avatarUrl,
+        status: p.status,
+        createdById: p.createdById,
+        createdBy: p.createdBy,
+        userRole: userMember ? userMember.role : isOwner ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER',
+        memberCount: p._count.members,
+        members: p.members.map((m) => ({
+          id: m.id,
+          userId: m.userId,
+          role: m.role,
+          joinedAt: m.joinedAt,
+          user: m.user,
+        })),
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      };
+    });
+
+    const owned = formatted.filter((p) => p.createdById === userId || p.userRole === 'PROJECT_ADMIN');
+    const joined = formatted.filter((p) => p.createdById !== userId && p.userRole !== 'PROJECT_ADMIN');
+
+    return {
+      all: formatted,
+      owned,
+      joined,
+    };
+  }
+
+  /**
+   * Get project details with authorization check
+   */
+  async getProjectById(projectId: string, userId: string) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        createdBy: {
+          select: { id: true, fullName: true, username: true, avatarUrl: true },
+        },
+        members: {
+          include: {
+            user: {
+              select: { id: true, fullName: true, username: true, avatarUrl: true, email: true },
+            },
+          },
+        },
+        invitations: {
+          where: { status: 'PENDING' },
+          include: {
+            invitedBy: {
+              select: { id: true, fullName: true, username: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!project) {
+      throw new AppError('Project not found', 404);
+    }
+
+    const membership = project.members.find((m) => m.userId === userId);
+    const isCreator = project.createdById === userId;
+
+    if (!membership && !isCreator) {
+      throw new AppError('You are not authorized to view this project', 403);
+    }
+
+    const userRole = membership ? membership.role : isCreator ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
+    const isAdmin = userRole === 'PROJECT_ADMIN';
+
+    return {
+      ...project,
+      userRole,
+      // Only project admins see pending invitations
+      invitations: isAdmin ? project.invitations : [],
+    };
+  }
+
+  /**
+   * Update project details (Project Admin only)
+   */
+  async updateProject(projectId: string, userId: string, data: UpdateProjectInput) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { members: true },
+    });
+
+    if (!project) {
+      throw new AppError('Project not found', 404);
+    }
+
+    const member = project.members.find((m) => m.userId === userId);
+    const isCreator = project.createdById === userId;
+
+    if (!isCreator && member?.role !== 'PROJECT_ADMIN') {
+      throw new AppError('Only project administrators can update project details', 403);
+    }
+
+    const updated = await prisma.project.update({
+      where: { id: projectId },
+      data: {
+        name: data.name !== undefined ? data.name : undefined,
+        key: data.key !== undefined ? (data.key ? data.key.toUpperCase() : null) : undefined,
+        description: data.description !== undefined ? data.description : undefined,
+        category: data.category !== undefined ? data.category : undefined,
+        technologyStack: data.technologyStack !== undefined ? data.technologyStack : undefined,
+        startDate: data.startDate !== undefined ? (data.startDate ? new Date(data.startDate) : null) : undefined,
+        endDate: data.endDate !== undefined ? (data.endDate ? new Date(data.endDate) : null) : undefined,
+        repositoryUrl: data.repositoryUrl !== undefined ? data.repositoryUrl : undefined,
+        liveUrl: data.liveUrl !== undefined ? data.liveUrl : undefined,
+        avatarUrl: data.avatarUrl !== undefined ? data.avatarUrl : undefined,
+      },
+      include: {
+        createdBy: {
+          select: { id: true, fullName: true, username: true, avatarUrl: true },
+        },
+        members: {
+          include: {
+            user: {
+              select: { id: true, fullName: true, username: true, avatarUrl: true },
+            },
+          },
+        },
+      },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Delete project (Project Admin or Creator only)
+   */
+  async deleteProject(projectId: string, userId: string) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { members: true },
+    });
+
+    if (!project) {
+      throw new AppError('Project not found', 404);
+    }
+
+    const isCreator = project.createdById === userId;
+    const member = project.members.find((m) => m.userId === userId);
+    const isAdmin = isCreator || member?.role === 'PROJECT_ADMIN';
+
+    if (!isAdmin) {
+      throw new AppError('Only project administrators can delete this project', 403);
+    }
+
+    await prisma.project.delete({
+      where: { id: projectId },
+    });
+
+    return { id: projectId, name: project.name };
+  }
+}
+
+export const projectService = new ProjectService();

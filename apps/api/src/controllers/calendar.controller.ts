@@ -148,6 +148,8 @@ export class CalendarController {
 
       res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
       res.setHeader('Content-Disposition', 'inline; filename="feed.ics"');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      res.setHeader('Cache-Control', 'no-cache, no-store, private');
       res.status(200).send(icsString);
     } catch (error) {
       next(error);

@@ -1,7 +1,8 @@
+import crypto from 'node:crypto';
 import { prisma } from '../prisma.js';
 import { CreateProjectInput, UpdateProjectInput } from '../schemas/project.schema.js';
 import { AppError } from '../middlewares/error.middleware.js';
-import { enqueueEmailJob } from '../jobs/queues.js';
+import { enqueueEmailJob, enqueueCleanupJob } from '../jobs/queues.js';
 
 export class ProjectService {
   /**
@@ -450,9 +451,68 @@ export class ProjectService {
       throw new AppError(`Project name does not match. Please enter "${project.name}" to confirm permanent deletion.`, 400);
     }
 
-    await prisma.project.delete({
-      where: { id: projectId },
+    // Ensure durable storage cleanup outbox table exists in database (Item 5)
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "_storage_cleanup_outbox" (
+        id TEXT PRIMARY KEY,
+        "storageKey" TEXT NOT NULL,
+        "projectId" TEXT NOT NULL,
+        attempts INT DEFAULT 0,
+        status TEXT DEFAULT 'PENDING',
+        error TEXT,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // 1. Collect physical keys and create durable outbox records transactionally with project deletion
+    const outboxItems = await prisma.$transaction(async (tx) => {
+      const storedObjects = await tx.storedObject.findMany({
+        where: { projectId },
+        select: { storageKey: true },
+      });
+
+      const attachments = await tx.attachment.findMany({
+        where: { projectId },
+        select: { storageKey: true },
+      });
+
+      const allKeys = Array.from(new Set([
+        ...storedObjects.map((s) => s.storageKey),
+        ...attachments.map((a) => a.storageKey),
+      ])).filter(Boolean);
+
+      const items: { id: string; storageKey: string }[] = [];
+      for (const storageKey of allKeys) {
+        const outboxId = crypto.randomUUID();
+        await tx.$executeRawUnsafe(
+          `INSERT INTO "_storage_cleanup_outbox" (id, "storageKey", "projectId", status, attempts) VALUES ($1, $2, $3, 'PENDING', 0)`,
+          outboxId,
+          storageKey,
+          projectId
+        );
+        items.push({ id: outboxId, storageKey });
+      }
+
+      await tx.project.delete({
+        where: { id: projectId },
+      });
+
+      return items;
     });
+
+    // 2. Dispatch BullMQ cleanup jobs with outbox tracking
+    for (const item of outboxItems) {
+      try {
+        await enqueueCleanupJob({
+          type: 'ORPHAN_STORAGE_CLEANUP',
+          storageKey: item.storageKey,
+          outboxId: item.id,
+        });
+      } catch (enqueueErr) {
+        console.warn(`[ProjectService] BullMQ enqueue failed for outbox task ${item.id}. Task remains safely in outbox table:`, enqueueErr);
+      }
+    }
 
     return { id: projectId, name: project.name };
   }

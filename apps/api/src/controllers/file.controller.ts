@@ -8,9 +8,10 @@ import { fileService } from '../services/file.service.js';
 import { fileQuerySchema, renameFileSchema, attachFileSchema } from '../schemas/file.schema.js';
 import { AppError } from '../middlewares/error.middleware.js';
 
-// Max file size in MB (defaults to 50MB)
+// Max file size in MB (defaults to 50MB per file, 100MB per multipart batch for Render Free RAM)
 const MAX_FILE_SIZE_MB = Number(process.env.MAX_FILE_SIZE_MB) || 50;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+export const MAX_BATCH_SIZE_BYTES = 100 * 1024 * 1024;
 
 // Dedicated temporary upload directory to prevent RAM exhaustion
 const TEMP_UPLOAD_DIR = path.join(os.tmpdir(), 'dboard-temp-uploads');
@@ -57,17 +58,23 @@ export class FileController {
         throw new AppError('No files were uploaded', 400);
       }
 
-      const payloads = await Promise.all(
-        filesToProcess.map(async (f) => {
-          const buffer = f.buffer || (f.path ? await fs.promises.readFile(f.path) : Buffer.alloc(0));
-          return {
-            originalname: Buffer.from(f.originalname, 'latin1').toString('utf8'),
-            mimetype: f.mimetype,
-            size: f.size,
-            buffer,
-          };
-        })
-      );
+      // Enforce total multipart batch limit (100MB) to protect Render Free memory
+      const totalBatchSize = filesToProcess.reduce((sum, f) => sum + (f.size || 0), 0);
+      if (totalBatchSize > MAX_BATCH_SIZE_BYTES) {
+        throw new AppError(
+          `Total batch upload size (${(totalBatchSize / (1024 * 1024)).toFixed(1)} MB) exceeds the 100 MB limit`,
+          400
+        );
+      }
+
+      // Memory-safe: pass disk paths for streaming processing without loading all into memory
+      const payloads = filesToProcess.map((f) => ({
+        originalname: Buffer.from(f.originalname, 'latin1').toString('utf8'),
+        mimetype: f.mimetype,
+        size: f.size,
+        path: f.path,
+        buffer: f.buffer,
+      }));
 
       const created = await fileService.uploadFiles(projectId, userId, payloads, { workItemId, noteId, folderId });
 

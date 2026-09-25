@@ -60,8 +60,9 @@ Ensure your `.env` contains:
 PORT=5000
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/d_board?schema=public"
 REDIS_URL="redis://127.0.0.1:6379"
-JWT_SECRET="development_super_secret_jwt_key_at_least_32_characters"
-APP_URL="http://localhost:5173"
+JWT_SECRET="<generate-with-openssl-rand-hex-32-min-32-chars>"
+APP_URL="http://localhost:5000"
+CLIENT_URL="http://localhost:5173"
 STORAGE_DRIVER="local"
 STORAGE_LOCAL_PATH="./uploads_storage"
 MAX_FILE_SIZE_MB=50

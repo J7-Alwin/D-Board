@@ -1,7 +1,8 @@
+import path from 'path';
 import { prisma } from '../prisma.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { storageService } from '../storage/storage.service.js';
-import { classifyFile, sanitizeFilename, type FileCategory } from '../utils/fileClassifier.js';
+import { classifyFile, sanitizeFilename, readHeaderBytes, type FileCategory } from '../utils/fileClassifier.js';
 import { activityService } from './activity.service.js';
 import { publishToProject } from '../realtime/realtime.service.js';
 import { enqueueCleanupJob } from '../jobs/queues.js';
@@ -11,10 +12,26 @@ export interface UploadedFilePayload {
   originalname: string;
   mimetype: string;
   size: number;
-  buffer: Buffer;
+  buffer?: Buffer;
+  path?: string;
 }
 
 export const MAX_USER_STORAGE_BYTES = 200 * 1024 * 1024; // 200 MB limit per user
+
+/**
+ * Strips raw physical storage keys from API DTOs to protect internal object storage paths.
+ */
+export function sanitizeAttachmentDto<T extends Record<string, any>>(att: T): T {
+  if (!att) return att;
+  const copy = { ...att } as Record<string, any>;
+  delete copy.storageKey;
+  if (copy.storedObject) {
+    const soCopy = { ...copy.storedObject };
+    delete soCopy.storageKey;
+    copy.storedObject = soCopy;
+  }
+  return copy as T;
+}
 
 export class FileService {
   /**
@@ -81,21 +98,7 @@ export class FileService {
       }
     }
 
-    // Check user's 200 MB storage limit
     const batchSizeBytes = files.reduce((acc, f) => acc + (f.size || 0), 0);
-    const currentStorageAgg = await prisma.attachment.aggregate({
-      where: { uploadedById: userId, deletedAt: null },
-      _sum: { sizeBytes: true },
-    });
-    const currentUsedBytes = currentStorageAgg._sum.sizeBytes || 0;
-    if (currentUsedBytes + batchSizeBytes > MAX_USER_STORAGE_BYTES) {
-      const usedMB = (currentUsedBytes / (1024 * 1024)).toFixed(1);
-      const incomingMB = (batchSizeBytes / (1024 * 1024)).toFixed(1);
-      throw new AppError(
-        `Storage limit exceeded. You are using ${usedMB} MB of your 200 MB limit. Uploading ${incomingMB} MB exceeds your total quota.`,
-        400
-      );
-    }
 
     const workItemId = typeof options === 'string' ? options : options?.workItemId || null;
     const noteId = typeof options === 'object' ? options?.noteId || null : null;
@@ -124,14 +127,32 @@ export class FileService {
     const attachmentsToCreate: any[] = [];
 
     try {
-      // 1. Process files and upload to storage with project-scoped deduplication
+      // 1. Process files sequentially: stream hash computation, magic-byte inspection, and stream upload
       for (const file of files) {
         const cleanName = sanitizeFilename(file.originalname);
         const { extension } = storageService.generateStorageKey(projectId, cleanName);
-        const { category } = classifyFile(cleanName, file.mimetype);
-        const contentHash = storageService.computeChecksum(file.buffer);
 
-        // Project-scoped deduplication: check if this project already has a stored object with identical contentHash
+        // Content / Magic byte inspection (Item 14)
+        let headerBytes: Buffer | undefined;
+        if (file.path) {
+          headerBytes = await readHeaderBytes(file.path).catch(() => undefined);
+        } else if (file.buffer) {
+          headerBytes = file.buffer.subarray(0, 512);
+        }
+
+        const { category } = classifyFile(cleanName, file.mimetype, headerBytes);
+
+        // Stream SHA-256 hash calculation (Item 3)
+        let contentHash: string;
+        if (file.path) {
+          contentHash = await storageService.computeFileChecksum(file.path);
+        } else if (file.buffer) {
+          contentHash = storageService.computeChecksum(file.buffer);
+        } else {
+          contentHash = storageService.computeChecksum(Buffer.alloc(0));
+        }
+
+        // Project-scoped deduplication lookup
         let storedObject = await prisma.storedObject.findUnique({
           where: {
             projectId_contentHash: {
@@ -152,7 +173,12 @@ export class FileService {
           const generated = storageService.generateStorageKey(projectId, cleanName);
           storageKey = generated.storageKey;
 
-          await storageService.upload(storageKey, file.buffer, file.mimetype || 'application/octet-stream');
+          if (file.path) {
+            await storageService.uploadFile(storageKey, file.path, file.mimetype || 'application/octet-stream');
+          } else if (file.buffer) {
+            await storageService.upload(storageKey, file.buffer, file.mimetype || 'application/octet-stream');
+          }
+
           uploadedStorageKeys.push(storageKey);
           isNewPhysicalObject = true;
         }
@@ -176,44 +202,60 @@ export class FileService {
         });
       }
 
-      // 2. Ensure StoredObject records exist for all new uploads (handling races safely)
-      for (const item of attachmentsToCreate) {
-        if (!item.existingStoredObjectId) {
-          try {
-            const newStoredObj = await prisma.storedObject.create({
-              data: {
-                projectId,
-                contentHash: item.contentHash,
-                storageKey: item.storageKey,
-                mimeType: item.mimeType,
-                sizeBytes: item.sizeBytes,
-              },
-            });
-            item.existingStoredObjectId = newStoredObj.id;
-          } catch (raceErr: any) {
-            if (raceErr.code === 'P2002') {
-              // Another simultaneous upload completed first; bind to winner
-              const winner = await prisma.storedObject.findUniqueOrThrow({
-                where: {
-                  projectId_contentHash: {
-                    projectId,
-                    contentHash: item.contentHash,
-                  },
+      // 2. Persist in database with transactional row/advisory locking (Quota & Dedup Race Safety)
+      const createdAttachments = await prisma.$transaction(async (tx) => {
+        // Advisory lock on user storage quota to serialize concurrent uploads (Item 17)
+        await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext('user_quota_' || $1));`, userId);
+
+        const currentStorageAgg = await tx.attachment.aggregate({
+          where: { uploadedById: userId, deletedAt: null },
+          _sum: { sizeBytes: true },
+        });
+        const currentUsedBytes = currentStorageAgg._sum.sizeBytes || 0;
+        if (currentUsedBytes + batchSizeBytes > MAX_USER_STORAGE_BYTES) {
+          const usedMB = (currentUsedBytes / (1024 * 1024)).toFixed(1);
+          const incomingMB = (batchSizeBytes / (1024 * 1024)).toFixed(1);
+          throw new AppError(
+            `Storage limit exceeded. You are using ${usedMB} MB of your 200 MB limit. Uploading ${incomingMB} MB exceeds your total quota.`,
+            400
+          );
+        }
+
+        // Ensure StoredObject records exist (handling concurrent dedup races safely)
+        for (const item of attachmentsToCreate) {
+          if (!item.existingStoredObjectId) {
+            try {
+              const newStoredObj = await tx.storedObject.create({
+                data: {
+                  projectId,
+                  contentHash: item.contentHash,
+                  storageKey: item.storageKey,
+                  mimeType: item.mimeType,
+                  sizeBytes: item.sizeBytes,
                 },
               });
-              item.existingStoredObjectId = winner.id;
-              // Delete redundant physical S3 object
-              await storageService.delete(item.storageKey).catch(() => {});
-              item.storageKey = winner.storageKey;
-            } else {
-              throw raceErr;
+              item.existingStoredObjectId = newStoredObj.id;
+            } catch (raceErr: any) {
+              if (raceErr.code === 'P2002') {
+                const winner = await tx.storedObject.findUniqueOrThrow({
+                  where: {
+                    projectId_contentHash: {
+                      projectId,
+                      contentHash: item.contentHash,
+                    },
+                  },
+                });
+                item.existingStoredObjectId = winner.id;
+                // Delete redundant physical S3 object asynchronously
+                storageService.delete(item.storageKey).catch(() => {});
+                item.storageKey = winner.storageKey;
+              } else {
+                throw raceErr;
+              }
             }
           }
         }
-      }
 
-      // 3. Persist Attachment metadata in database transaction
-      const createdAttachments = await prisma.$transaction(async (tx) => {
         const results = [];
         for (const item of attachmentsToCreate) {
           const attachment = await tx.attachment.create({
@@ -286,7 +328,8 @@ export class FileService {
         });
       }
 
-      return createdAttachments;
+      // API DTO Security (Item 21): Strip raw storageKey from response
+      return createdAttachments.map(sanitizeAttachmentDto);
     } catch (err: any) {
       // Clean up any uploaded storage objects if metadata persistence fails (prevent orphans)
       for (const key of uploadedStorageKeys) {
@@ -428,7 +471,7 @@ export class FileService {
     ]);
 
     return {
-      files,
+      files: files.map(sanitizeAttachmentDto),
       pagination: {
         total,
         page,
@@ -547,7 +590,7 @@ export class FileService {
     ]);
 
     return {
-      files,
+      files: files.map(sanitizeAttachmentDto),
       pagination: {
         total,
         page,
@@ -560,7 +603,7 @@ export class FileService {
   /**
    * Get single file metadata by ID with authorization checks.
    */
-  async getFileById(projectId: string, fileId: string, userId: string) {
+  async getFileById(projectId: string, fileId: string, userId: string, sanitize: boolean = true) {
     const { isAdmin } = await this.getMembershipAndProject(projectId, userId);
 
     const file = await prisma.attachment.findFirst({
@@ -614,14 +657,14 @@ export class FileService {
       }
     }
 
-    return file;
+    return sanitize ? sanitizeAttachmentDto(file) : file;
   }
 
   /**
    * Get file stream for in-platform viewing or download.
    */
   async getFileStream(projectId: string, fileId: string, userId: string) {
-    const file = await this.getFileById(projectId, fileId, userId);
+    const file = await this.getFileById(projectId, fileId, userId, false);
     // Authoritative physical S3 storage key from StoredObject
     const physicalKey = file.storedObject ? file.storedObject.storageKey : file.storageKey;
     const exists = await storageService.exists(physicalKey);
@@ -637,7 +680,7 @@ export class FileService {
    * Get full buffer for small/medium in-platform file parsing (e.g. DOCX, XLSX, JSON, Code, ZIP).
    */
   async getFileBuffer(projectId: string, fileId: string, userId: string): Promise<{ file: any; buffer: Buffer }> {
-    const file = await this.getFileById(projectId, fileId, userId);
+    const file = await this.getFileById(projectId, fileId, userId, false);
     // Authoritative physical S3 storage key from StoredObject
     const physicalKey = file.storedObject ? file.storedObject.storageKey : file.storageKey;
     const exists = await storageService.exists(physicalKey);
@@ -651,6 +694,7 @@ export class FileService {
 
   /**
    * Rename display filename (storageKey remains unchanged).
+   * Item 14: Preserves canonical detected content category.
    */
   async renameFile(projectId: string, fileId: string, userId: string, newName: string) {
     const { isAdmin, project } = await this.getMembershipAndProject(projectId, userId);
@@ -659,7 +703,7 @@ export class FileService {
       throw new AppError('Cannot rename files in an archived project', 400);
     }
 
-    const existing = await this.getFileById(projectId, fileId, userId);
+    const existing = await this.getFileById(projectId, fileId, userId, false);
 
     const isAuthor = existing.uploadedById === userId;
     if (!isAdmin && !isAuthor) {
@@ -667,7 +711,10 @@ export class FileService {
     }
 
     const cleanName = sanitizeFilename(newName);
-    const { category, extension } = classifyFile(cleanName, existing.mimeType);
+    const rawExt = path.extname(cleanName).toLowerCase().replace(/^\./, '');
+    const extension = rawExt || existing.extension;
+    // Item 14: Rename operation changes display filename only. Preserve canonical detected content category!
+    const category = existing.category;
 
     const updated = await prisma.$transaction(async (tx) => {
       const res = await tx.attachment.update({
@@ -715,11 +762,12 @@ export class FileService {
       actorId: userId,
     });
 
-    return updated;
+    return sanitizeAttachmentDto(updated);
   }
 
   /**
-   * Delete file (both binary storage and database metadata).
+   * Delete file with race-free transactional reference checking.
+   * Item 4: Guarantees no physical object is deleted while committed references exist.
    */
   async deleteFile(projectId: string, fileId: string, userId: string) {
     const { isAdmin, project } = await this.getMembershipAndProject(projectId, userId);
@@ -728,59 +776,60 @@ export class FileService {
       throw new AppError('Cannot delete files in an archived project', 400);
     }
 
-    const existing = await this.getFileById(projectId, fileId, userId);
+    const existing = await this.getFileById(projectId, fileId, userId, false);
 
     const isAuthor = existing.uploadedById === userId;
     if (!isAdmin && !isAuthor) {
       throw new AppError('You do not have permission to delete this file', 403);
     }
 
-    // 1. Soft-delete metadata first so it disappears immediately from active views
-    await prisma.attachment.update({
-      where: { id: fileId },
-      data: { deletedAt: new Date() },
-    });
-
-    // 2. Reference counting: determine whether another logical file record still references this physical object
-    // 2. Check if other logical files still reference this physical stored object
     let shouldDeletePhysicalStorage = false;
     const storageKeyToDelete = existing.storageKey;
     const storedObjectId = existing.storedObjectId;
 
-    let remainingReferences = 0;
-    if (storedObjectId) {
-      remainingReferences = await prisma.attachment.count({
-        where: {
-          storedObjectId,
-          id: { not: fileId },
-          deletedAt: null,
-        },
-      });
-    } else {
-      // Legacy fallback check across identical storage keys
-      remainingReferences = await prisma.attachment.count({
-        where: {
-          storageKey: storageKeyToDelete,
-          id: { not: fileId },
-          deletedAt: null,
-        },
-      });
-    }
-
-    if (remainingReferences === 0) {
-      shouldDeletePhysicalStorage = true;
-    }
-
-    // 3. Delete database records atomically in transaction
+    // 1. Transactional check and deletion with advisory locking (Item 4)
     await prisma.$transaction(async (tx) => {
+      if (storedObjectId) {
+        await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext('stored_obj_' || $1));`, storedObjectId);
+      } else {
+        await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext('storage_key_' || $1));`, storageKeyToDelete);
+      }
+
+      let remainingReferences = 0;
+      if (storedObjectId) {
+        remainingReferences = await tx.attachment.count({
+          where: {
+            storedObjectId,
+            id: { not: fileId },
+            deletedAt: null,
+          },
+        });
+      } else {
+        remainingReferences = await tx.attachment.count({
+          where: {
+            storageKey: storageKeyToDelete,
+            id: { not: fileId },
+            deletedAt: null,
+          },
+        });
+      }
+
+      if (remainingReferences === 0) {
+        shouldDeletePhysicalStorage = true;
+      }
+
       await tx.attachment.delete({
         where: { id: fileId },
       });
 
       if (shouldDeletePhysicalStorage && storedObjectId) {
-        await tx.storedObject.delete({
-          where: { id: storedObjectId },
-        }).catch(() => {});
+        try {
+          await tx.storedObject.delete({
+            where: { id: storedObjectId },
+          });
+        } catch {
+          shouldDeletePhysicalStorage = false;
+        }
       }
 
       await activityService.createActivity(
@@ -797,7 +846,7 @@ export class FileService {
       );
     });
 
-    // 4. Attempt binary deletion from storage only if reference count == 0
+    // 2. Physical storage deletion happens ONLY after the DB invariant proves zero references committed
     if (shouldDeletePhysicalStorage) {
       try {
         await storageService.delete(storageKeyToDelete);
@@ -826,7 +875,7 @@ export class FileService {
    */
   async attachToWorkItem(projectId: string, fileId: string, userId: string, workItemId: string | null) {
     await this.getMembershipAndProject(projectId, userId);
-    const existing = await this.getFileById(projectId, fileId, userId);
+    const existing = await this.getFileById(projectId, fileId, userId, false);
 
     if (workItemId) {
       const workItem = await prisma.workItem.findFirst({
@@ -853,7 +902,7 @@ export class FileService {
       },
     });
 
-    return updated;
+    return sanitizeAttachmentDto(updated);
   }
 
   /**

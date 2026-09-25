@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream';
+import fs from 'node:fs';
 import {
   S3Client,
   PutObjectCommand,
@@ -62,6 +63,22 @@ export class S3StorageProvider implements StorageProvider {
   }
 
   /**
+   * Stream upload directly from a local temp file path to S3/R2 (memory safe).
+   */
+  async uploadFile(key: string, filePath: string, mimeType: string): Promise<void> {
+    const stat = await fs.promises.stat(filePath);
+    const readStream = fs.createReadStream(filePath);
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      Body: readStream,
+      ContentType: mimeType,
+      ContentLength: stat.size,
+    });
+    await this.client.send(command);
+  }
+
+  /**
    * Get a readable stream for the object from S3.
    */
   async getStream(key: string): Promise<Readable> {
@@ -112,10 +129,14 @@ export class S3StorageProvider implements StorageProvider {
       await this.client.send(command);
       return true;
     } catch (err: any) {
-      if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {
+      if (
+        err.name === 'NotFound' ||
+        err.name === 'NoSuchKey' ||
+        err.$metadata?.httpStatusCode === 404
+      ) {
         return false;
       }
-      return false;
+      throw err;
     }
   }
 

@@ -1,9 +1,8 @@
 # ==============================================================================
 # Render Blueprint Specification for D-Board Free Tier Deployment
-# Infrastructure:
-# - API + BullMQ Worker (Render Web Service)
-# - Web Frontend (Render Static Site)
-# - Supabase PostgreSQL, Render Key Value / Valkey, Cloudflare R2, Brevo SMTP
+# Target Regions:
+# - API & Key Value: Singapore
+# - Static Web: Render Global CDN
 # ==============================================================================
 services:
   # ----------------------------------------------------------------------------
@@ -13,9 +12,9 @@ services:
     name: d-board-api
     runtime: node
     plan: free
-    region: oregon # or ohio, frankfurt, singapore
-    buildCommand: npm ci && npm run build:api && npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
-    startCommand: node apps/api/dist/server.js
+    region: singapore
+    buildCommand: npm ci && npm run build:api
+    startCommand: npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma && node apps/api/dist/server.js
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -31,15 +30,16 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CLIENT_URL
-        fromStaticSite:
-          name: d-board-web
-          property: url
+        sync: false # Set to https://<d-board-web>.onrender.com (Frontend public URL)
       - key: APP_URL
-        sync: false # Set to https://<d-board-api>.onrender.com in Render Dashboard
+        sync: false # Set to https://<d-board-api>.onrender.com (API public URL)
       - key: DATABASE_URL
-        sync: false # Supabase Session Pooler URL on port 5432: postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres
+        sync: false # Supabase Session Pooler URL on port 5432: postgresql://postgres.[ref]:[pwd]@aws-0-[region].pooler.supabase.com:5432/postgres
       - key: REDIS_URL
-        sync: false # Render Key Value / Valkey internal connection string (redis://...)
+        fromService:
+          type: keyvalue
+          name: d-board-cache
+          property: connectionString
       - key: S3_ENDPOINT
         sync: false # Cloudflare R2: https://<account-id>.r2.cloudflarestorage.com
       - key: S3_REGION
@@ -70,7 +70,15 @@ services:
         sync: false
 
   # ----------------------------------------------------------------------------
-  # 2. D-Board Web Frontend SPA
+  # 2. Redis Cache & Job Broker (Key Value)
+  # ----------------------------------------------------------------------------
+  - type: keyvalue
+    name: d-board-cache
+    plan: free
+    region: singapore
+
+  # ----------------------------------------------------------------------------
+  # 3. D-Board Web Frontend SPA
   # ----------------------------------------------------------------------------
   - type: web
     name: d-board-web

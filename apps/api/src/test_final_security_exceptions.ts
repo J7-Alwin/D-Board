@@ -114,18 +114,25 @@ async function runFinalSecurityExceptionTests() {
     // ---------------------------------------------------------------------------
     // TEST 2: Attachment & StoredObject Invariant & Referential Integrity
     // ---------------------------------------------------------------------------
-    console.log('\n--- TEST 2: Storage Key Invariant & Referential Integrity ---');
-    if (!htmlAttachment.storedObjectId) {
+    // Item 21: Verify API DTO strictly omits raw storageKey to protect physical paths
+    if ((htmlAttachment as any).storageKey !== undefined) {
+      throw new Error('API DTO Security violation: raw storageKey was exposed in API DTO');
+    }
+
+    const dbHtmlAttachment = await prisma.attachment.findUniqueOrThrow({
+      where: { id: htmlAttachment.id },
+    });
+    if (!dbHtmlAttachment.storedObjectId) {
       throw new Error('Attachment is missing storedObjectId reference');
     }
     const storedObj = await prisma.storedObject.findUniqueOrThrow({
-      where: { id: htmlAttachment.storedObjectId },
+      where: { id: dbHtmlAttachment.storedObjectId },
     });
 
-    if (htmlAttachment.storageKey !== storedObj.storageKey) {
-      throw new Error(`Storage key divergence detected: Attachment (${htmlAttachment.storageKey}) != StoredObject (${storedObj.storageKey})`);
+    if (dbHtmlAttachment.storageKey !== storedObj.storageKey) {
+      throw new Error(`Storage key divergence detected: Attachment (${dbHtmlAttachment.storageKey}) != StoredObject (${storedObj.storageKey})`);
     }
-    console.log('✓ Verified storageKey invariant: Attachment.storageKey matches StoredObject.storageKey exactly');
+    console.log('✓ Verified storageKey invariant in DB and verified raw storageKey stripped from API DTO');
 
     // Test Referential Integrity: Attempting to delete StoredObject while Attachment references it must fail
     let deletionBlockedByFK = false;

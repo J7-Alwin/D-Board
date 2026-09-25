@@ -127,7 +127,7 @@ export async function deleteAccountHandler(
 
     res.status(200).json({
       success: true,
-      message: 'Your account has been deleted permanently.',
+      message: 'Your account has been deactivated and your personal details have been anonymized.',
     });
   } catch (err) {
     next(err);

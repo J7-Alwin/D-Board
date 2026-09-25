@@ -181,13 +181,16 @@ D-Board can be deployed 100% on modern free cloud infrastructure tiers without A
    - `d-board-web` (Static Site with SPA rewrite rules)
 4. Populate the secret environment variables in the Render Dashboard:
    - `DATABASE_URL`: Supabase Session Pooler URL using port 5432 (e.g. `postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres`)
-   - `REDIS_URL`: Render Key Value internal connection string (`redis://red-xxxxxxxx:6379`)
+   - `REDIS_URL`: Automatically wired from the `d-board-cache` Key Value service via Render blueprint `fromService`.
    - `S3_ENDPOINT`: `https://<account-id>.r2.cloudflarestorage.com`
    - `S3_BUCKET`: `d-board-files`
    - `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`: From Cloudflare R2 API token
    - `SMTP_USER`, `SMTP_PASSWORD`: From Brevo SMTP credentials
    - `COOKIE_SAME_SITE`: `none` (required because Render Web Service and Static Site use separate `*.onrender.com` subdomains)
-5. Deploy the Blueprint. Render runs `prisma migrate deploy` automatically during the build step.
+   - `CLIENT_URL`: `https://<d-board-web>.onrender.com` (Frontend public URL)
+   - `APP_URL`: `https://<d-board-api>.onrender.com` (API public URL)
+5. Deploy the Blueprint.
+   - **Safe Migration Strategy (Strategy B - Controlled Startup Migration)**: Render Free tier builds do not have network access or live production database dependencies (`buildCommand: npm ci && npm run build:api`). Migrations are safely applied immediately before server process execution (`startCommand: npx prisma migrate deploy && node apps/api/dist/server.js`). `prisma migrate reset` and `prisma db push` are strictly prohibited in production.
 
 ---
 

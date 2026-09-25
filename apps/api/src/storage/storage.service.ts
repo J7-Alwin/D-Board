@@ -4,6 +4,8 @@ import type { StorageProvider } from './storage.interface.js';
 import { LocalStorageProvider } from './localStorage.provider.js';
 import { S3StorageProvider } from './s3Storage.provider.js';
 
+import fs from 'node:fs';
+
 export class StorageService {
   private provider: StorageProvider;
 
@@ -43,8 +45,25 @@ export class StorageService {
     return crypto.createHash('sha256').update(buffer).digest('hex');
   }
 
+  /**
+   * Computes SHA-256 hex checksum of a file stream without buffering entire file in memory.
+   */
+  async computeFileChecksum(filePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash('sha256');
+      const stream = fs.createReadStream(filePath);
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('end', () => resolve(hash.digest('hex')));
+      stream.on('error', reject);
+    });
+  }
+
   async upload(key: string, data: Buffer, mimeType: string): Promise<void> {
     return this.provider.upload(key, data, mimeType);
+  }
+
+  async uploadFile(key: string, filePath: string, mimeType: string): Promise<void> {
+    return this.provider.uploadFile(key, filePath, mimeType);
   }
 
   async getStream(key: string) {

@@ -29,6 +29,34 @@ const SENSITIVE_KEYS = new Set([
 ]);
 
 /**
+ * Sanitizes URLs to prevent logging query tokens (e.g. ?token=..., ?code=...)
+ */
+export function sanitizeUrl(urlStr: string): string {
+  if (!urlStr || typeof urlStr !== 'string') return urlStr;
+  try {
+    const [path, query] = urlStr.split('?');
+    if (!query) return path;
+    const params = new URLSearchParams(query);
+    for (const key of Array.from(params.keys())) {
+      const lower = key.toLowerCase();
+      if (
+        lower.includes('token') ||
+        lower.includes('code') ||
+        lower.includes('secret') ||
+        lower.includes('otp') ||
+        lower.includes('auth') ||
+        lower.includes('password')
+      ) {
+        params.set(key, '[REDACTED]');
+      }
+    }
+    return `${path}?${params.toString()}`;
+  } catch {
+    return urlStr;
+  }
+}
+
+/**
  * Recursively redacts sensitive keys from log payloads.
  */
 export function sanitizeLogData(data: any): any {
@@ -48,6 +76,8 @@ export function sanitizeLogData(data: any): any {
     const lowerKey = key.toLowerCase();
     if (SENSITIVE_KEYS.has(lowerKey) || lowerKey.includes('secret') || lowerKey.includes('password')) {
       sanitized[key] = '[REDACTED]';
+    } else if (typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://') || value.includes('?'))) {
+      sanitized[key] = sanitizeUrl(value);
     } else if (typeof value === 'object' && value !== null) {
       sanitized[key] = sanitizeLogData(value);
     } else {
@@ -70,9 +100,11 @@ class Logger {
     return LOG_LEVEL_PRIORITIES[level] >= LOG_LEVEL_PRIORITIES[this.minLevel];
   }
 
-  private write(level: LogLevel, message: string, meta?: Record<string, any>) {
+  private write(level: LogLevel, rawMessage: string, meta?: Record<string, any>) {
     if (!this.shouldLog(level)) return;
 
+    // Mask any query string bearer/tokens in the message
+    const message = rawMessage.replace(/([?&](?:token|code|secret|otp|password)=)[^&\s]+/gi, '$1[REDACTED]');
     const timestamp = new Date().toISOString();
     const cleanMeta = meta ? sanitizeLogData(meta) : undefined;
 

@@ -46,9 +46,26 @@ export function createCleanupWorker(): Worker<CleanupJobData> {
         return { cleaned: res.count, type: data.type };
       } else if (data.type === 'ORPHAN_STORAGE_CLEANUP') {
         const { storageService } = await import('../../storage/storage.service.js');
-        await storageService.delete(data.storageKey);
-        console.log(`[CleanupWorker] Successfully purged orphan storage key: ${data.storageKey}`);
-        return { cleaned: 1, type: data.type, storageKey: data.storageKey };
+        try {
+          await storageService.delete(data.storageKey);
+          if (data.outboxId) {
+            await prisma.$executeRawUnsafe(
+              `UPDATE "_storage_cleanup_outbox" SET status = 'COMPLETED', "updatedAt" = CURRENT_TIMESTAMP WHERE id = $1`,
+              data.outboxId
+            ).catch(() => {});
+          }
+          console.log(`[CleanupWorker] Successfully purged orphan storage key: ${data.storageKey}`);
+          return { cleaned: 1, type: data.type, storageKey: data.storageKey };
+        } catch (err: any) {
+          if (data.outboxId) {
+            await prisma.$executeRawUnsafe(
+              `UPDATE "_storage_cleanup_outbox" SET attempts = attempts + 1, error = $1, "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2`,
+              err?.message || 'Storage delete failed',
+              data.outboxId
+            ).catch(() => {});
+          }
+          throw err;
+        }
       }
 
       return { cleaned: 0 };

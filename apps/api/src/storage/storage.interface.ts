@@ -7,6 +7,11 @@ export interface StorageProvider {
   upload(key: string, data: Buffer | Uint8Array, mimeType: string): Promise<void>;
 
   /**
+   * Upload directly from a file path without buffering entire file in memory.
+   */
+  uploadFile(key: string, filePath: string, mimeType: string): Promise<void>;
+
+  /**
    * Get a readable stream for the object.
    */
   getStream(key: string): Promise<Readable>;

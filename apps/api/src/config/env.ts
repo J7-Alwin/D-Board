@@ -41,8 +41,8 @@ export function validateEnv(envInput: NodeJS.ProcessEnv = process.env): EnvConfi
   const isProd = envInput.NODE_ENV === 'production';
   const nodeEnv = (envInput.NODE_ENV as 'development' | 'production' | 'test') || 'development';
   const port = parseInt(envInput.PORT || '5000', 10);
-  const clientUrl = envInput.CLIENT_URL;
-  const appUrl = clientUrl || envInput.APP_URL || (isProd ? '' : 'http://localhost:5173');
+  const clientUrl = envInput.CLIENT_URL || (isProd ? '' : 'http://localhost:5173');
+  const appUrl = envInput.APP_URL || (isProd ? '' : 'http://localhost:5000');
   const databaseUrl = envInput.DATABASE_URL || '';
   const redisUrl = envInput.REDIS_URL || 'redis://127.0.0.1:6379';
   const storageDriver = envInput.STORAGE_DRIVER || (envInput.S3_ACCESS_KEY_ID || envInput.AWS_ACCESS_KEY_ID ? 's3' : 'local');
@@ -54,27 +54,35 @@ export function validateEnv(envInput: NodeJS.ProcessEnv = process.env): EnvConfi
   const enableEmbeddedWorker = envInput.ENABLE_EMBEDDED_WORKER !== 'false';
   const cookieSameSite = (envInput.COOKIE_SAME_SITE as 'lax' | 'none' | 'strict') || 'lax';
 
-  let jwtSecret = envInput.JWT_SECRET;
+  const jwtSecret = envInput.JWT_SECRET;
   if (!jwtSecret) {
-    if (isProd) {
-      throw new Error('[Config Error] Missing required production secret: JWT_SECRET must be defined.');
-    } else {
-      jwtSecret = 'd-board-development-jwt-secret-key-32chars!';
-    }
+    throw new Error('[Config Error] Missing required secret: JWT_SECRET must be explicitly defined in environment (.env). Hardcoded fallbacks are strictly prohibited.');
+  }
+  if (jwtSecret.length < 32) {
+    throw new Error('[Config Error] Invalid secret: JWT_SECRET must be at least 32 characters long.');
   }
 
   if (isProd) {
-    if (jwtSecret.length < 32) {
-      throw new Error('[Config Error] Invalid production secret: JWT_SECRET must be at least 32 characters long for production security.');
-    }
     if (!databaseUrl) {
       throw new Error('[Config Error] Missing required production config: DATABASE_URL must be defined.');
     }
     if (!appUrl) {
-      throw new Error('[Config Error] Missing required production config: APP_URL (or CLIENT_URL) must be defined.');
+      throw new Error('[Config Error] Missing required production config: APP_URL must be defined.');
     }
     if (appUrl.includes('localhost') || appUrl.includes('127.0.0.1')) {
       throw new Error('[Config Error] Invalid production config: APP_URL cannot point to localhost in production.');
+    }
+    if (!clientUrl) {
+      throw new Error('[Config Error] Missing required production config: CLIENT_URL must be defined.');
+    }
+    if (clientUrl.includes('localhost') || clientUrl.includes('127.0.0.1')) {
+      throw new Error('[Config Error] Invalid production config: CLIENT_URL cannot point to localhost in production.');
+    }
+    if (appUrl === clientUrl) {
+      throw new Error('[Config Error] Invalid production config: APP_URL and CLIENT_URL must not be identical in production.');
+    }
+    if (!envInput.SMTP_HOST || !envInput.SMTP_USER || !envInput.SMTP_PASSWORD) {
+      throw new Error('[Config Error] Missing required production email config: SMTP_HOST, SMTP_USER, and SMTP_PASSWORD must be defined for transactional email dispatch.');
     }
     if (storageDriver === 's3') {
       if (!s3Bucket) {

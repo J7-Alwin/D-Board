@@ -24,7 +24,7 @@ export interface AttachmentDTO {
     name: string;
   } | null;
   originalName: string;
-  storageKey: string;
+  storageKey?: string;
   mimeType: string;
   sizeBytes: number;
   extension: string;

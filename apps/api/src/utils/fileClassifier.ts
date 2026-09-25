@@ -165,24 +165,104 @@ const MIME_CATEGORY_MAP: Record<string, FileCategory> = {
   'application/x-rar-compressed': 'ARCHIVE',
 };
 
-export function classifyFile(originalName: string, mimeType?: string): {
+import fs from 'node:fs';
+
+/**
+ * Detect authoritative category from binary magic numbers.
+ */
+export function detectMagicByteCategory(header: Buffer): FileCategory | null {
+  if (!header || header.length < 4) return null;
+
+  // PDF: %PDF- (0x25 0x50 0x44 0x46 0x2D)
+  if (header.length >= 5 && header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46 && header[4] === 0x2D) {
+    return 'PDF';
+  }
+
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (header.length >= 8 && header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47) {
+    return 'IMAGE';
+  }
+
+  // JPEG: FF D8 FF
+  if (header.length >= 3 && header[0] === 0xFF && header[1] === 0xD8 && header[2] === 0xFF) {
+    return 'IMAGE';
+  }
+
+  // GIF: GIF87a / GIF89a (0x47 0x49 0x46 0x38)
+  if (header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x38) {
+    return 'IMAGE';
+  }
+
+  // WebP: RIFF....WEBP
+  if (header.length >= 12 && header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46 &&
+      header[8] === 0x57 && header[9] === 0x45 && header[10] === 0x42 && header[11] === 0x50) {
+    return 'IMAGE';
+  }
+
+  // ZIP / OpenDocument / Office OpenXML: PK\x03\x04
+  if (header[0] === 0x50 && header[1] === 0x4B && header[2] === 0x03 && header[3] === 0x04) {
+    return 'ARCHIVE';
+  }
+
+  // GZIP: 1F 8B
+  if (header[0] === 0x1F && header[1] === 0x8B) {
+    return 'ARCHIVE';
+  }
+
+  return null;
+}
+
+/**
+ * Safely reads the initial 512 bytes of a file for magic byte inspection without loading whole file.
+ */
+export async function readHeaderBytes(filePath: string): Promise<Buffer> {
+  const fd = await fs.promises.open(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(512);
+    const { bytesRead } = await fd.read(buffer, 0, 512, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await fd.close();
+  }
+}
+
+export function classifyFile(
+  originalName: string,
+  mimeType?: string,
+  headerBytes?: Buffer
+): {
   category: FileCategory;
   extension: string;
 } {
   const rawExt = path.extname(originalName).toLowerCase().replace(/^\./, '');
   const extension = rawExt || 'bin';
 
-  // Check extension first
-  if (EXTENSION_CATEGORY_MAP[extension]) {
-    return { category: EXTENSION_CATEGORY_MAP[extension], extension };
+  // 1. Authoritative binary magic byte inspection if header bytes are provided
+  if (headerBytes && headerBytes.length >= 4) {
+    const magicCategory = detectMagicByteCategory(headerBytes);
+    if (magicCategory) {
+      // For ZIP containers, refine if extension indicates a specific office document/spreadsheet/presentation
+      if (magicCategory === 'ARCHIVE') {
+        const extCategory = EXTENSION_CATEGORY_MAP[extension];
+        if (extCategory && ['SPREADSHEET', 'DOCUMENT', 'PRESENTATION'].includes(extCategory)) {
+          return { category: extCategory, extension };
+        }
+      }
+      return { category: magicCategory, extension };
+    }
   }
 
-  // Check MIME type
+  // 2. MIME type check
   if (mimeType && MIME_CATEGORY_MAP[mimeType.toLowerCase()]) {
     return { category: MIME_CATEGORY_MAP[mimeType.toLowerCase()], extension };
   }
 
-  // Fallback heuristics
+  // 3. Extension fallback
+  if (EXTENSION_CATEGORY_MAP[extension]) {
+    return { category: EXTENSION_CATEGORY_MAP[extension], extension };
+  }
+
+  // 4. Fallback heuristics
   if (mimeType?.startsWith('image/')) {
     return { category: 'IMAGE', extension };
   }
@@ -208,3 +288,4 @@ export function sanitizeFilename(name: string): string {
     .trim();
   return cleaned.slice(0, 255) || 'unnamed_file';
 }
+

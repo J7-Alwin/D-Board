@@ -474,9 +474,12 @@ export class InvitationService {
     const normalizedEmail = email.toLowerCase().trim();
 
     try {
-      const pendingInvitations = await prisma.invitation.findMany({
+      // Item 16: Only link invitations that have NOT been linked yet (invitedUserId is null).
+      // This guarantees idempotency and prevents duplicate notifications on repeated logins.
+      const unlinkedInvitations = await prisma.invitation.findMany({
         where: {
           invitedEmail: normalizedEmail,
+          invitedUserId: null,
           status: 'PENDING',
           expiresAt: { gt: new Date() },
         },
@@ -486,32 +489,34 @@ export class InvitationService {
         },
       });
 
-      if (pendingInvitations.length === 0) return;
+      if (unlinkedInvitations.length === 0) return;
 
-      for (const inv of pendingInvitations) {
-        // 1. Link invitedUserId to new user
-        await prisma.invitation.update({
-          where: { id: inv.id },
+      for (const inv of unlinkedInvitations) {
+        // 1. Atomically link invitedUserId only if it is still null
+        const updateResult = await prisma.invitation.updateMany({
+          where: { id: inv.id, invitedUserId: null },
           data: { invitedUserId: userId },
         });
 
-        // 2. Create in-app notification so user sees it in notifications & dashboard
-        await notificationService.createNotification({
-          recipientId: userId,
-          actorId: inv.invitedById,
-          projectId: inv.projectId,
-          type: 'PROJECT_INVITED',
-          title: 'Project Invitation',
-          message: `${inv.invitedBy?.fullName || inv.invitedBy?.username || 'Someone'} invited you to join "${inv.project.name}"`,
-          link: '/app/invitations',
-        });
+        // 2. Only create notification when the invitation actually transitions from unlinked -> linked
+        if (updateResult.count > 0) {
+          await notificationService.createNotification({
+            recipientId: userId,
+            actorId: inv.invitedById,
+            projectId: inv.projectId,
+            type: 'PROJECT_INVITED',
+            title: 'Project Invitation',
+            message: `${inv.invitedBy?.fullName || inv.invitedBy?.username || 'Someone'} invited you to join "${inv.project.name}"`,
+            link: '/app/invitations',
+          });
 
-        publishToUser(userId, 'INVITATION_CREATED', {
-          projectId: inv.projectId,
-          invitationId: inv.id,
-          actorId: inv.invitedById,
-          actorName: inv.invitedBy?.fullName || inv.invitedBy?.username || null,
-        });
+          publishToUser(userId, 'INVITATION_CREATED', {
+            projectId: inv.projectId,
+            invitationId: inv.id,
+            actorId: inv.invitedById,
+            actorName: inv.invitedBy?.fullName || inv.invitedBy?.username || null,
+          });
+        }
       }
     } catch (err) {
       console.error('[InvitationService] linkPendingInvitationsForUser error:', err);

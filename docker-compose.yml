@@ -56,7 +56,7 @@ services:
       PORT: 5000
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-d_board}?schema=public
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_at_least_32_chars_long_production}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       APP_URL: ${APP_URL:-http://localhost:3000}
       MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-50}
       STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
@@ -101,7 +101,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-d_board}?schema=public
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_at_least_32_chars_long_production}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       APP_URL: ${APP_URL:-http://localhost:3000}
       STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
       STORAGE_LOCAL_PATH: /app/uploads_storage

@@ -462,18 +462,61 @@ export async function deleteUserAccount(userId: string): Promise<{ success: bool
     }
   }
 
-  // 2. Transfer project ownership to another administrator if user is creator
-  for (const project of ownedProjects) {
-    const successorAdmin = project.members[0];
-    if (successorAdmin) {
-      await prisma.project.update({
-        where: { id: project.id },
-        data: { createdById: successorAdmin.userId },
-      });
-    }
-  }
+  // 2. Atomically transfer project ownership, remove memberships, unassign work items, and soft-deactivate user in single transaction (Item 19)
+  const anonymizedUsername = `deleted_user_${userId.replace(/-/g, '').slice(0, 8)}`;
+  const anonymizedEmail = `deleted_${userId}@deleted.d-board.local`;
 
-  // 3. Send farewell email
+  await prisma.$transaction(async (tx) => {
+    // 2a. Transfer project ownership to another administrator if user is creator
+    for (const project of ownedProjects) {
+      const successorAdmin = project.members[0];
+      if (successorAdmin) {
+        await tx.project.update({
+          where: { id: project.id },
+          data: { createdById: successorAdmin.userId },
+        });
+      }
+    }
+
+    // 2b. Unassign user from active work items
+    await tx.workItem.updateMany({
+      where: { assignedToId: userId },
+      data: { assignedToId: null },
+    });
+
+    // 2c. Remove project memberships
+    await tx.projectMember.deleteMany({
+      where: { userId },
+    });
+
+    // 2d. Soft-deactivate and anonymize personal authentication info
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        fullName: 'Former Member',
+        username: anonymizedUsername,
+        email: anonymizedEmail,
+        passwordHash: null,
+        googleId: null,
+        passwordResetTokenHash: null,
+        passwordResetExpiresAt: null,
+        passwordResetAttempts: 0,
+        emailVerificationTokenHash: null,
+        emailVerificationExpiresAt: null,
+        avatarUrl: null,
+        bio: null,
+        headline: null,
+        isEmailVerified: false,
+        isDeactivated: true,
+        deactivatedAt: new Date(),
+        notificationPreferences: Prisma.JsonNull,
+      },
+    });
+  });
+
+  // 3. Post-transaction session revocation and farewell email
+  await sessionService.revokeAllUserSessions(userId);
+
   await sendAccountDeletedEmail({
     toEmail: user.email,
     username: user.username,
@@ -481,49 +524,7 @@ export async function deleteUserAccount(userId: string): Promise<{ success: bool
     console.error('[User Service]: Failed to dispatch account deleted email:', err);
   });
 
-  // 4. Revoke all active sessions
-  await sessionService.revokeAllUserSessions(userId);
-
-  // 5. Unassign user from active work items in projects
-  await prisma.workItem.updateMany({
-    where: { assignedToId: userId },
-    data: { assignedToId: null },
-  });
-
-  // 6. Remove project memberships
-  await prisma.projectMember.deleteMany({
-    where: { userId },
-  });
-
-  // 7. Soft-deactivate and anonymize personal authentication info
-  // Preserves shared project history, work items, comments, notes, files, calendar, activities
-  const anonymizedUsername = `deleted_user_${userId.replace(/-/g, '').slice(0, 8)}`;
-  const anonymizedEmail = `deleted_${userId}@deleted.d-board.local`;
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      fullName: 'Former Member',
-      username: anonymizedUsername,
-      email: anonymizedEmail,
-      passwordHash: null,
-      googleId: null,
-      passwordResetTokenHash: null,
-      passwordResetExpiresAt: null,
-      passwordResetAttempts: 0,
-      emailVerificationTokenHash: null,
-      emailVerificationExpiresAt: null,
-      avatarUrl: null,
-      bio: null,
-      headline: null,
-      isEmailVerified: false,
-      isDeactivated: true,
-      deactivatedAt: new Date(),
-      notificationPreferences: Prisma.JsonNull,
-    },
-  });
-
-  return { success: true, message: 'User account deactivated successfully' };
+  return { success: true, message: 'Your account has been deactivated and your personal details have been anonymized.' };
 }
 
 export const userService = {

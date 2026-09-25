@@ -40,6 +40,7 @@ export interface DeadlineReminderJobData {
 export interface OrphanStorageCleanupJobData {
   type: 'ORPHAN_STORAGE_CLEANUP';
   storageKey: string;
+  outboxId?: string;
 }
 
 export type CleanupJobData =

@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import nodemailer, { SendMailOptions } from 'nodemailer';
 
 export interface SendPasswordResetOtpOptions {
   toEmail: string;
@@ -86,7 +86,42 @@ function getTransporter() {
 }
 
 const getEmailFrom = () => process.env.EMAIL_FROM || 'D-Board <onboarding@resend.dev>';
-const getAppUrl = () => process.env.APP_URL || 'http://localhost:5173';
+const getAppUrl = () => process.env.CLIENT_URL || process.env.APP_URL || 'http://localhost:5173';
+
+/**
+ * Robust email delivery dispatcher:
+ * - In production: throws if SMTP configuration is missing or if delivery fails (Item 13)
+ * - In non-production: simulates via console log without printing secrets or OTPs
+ */
+async function deliverEmail(
+  mailOptions: SendMailOptions,
+  simulatorFn?: () => void
+): Promise<boolean> {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const transporter = getTransporter();
+
+  if (transporter) {
+    try {
+      await transporter.sendMail(mailOptions);
+      return true;
+    } catch (err: any) {
+      console.error('[Email Service Error]: Failed to send email via SMTP transport:', err);
+      if (isProduction) {
+        throw new Error(`Failed to deliver transactional email: ${err?.message || 'SMTP error'}`);
+      }
+      return false;
+    }
+  }
+
+  if (isProduction) {
+    throw new Error('Production SMTP transport unavailable: SMTP_HOST, SMTP_USER, and SMTP_PASSWORD are required');
+  }
+
+  if (process.env.NODE_ENV !== 'test' && simulatorFn) {
+    simulatorFn();
+  }
+  return true;
+}
 
 /**
  * 1. Send Welcome Email on first registration / initial Google login
@@ -94,7 +129,6 @@ const getAppUrl = () => process.env.APP_URL || 'http://localhost:5173';
 export async function sendWelcomeEmail(options: SendWelcomeOptions): Promise<boolean> {
   const appUrl = getAppUrl();
   const displayName = options.fullName || options.username;
-  const transporter = getTransporter();
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
@@ -116,38 +150,29 @@ export async function sendWelcomeEmail(options: SendWelcomeOptions): Promise<boo
     </div>
   `;
 
-  if (transporter) {
-    try {
-      await transporter.sendMail({
-        from: getEmailFrom(),
-        to: options.toEmail,
-        subject: 'Welcome to D-Board — Your Workspace is Ready',
-        text: `Hello ${displayName},\n\nWelcome to D-Board! Your account has been created successfully.\n\nVisit your workspace: ${appUrl}/app/dashboard\n\n— The D-Board Team`,
-        html,
-      });
-      console.log(`[Email Service]: Welcome email dispatched to ${options.toEmail}`);
-      return true;
-    } catch (err) {
-      console.error('[Email Service Error]: Failed to send welcome email via SMTP transport:', err);
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: 'Welcome to D-Board — Your Workspace is Ready',
+      text: `Hello ${displayName},\n\nWelcome to D-Board! Your account has been created successfully.\n\nVisit your workspace: ${appUrl}/app/dashboard\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD WELCOME EMAIL SIMULATOR (Local Dev)]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Subject: Welcome to D-Board — Your Workspace is Ready`);
+      console.log(`Workspace URL: ${appUrl}/app/dashboard`);
+      console.log('====================================================');
     }
-  }
-
-  // Fallback console simulator
-  console.log('====================================================');
-  console.log('📬 [D-BOARD WELCOME EMAIL SIMULATOR (Local Dev)]');
-  console.log(`To: ${options.toEmail}`);
-  console.log(`Subject: Welcome to D-Board — Your Workspace is Ready`);
-  console.log(`Workspace URL: ${appUrl}/app/dashboard`);
-  console.log('====================================================');
-  return true;
+  );
 }
 
 /**
  * 2. Send 6-digit OTP verification code for password reset
  */
 export async function sendPasswordResetOtpEmail(options: SendPasswordResetOtpOptions): Promise<boolean> {
-  const transporter = getTransporter();
-
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
       <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
@@ -168,32 +193,23 @@ export async function sendPasswordResetOtpEmail(options: SendPasswordResetOtpOpt
     </div>
   `;
 
-  if (transporter) {
-    try {
-      await transporter.sendMail({
-        from: getEmailFrom(),
-        to: options.toEmail,
-        subject: `Your D-Board Verification Code: ${options.otp}`,
-        text: `Hello ${options.username},\n\nYour password reset verification code is: ${options.otp}\n\nThis code expires in 15 minutes.\n\n— The D-Board Team`,
-        html,
-      });
-      console.log(`[Email Service]: Password reset OTP email dispatched to ${options.toEmail}`);
-      return true;
-    } catch (err) {
-      console.error('[Email Service Error]: Failed to send OTP email via SMTP transport:', err);
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: 'Your D-Board Password Reset Verification Code',
+      text: `Hello ${options.username},\n\nYour password reset verification code is: ${options.otp}\n\nThis code expires in 15 minutes.\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD PASSWORD RESET OTP SIMULATOR (Local Dev)]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Subject: Your D-Board Password Reset Verification Code`);
+      console.log(`OTP Code: [REDACTED] (Expires in 15 mins)`);
+      console.log('====================================================');
     }
-  }
-
-  // Fallback console simulator (local development only)
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('====================================================');
-    console.log('📬 [D-BOARD PASSWORD RESET OTP SIMULATOR (Local Dev)]');
-    console.log(`To: ${options.toEmail}`);
-    console.log(`Subject: Your D-Board Verification Code: ${options.otp}`);
-    console.log(`OTP Code: [ ${options.otp} ] (Expires in 15 mins)`);
-    console.log('====================================================');
-  }
-  return true;
+  );
 }
 
 export interface SendEmailVerificationOptions {
@@ -208,7 +224,6 @@ export interface SendEmailVerificationOptions {
 export async function sendEmailVerificationEmail(options: SendEmailVerificationOptions): Promise<boolean> {
   const appUrl = getAppUrl();
   const verifyUrl = `${appUrl}/verify-email?token=${encodeURIComponent(options.token)}`;
-  const transporter = getTransporter();
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
@@ -229,29 +244,22 @@ export async function sendEmailVerificationEmail(options: SendEmailVerificationO
     </div>
   `;
 
-  if (transporter) {
-    try {
-      await transporter.sendMail({
-        from: getEmailFrom(),
-        to: options.toEmail,
-        subject: 'Verify your D-Board email address',
-        text: `Hello ${options.username},\n\nPlease verify your email by clicking the link below:\n${verifyUrl}\n\nThis link expires in 24 hours.\n\n— The D-Board Team`,
-        html,
-      });
-      return true;
-    } catch (err) {
-      console.error('[Email Service Error]: Failed to send verification email via SMTP transport:', err);
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: 'Verify your D-Board email address',
+      text: `Hello ${options.username},\n\nPlease verify your email by clicking the link below:\n${verifyUrl}\n\nThis link expires in 24 hours.\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD EMAIL VERIFICATION SIMULATOR (Local Dev)]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Verify Link: ${appUrl}/verify-email?token=[REDACTED]`);
+      console.log('====================================================');
     }
-  }
-
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('====================================================');
-    console.log('📬 [D-BOARD EMAIL VERIFICATION SIMULATOR (Local Dev)]');
-    console.log(`To: ${options.toEmail}`);
-    console.log(`Verify Link: ${verifyUrl}`);
-    console.log('====================================================');
-  }
-  return true;
+  );
 }
 
 /**
@@ -267,7 +275,6 @@ export async function sendInvitationEmail(options: SendInvitationOptions): Promi
     day: 'numeric',
     year: 'numeric',
   });
-  const transporter = getTransporter();
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
@@ -293,32 +300,23 @@ export async function sendInvitationEmail(options: SendInvitationOptions): Promi
     </div>
   `;
 
-  if (transporter) {
-    try {
-      await transporter.sendMail({
-        from: getEmailFrom(),
-        to: options.toEmail,
-        subject: `You have been invited to join ${options.projectName} on D-Board`,
-        text: `Hello,\n\n${options.inviterName} has invited you to join "${options.projectName}" on D-Board as a ${roleLabel}.${options.message ? `\n\nMessage: "${options.message}"` : ''}\n\nAccept your invitation: ${invitationsUrl}\n\nExpires on: ${expiryFormatted}\n\n— The D-Board Team`,
-        html,
-      });
-      console.log(`[Email Service]: Project invitation dispatched to ${options.toEmail}`);
-      return true;
-    } catch (err) {
-      console.error('[Email Service Error]: Failed to send invitation via SMTP transport:', err);
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: `You have been invited to join ${options.projectName} on D-Board`,
+      text: `Hello,\n\n${options.inviterName} has invited you to join "${options.projectName}" on D-Board as a ${roleLabel}.${options.message ? `\n\nMessage: "${options.message}"` : ''}\n\nAccept your invitation: ${invitationsUrl}\n\nExpires on: ${expiryFormatted}\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD INVITATION DISPATCH SIMULATOR (Local Dev)]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Project: ${options.projectName} (${roleLabel})`);
+      console.log(`Invited By: ${options.inviterName}`);
+      console.log('====================================================');
     }
-  }
-
-  // Fallback console simulator
-  console.log('====================================================');
-  console.log('📬 [D-BOARD INVITATION DISPATCH SIMULATOR (Local Dev)]');
-  console.log(`To: ${options.toEmail}`);
-  console.log(`Project: ${options.projectName} (${roleLabel})`);
-  console.log(`Invited By: ${options.inviterName}`);
-  console.log(`Invitations URL: ${invitationsUrl}`);
-  console.log(`Register URL: ${registerUrl}`);
-  console.log('====================================================');
-  return true;
+  );
 }
 
 /**
@@ -326,7 +324,6 @@ export async function sendInvitationEmail(options: SendInvitationOptions): Promi
  */
 export async function sendProjectJoinedConfirmationEmail(options: SendProjectJoinedOptions): Promise<boolean> {
   const appUrl = getAppUrl();
-  const transporter = getTransporter();
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
@@ -348,53 +345,46 @@ export async function sendProjectJoinedConfirmationEmail(options: SendProjectJoi
     </div>
   `;
 
-  if (transporter) {
-    try {
-      await transporter.sendMail({
-        from: getEmailFrom(),
-        to: options.toEmail,
-        subject: `You've joined ${options.projectName} on D-Board`,
-        text: `Hello ${options.username},\n\nYou have successfully joined "${options.projectName}".\n\nOpen your workspace: ${appUrl}/app/dashboard\n\n— The D-Board Team`,
-        html,
-      });
-      console.log(`[Email Service]: Project joined confirmation dispatched to ${options.toEmail}`);
-      return true;
-    } catch (err) {
-      console.error('[Email Service Error]: Failed to send joined confirmation email via SMTP transport:', err);
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: `You've joined ${options.projectName} on D-Board`,
+      text: `Hello ${options.username},\n\nYou have successfully joined "${options.projectName}".\n\nOpen your workspace: ${appUrl}/app/dashboard\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD PROJECT JOINED CONFIRMATION SIMULATOR]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Project: ${options.projectName}`);
+      console.log('====================================================');
     }
-  }
-
-  // Fallback console simulator
-  console.log('====================================================');
-  console.log('📬 [D-BOARD PROJECT JOINED CONFIRMATION SIMULATOR]');
-  console.log(`To: ${options.toEmail}`);
-  console.log(`Project: ${options.projectName}`);
-  console.log('====================================================');
-  return true;
+  );
 }
 
 /**
  * 5. Legacy link-based password reset email
  */
 export async function sendPasswordResetEmail(options: SendPasswordResetOptions): Promise<boolean> {
-  const resetUrl = `${getAppUrl()}/reset-password?token=${options.resetToken}`;
-  const transporter = getTransporter();
+  const resetUrl = `${getAppUrl()}/reset-password?token=${encodeURIComponent(options.resetToken)}`;
 
-  if (transporter) {
-    try {
-      await transporter.sendMail({
-        from: getEmailFrom(),
-        to: options.toEmail,
-        subject: 'Reset your D-Board password',
-        text: `Hello ${options.username},\n\nClick the link below to set a new password:\n${resetUrl}\n\n— The D-Board Team`,
-        html: `<p>Click <a href="${resetUrl}">here</a> to reset your password.</p>`,
-      });
-      return true;
-    } catch (err) {
-      console.error('[Email Service Error]: Failed to send legacy reset email:', err);
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: 'Reset your D-Board password',
+      text: `Hello ${options.username},\n\nClick the link below to set a new password:\n${resetUrl}\n\n— The D-Board Team`,
+      html: `<p>Click <a href="${resetUrl}">here</a> to reset your password.</p>`,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD PASSWORD RESET SIMULATOR]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Reset Token: [REDACTED]`);
+      console.log('====================================================');
     }
-  }
-  return true;
+  );
 }
 
 /**
@@ -402,7 +392,6 @@ export async function sendPasswordResetEmail(options: SendPasswordResetOptions):
  */
 export async function sendPasswordChangedAlertEmail(options: SendPasswordChangedAlertOptions): Promise<boolean> {
   const appUrl = getAppUrl();
-  const transporter = getTransporter();
   const timeFormatted = (options.changedAt || new Date()).toUTCString();
 
   const html = `
@@ -433,29 +422,22 @@ export async function sendPasswordChangedAlertEmail(options: SendPasswordChanged
     </div>
   `;
 
-  if (transporter) {
-    try {
-      await transporter.sendMail({
-        from: getEmailFrom(),
-        to: options.toEmail,
-        subject: 'Security Alert: Your D-Board Password Was Changed',
-        text: `Hello ${options.username},\n\nYour D-Board password was changed on ${timeFormatted}.\n\nIf you did not do this, please reset your password immediately: ${appUrl}/forgot-password\n\n— The D-Board Security Team`,
-        html,
-      });
-      console.log(`[Email Service]: Password change alert dispatched to ${options.toEmail}`);
-      return true;
-    } catch (err) {
-      console.error('[Email Service Error]: Failed to send password change alert email:', err);
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: 'Security Alert: Your D-Board Password Was Changed',
+      text: `Hello ${options.username},\n\nYour D-Board password was changed on ${timeFormatted}.\n\nIf you did not do this, please reset your password immediately: ${appUrl}/forgot-password\n\n— The D-Board Security Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD SECURITY ALERT SIMULATOR]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Time: ${timeFormatted}`);
+      console.log('====================================================');
     }
-  }
-
-  console.log('====================================================');
-  console.log('📬 [D-BOARD SECURITY ALERT SIMULATOR]');
-  console.log(`To: ${options.toEmail}`);
-  console.log(`Subject: Security Alert: Your D-Board Password Was Changed`);
-  console.log(`Time: ${timeFormatted}`);
-  console.log('====================================================');
-  return true;
+  );
 }
 
 /**
@@ -463,16 +445,15 @@ export async function sendPasswordChangedAlertEmail(options: SendPasswordChanged
  */
 export async function sendDataExportCompletedEmail(options: SendDataExportOptions): Promise<boolean> {
   const appUrl = getAppUrl();
-  const transporter = getTransporter();
   const timeFormatted = (options.exportedAt || new Date()).toUTCString();
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
       <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
-      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #1F1F1F;">Personal Data Export Ready 📦</h2>
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #1F1F1F;">Personal Workspace Export Ready 📦</h2>
       <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 16px;">
         Hello <strong>${options.username}</strong>,<br/>
-        Your personal workspace archive was generated on <strong>${timeFormatted}</strong>. It contains your profile records, created projects, assigned work items, shared team notes, and activity history.
+        Your personal workspace export was generated on <strong>${timeFormatted}</strong>. It contains your profile records, created projects, assigned work items, shared team notes, and recent activity history.
       </p>
       <div style="margin-bottom: 28px;">
         <a href="${appUrl}/app/settings/profile" style="display: inline-block; background-color: #1F1F1F; color: #FFFFFF; font-weight: 600; font-size: 14px; padding: 10px 20px; border-radius: 9999px; text-decoration: none;">
@@ -485,41 +466,34 @@ export async function sendDataExportCompletedEmail(options: SendDataExportOption
     </div>
   `;
 
-  if (transporter) {
-    try {
-      await transporter.sendMail({
-        from: getEmailFrom(),
-        to: options.toEmail,
-        subject: 'Your D-Board Data Export is Ready',
-        text: `Hello ${options.username},\n\nYour data export was generated on ${timeFormatted}.\n\n— The D-Board Team`,
-        html,
-      });
-      return true;
-    } catch (err) {
-      console.error('[Email Service Error]: Failed to send data export email:', err);
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: 'Your D-Board Workspace Export is Ready',
+      text: `Hello ${options.username},\n\nYour workspace export was generated on ${timeFormatted}.\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD DATA EXPORT EMAIL SIMULATOR]');
+      console.log(`To: ${options.toEmail}`);
+      console.log('====================================================');
     }
-  }
-
-  console.log('====================================================');
-  console.log('📬 [D-BOARD DATA EXPORT EMAIL SIMULATOR]');
-  console.log(`To: ${options.toEmail}`);
-  console.log('====================================================');
-  return true;
+  );
 }
 
 /**
- * 8. Send Account Deleted Farewell Email
+ * 8. Send Account Deactivated Farewell Email
  */
 export async function sendAccountDeletedEmail(options: SendAccountDeletedOptions): Promise<boolean> {
-  const transporter = getTransporter();
-
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
       <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
-      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #1F1F1F;">Account Deleted</h2>
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #1F1F1F;">Account Deactivated</h2>
       <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 16px;">
         Hello <strong>${options.username}</strong>,<br/>
-        As requested, your D-Board account and personal credentials have been permanently removed from our system.
+        As requested, your D-Board account has been deactivated and your personal details have been anonymized.
       </p>
       <p style="font-size: 14px; line-height: 1.5; color: #666666;">
         Thank you for collaborating with D-Board. If you ever wish to return, you can register a new account anytime.
@@ -530,26 +504,21 @@ export async function sendAccountDeletedEmail(options: SendAccountDeletedOptions
     </div>
   `;
 
-  if (transporter) {
-    try {
-      await transporter.sendMail({
-        from: getEmailFrom(),
-        to: options.toEmail,
-        subject: 'Your D-Board Account Has Been Deleted',
-        text: `Hello ${options.username},\n\nYour account has been deleted as requested.\n\n— The D-Board Team`,
-        html,
-      });
-      return true;
-    } catch (err) {
-      console.error('[Email Service Error]: Failed to send account deleted email:', err);
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: 'Your D-Board Account Has Been Deactivated',
+      text: `Hello ${options.username},\n\nYour account has been deactivated as requested.\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD ACCOUNT DEACTIVATED EMAIL SIMULATOR]');
+      console.log(`To: ${options.toEmail}`);
+      console.log('====================================================');
     }
-  }
-
-  console.log('====================================================');
-  console.log('📬 [D-BOARD ACCOUNT DELETED EMAIL SIMULATOR]');
-  console.log(`To: ${options.toEmail}`);
-  console.log('====================================================');
-  return true;
+  );
 }
 
 /**
@@ -558,7 +527,6 @@ export async function sendAccountDeletedEmail(options: SendAccountDeletedOptions
 export async function sendWorkItemAssignedEmail(options: SendWorkItemAssignedOptions): Promise<boolean> {
   const appUrl = getAppUrl();
   const link = options.link || `${appUrl}/app/my-work`;
-  const transporter = getTransporter();
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
@@ -584,26 +552,21 @@ export async function sendWorkItemAssignedEmail(options: SendWorkItemAssignedOpt
     </div>
   `;
 
-  if (transporter) {
-    try {
-      await transporter.sendMail({
-        from: getEmailFrom(),
-        to: options.toEmail,
-        subject: `[${options.projectName}] Assigned to you: ${options.workItemTitle}`,
-        text: `Hello ${options.assigneeName},\n\n${options.assignerName} assigned you "${options.workItemTitle}" on project "${options.projectName}".\n\nView it here: ${link}\n\n— The D-Board Team`,
-        html,
-      });
-      return true;
-    } catch (err) {
-      console.error('[Email Service Error]: Failed to send work item assigned email:', err);
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: `[${options.projectName}] Assigned to you: ${options.workItemTitle}`,
+      text: `Hello ${options.assigneeName},\n\n${options.assignerName} assigned you "${options.workItemTitle}" on project "${options.projectName}".\n\nView it here: ${link}\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD WORK ITEM ASSIGNED EMAIL SIMULATOR]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Title: ${options.workItemTitle}`);
+      console.log(`Project: ${options.projectName}`);
+      console.log('====================================================');
     }
-  }
-
-  console.log('====================================================');
-  console.log('📬 [D-BOARD WORK ITEM ASSIGNED EMAIL SIMULATOR]');
-  console.log(`To: ${options.toEmail}`);
-  console.log(`Title: ${options.workItemTitle}`);
-  console.log(`Project: ${options.projectName}`);
-  console.log('====================================================');
-  return true;
+  );
 }

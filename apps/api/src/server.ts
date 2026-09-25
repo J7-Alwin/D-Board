@@ -20,6 +20,7 @@ import { globalActivityRoutes } from "./routes/globalActivity.routes.js";
 import { searchRoutes } from "./routes/search.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { requestIdMiddleware } from "./middlewares/requestId.middleware.js";
+import { csrfProtection } from "./middlewares/csrf.middleware.js";
 import { initRealtime } from "./realtime/realtime.service.js";
 import { authRateLimiter, invitationRateLimiter, apiRateLimiter } from "./middlewares/rateLimit.middleware.js";
 import { getRedisClient, closeRedis } from "./redis/redis.client.js";
@@ -104,6 +105,7 @@ app.use(
 app.use(requestIdMiddleware);
 
 app.use(cookieParser());
+app.use(csrfProtection);
 // Hardened request body limits (file uploads use multer with diskStorage up to 50MB per file)
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));

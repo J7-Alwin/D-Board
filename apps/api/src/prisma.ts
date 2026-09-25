@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import pg from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -19,6 +20,18 @@ if (!connectionString) {
     throw new Error("DATABASE_URL is not defined");
 }
 
+let caCert: string | undefined;
+if (process.env.DATABASE_CA_CERT) {
+    caCert = process.env.DATABASE_CA_CERT;
+} else if (process.env.DATABASE_CA_PATH && fs.existsSync(process.env.DATABASE_CA_PATH)) {
+    caCert = fs.readFileSync(process.env.DATABASE_CA_PATH, 'utf-8');
+} else {
+    const defaultSupabaseCa = path.resolve(__dirname, '../certs/supabase-root-ca.pem');
+    if (fs.existsSync(defaultSupabaseCa)) {
+        caCert = fs.readFileSync(defaultSupabaseCa, 'utf-8');
+    }
+}
+
 const isRemoteOrSsl = 
     process.env.DATABASE_SSL === 'true' ||
     connectionString.includes('sslmode=require') ||
@@ -26,9 +39,16 @@ const isRemoteOrSsl =
     connectionString.includes('supabase.com') ||
     connectionString.includes('pooler.supabase.com');
 
+const sslConfig = isRemoteOrSsl
+    ? {
+        rejectUnauthorized: process.env.DATABASE_REJECT_UNAUTHORIZED === 'false' ? false : true,
+        ca: caCert,
+    }
+    : undefined;
+
 const pool = new pg.Pool({
     connectionString,
-    ssl: isRemoteOrSsl ? { rejectUnauthorized: false } : undefined,
+    ssl: sslConfig,
     max: parseInt(process.env.DB_POOL_MAX || '10', 10),
 });
 

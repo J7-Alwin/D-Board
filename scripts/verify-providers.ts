@@ -64,6 +64,18 @@ function maskSecret(str?: string): string {
 }
 
 function createPrismaClient(dbUrl: string): { prisma: PrismaClient; pool: pg.Pool } {
+  let caCert: string | undefined;
+  if (process.env.DATABASE_CA_CERT) {
+    caCert = process.env.DATABASE_CA_CERT;
+  } else if (process.env.DATABASE_CA_PATH && fs.existsSync(process.env.DATABASE_CA_PATH)) {
+    caCert = fs.readFileSync(process.env.DATABASE_CA_PATH, 'utf-8');
+  } else {
+    const defaultSupabaseCa = path.resolve(rootDir, 'apps/api/certs/supabase-root-ca.pem');
+    if (fs.existsSync(defaultSupabaseCa)) {
+      caCert = fs.readFileSync(defaultSupabaseCa, 'utf-8');
+    }
+  }
+
   const isRemoteOrSsl =
     process.env.DATABASE_SSL === 'true' ||
     dbUrl.includes('sslmode=require') ||
@@ -73,7 +85,12 @@ function createPrismaClient(dbUrl: string): { prisma: PrismaClient; pool: pg.Poo
 
   const pool = new pg.Pool({
     connectionString: dbUrl,
-    ssl: isRemoteOrSsl ? { rejectUnauthorized: false } : undefined,
+    ssl: isRemoteOrSsl
+      ? {
+          rejectUnauthorized: process.env.DATABASE_REJECT_UNAUTHORIZED === 'false' ? false : true,
+          ca: caCert,
+        }
+      : undefined,
     max: 5,
   });
 

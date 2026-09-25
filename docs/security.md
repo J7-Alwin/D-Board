@@ -56,9 +56,13 @@ D-Board adheres to Defense-in-Depth, Principle of Least Privilege, and Zero Trus
 - Passwords are hashed using **bcrypt** with a work factor of 12 rounds.
 - Strong password complexity is strictly enforced via Zod schema (minimum 8 characters, requiring uppercase, lowercase, numbers, and special characters).
 
-### Email Verification & Password Resets
-- Cryptographically secure tokens generated via `crypto.randomBytes(32)`.
-- Verification and reset tokens have short lifespans (1 hour for reset, 24 hours for email verification).
+### Google OAuth 2.0 Integration
+- **Flow**: Server-side confidential client Authorization Code Flow (`response_type=code`).
+- **CSRF Protection**: 24-byte cryptographically secure random `state` token generated per flow and persisted in an `HttpOnly`, `SameSite=Lax`, `Secure` cookie (`oauth_state`), verified upon callback redirect.
+- **Server-to-Server Token Exchange**: The authorization code is exchanged directly by the backend API with Google's token endpoint (`https://oauth2.googleapis.com/token`) using the confidential `GOOGLE_CLIENT_SECRET`.
+- **Identity Verification & UserInfo**: User identity is retrieved directly from Google's authenticated UserInfo endpoint (`https://www.googleapis.com/oauth2/v3/userinfo`) over TLS. The implementation enforces `email_verified === true` (unverified Google accounts are rejected with HTTP 403). Note: Verification relies on direct authenticated HTTPS UserInfo retrieval rather than offline ID-token signature validation.
+- **Account Takeover Prevention**: Existing user accounts with matching emails are linked to `googleId` only if they are not already linked to a different Google identity. Conflicting Google IDs are rejected with HTTP 409.
+- **PKCE Decision**: Because D-Board operates as a confidential client where `GOOGLE_CLIENT_SECRET` is stored securely on the backend server (Render Web Service) and never exposed to browser clients, PKCE (RFC 7636, designed for public clients) is not required for the server-mediated authorization code exchange.
 
 ---
 
@@ -124,5 +128,5 @@ The API implements a **true sliding-window rate limiter** using Redis Sorted Set
 
 | Risk ID | Component | Description | Mitigation Strategy | Acceptance Status |
 |---|---|---|---|---|
-| **RES-01** | `xlsx@0.18.5` | Upstream package contains unpatched CVEs related to prototype pollution in sheet parsing (GHSA-4r6h-8v6p-xvw6, GHSA-5pgg-2g8v-p4x9). | **Web Worker Sandbox Isolation**: In the frontend SPA, spreadsheet parsing executes in an isolated Web Worker (`src/workers/spreadsheet.worker.ts`). The worker runs in a separate thread without access to the DOM, `window`, `document`, `document.cookie`, or `localStorage`, eliminating DOM-based XSS, cookie theft, and main-thread event loop blocking. Note: Web Workers inherit standard worker environment primitives (such as `fetch`); zero network access is not physically enforced at the thread level. Defense is provided by thread isolation, disabling macros (`bookVBA: false`), disabling external workbook dependencies (`bookDeps: false`), and strictly capping resource consumption (`maxSheets: 20`, `maxRows: 5000`). | **ACCEPTED RESIDUAL RISK** (Documented in Phase 1 & Phase 3) |
+| **RES-01** | `xlsx@0.18.5` | Upstream package contains unpatched CVEs related to prototype pollution in sheet parsing (GHSA-4r6h-8v6p-xvw6, GHSA-5pgg-2g8v-p4x9). "Zero vulnerabilities" is NOT claimed due to these known upstream issues. | **Web Worker Sandbox Isolation**: In the frontend SPA, spreadsheet parsing executes in an isolated Web Worker (`src/workers/spreadsheet.worker.ts`). The worker runs in a separate thread without access to the DOM, `window`, `document`, `document.cookie`, or `localStorage`, eliminating DOM-based XSS, cookie theft, and main-thread event loop blocking. Note: Worker isolation is not equivalent to a separate security origin and does not inherently remove fetch/network primitives. Defense is provided by thread isolation, disabling macros (`bookVBA: false`), disabling external workbook dependencies (`bookDeps: false`), strictly capping resource consumption (`maxSheets: 20`, `maxRows: 5000`), and terminating the worker on parsing completion. | **ACCEPTED RESIDUAL RISK** (Documented in Phase 1, Phase 2, & Phase 3) |
 

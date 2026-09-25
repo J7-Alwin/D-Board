@@ -37,93 +37,108 @@ export class NotificationService {
 
     const client = txClient || prisma;
 
-    // 2. Idempotency / Duplicate Check
-    const existing = await client.notification.findFirst({
-      where: {
-        recipientId: input.recipientId,
-        type: input.type,
-        projectId: input.projectId || null,
-        workItemId: input.workItemId || null,
-        commentId: input.commentId || null,
-        noteId: input.noteId || null,
-        activityId: input.activityId || null,
-        readAt: null, // If already unread, don't duplicate
-      },
-    });
+    // 2. Idempotency / Duplicate Check with PostgreSQL Advisory Lock (Item 15)
+    const lockKey = `notif_${input.recipientId}_${input.type}_${input.projectId || ''}_${input.workItemId || ''}_${input.commentId || ''}_${input.noteId || ''}_${input.activityId || ''}`;
 
-    if (existing) {
-      return existing;
-    }
+    const executeInTx = async (tx: any) => {
+      // Database-backed advisory lock serializes concurrent duplicate creation attempts (Item 15)
+      await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1));`, lockKey);
 
-    // 3. Create Notification
-    const created = await client.notification.create({
-      data: {
-        recipientId: input.recipientId,
-        actorId: input.actorId || undefined,
-        projectId: input.projectId || undefined,
-        workItemId: input.workItemId || undefined,
-        commentId: input.commentId || undefined,
-        noteId: input.noteId || undefined,
-        activityId: input.activityId || undefined,
-        type: input.type,
-        title: input.title,
-        message: input.message,
-        link: input.link,
-      },
-      include: {
-        actor: {
-          select: {
-            id: true,
-            fullName: true,
-            username: true,
-            avatarUrl: true,
+      const existing = await tx.notification.findFirst({
+        where: {
+          recipientId: input.recipientId,
+          type: input.type,
+          projectId: input.projectId || null,
+          workItemId: input.workItemId || null,
+          commentId: input.commentId || null,
+          noteId: input.noteId || null,
+          activityId: input.activityId || null,
+          readAt: null, // If already unread, don't duplicate
+        },
+      });
+
+      if (existing) {
+        return { notification: existing, isNew: false };
+      }
+
+      const created = await tx.notification.create({
+        data: {
+          recipientId: input.recipientId,
+          actorId: input.actorId || undefined,
+          projectId: input.projectId || undefined,
+          workItemId: input.workItemId || undefined,
+          commentId: input.commentId || undefined,
+          noteId: input.noteId || undefined,
+          activityId: input.activityId || undefined,
+          type: input.type,
+          title: input.title,
+          message: input.message,
+          link: input.link,
+        },
+        include: {
+          actor: {
+            select: {
+              id: true,
+              fullName: true,
+              username: true,
+              avatarUrl: true,
+            },
+          },
+          project: {
+            select: {
+              id: true,
+              name: true,
+              key: true,
+            },
           },
         },
-        project: {
-          select: {
-            id: true,
-            name: true,
-            key: true,
-          },
-        },
-      },
-    });
+      });
 
-    publishToUser(created.recipientId, 'NOTIFICATION_CREATED', {
-      recipientId: created.recipientId,
-      notificationId: created.id,
-      type: created.type,
-      title: created.title,
-      message: created.message,
-      link: created.link,
-      actorId: created.actorId,
-      actorName: created.actor?.fullName || created.actor?.username || null,
-    });
+      return { notification: created, isNew: true };
+    };
 
-    // Automated Email Dispatch based on user notification preferences
-    if (created.type === 'WORK_ASSIGNED') {
-      (async () => {
-        try {
-          const recipient = await prisma.user.findUnique({
-            where: { id: created.recipientId },
-            select: { email: true, username: true, fullName: true, notificationPreferences: true },
-          });
-          const prefs = recipient?.notificationPreferences as any;
-          if (recipient && (!prefs || prefs.emailWorkAssigned !== false)) {
-            await sendWorkItemAssignedEmail({
-              toEmail: recipient.email,
-              assigneeName: recipient.fullName || recipient.username,
-              assignerName: created.actor?.fullName || created.actor?.username || 'Team Member',
-              workItemTitle: created.title,
-              workItemType: 'Work Item',
-              projectName: created.project?.name || 'Workspace',
-              link: created.link ? `${process.env.APP_URL || 'http://localhost:5173'}${created.link}` : undefined,
+    const result = txClient ? await executeInTx(txClient) : await prisma.$transaction(executeInTx);
+    if (!result) return null;
+
+    const { notification: created, isNew } = result;
+
+    if (isNew) {
+      publishToUser(created.recipientId, 'NOTIFICATION_CREATED', {
+        recipientId: created.recipientId,
+        notificationId: created.id,
+        type: created.type,
+        title: created.title,
+        message: created.message,
+        link: created.link,
+        actorId: created.actorId,
+        actorName: created.actor?.fullName || created.actor?.username || null,
+      });
+
+      // Automated Email Dispatch based on user notification preferences
+      if (created.type === 'WORK_ASSIGNED') {
+        (async () => {
+          try {
+            const recipient = await prisma.user.findUnique({
+              where: { id: created.recipientId },
+              select: { email: true, username: true, fullName: true, notificationPreferences: true },
             });
+            const prefs = recipient?.notificationPreferences as any;
+            if (recipient && (!prefs || prefs.emailWorkAssigned !== false)) {
+              await sendWorkItemAssignedEmail({
+                toEmail: recipient.email,
+                assigneeName: recipient.fullName || recipient.username,
+                assignerName: created.actor?.fullName || created.actor?.username || 'Team Member',
+                workItemTitle: created.title,
+                workItemType: 'Work Item',
+                projectName: created.project?.name || 'Workspace',
+                link: created.link ? `${process.env.CLIENT_URL || 'http://localhost:5173'}${created.link}` : undefined,
+              });
+            }
+          } catch (e) {
+            console.error('[NotificationService]: Error dispatching work assignment email:', e);
           }
-        } catch (e) {
-          console.error('[NotificationService]: Error dispatching work assignment email:', e);
-        }
-      })();
+        })();
+      }
     }
 
     return created;

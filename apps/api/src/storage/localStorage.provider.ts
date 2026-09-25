@@ -42,6 +42,14 @@ export class LocalStorageProvider implements StorageProvider {
     await fs.promises.writeFile(filePath, Buffer.from(data));
   }
 
+  async uploadFile(key: string, sourceFilePath: string, _mimeType: string): Promise<void> {
+    const targetPath = this.resolveSafePath(key);
+    const parentDir = path.dirname(targetPath);
+
+    await fs.promises.mkdir(parentDir, { recursive: true });
+    await fs.promises.copyFile(sourceFilePath, targetPath);
+  }
+
   async getStream(key: string): Promise<Readable> {
     const filePath = this.resolveSafePath(key);
     const exists = await this.exists(key);

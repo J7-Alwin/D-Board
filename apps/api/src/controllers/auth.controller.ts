@@ -313,7 +313,7 @@ export async function googleCallback(req: Request, res: Response, next: NextFunc
       : `${clientUrl}/app/dashboard`;
     res.redirect(redirectTarget);
   } catch (error: any) {
-    const clientUrl = env.APP_URL;
+    const clientUrl = env.CLIENT_URL || 'http://localhost:5173';
     res.redirect(`${clientUrl}/login?error=${encodeURIComponent(error?.message || 'oauth_failed')}`);
   }
 }

@@ -36,12 +36,12 @@ const rootDir = path.resolve(__dirname, '..');
 const dedicatedEnvPath = path.resolve(rootDir, '.env.providers-test');
 const defaultApiEnvPath = path.resolve(rootDir, 'apps/api/.env');
 
-if (fs.existsSync(dedicatedEnvPath)) {
-  console.log(`[Env] Loading dedicated provider test environment: .env.providers-test`);
-  dotenv.config({ path: dedicatedEnvPath });
-}
 if (fs.existsSync(defaultApiEnvPath)) {
   dotenv.config({ path: defaultApiEnvPath });
+}
+if (fs.existsSync(dedicatedEnvPath)) {
+  console.log(`[Env] Loading dedicated provider test environment: .env.providers-test`);
+  dotenv.config({ path: dedicatedEnvPath, override: true });
 }
 dotenv.config();
 
@@ -61,6 +61,25 @@ function maskSecret(str?: string): string {
   if (!str) return '(not set)';
   if (str.length <= 6) return '***';
   return str.slice(0, 3) + '***' + str.slice(-3);
+}
+
+function createPrismaClient(dbUrl: string): { prisma: PrismaClient; pool: pg.Pool } {
+  const isRemoteOrSsl =
+    process.env.DATABASE_SSL === 'true' ||
+    dbUrl.includes('sslmode=require') ||
+    dbUrl.includes('supabase.co') ||
+    dbUrl.includes('supabase.com') ||
+    dbUrl.includes('pooler.supabase.com');
+
+  const pool = new pg.Pool({
+    connectionString: dbUrl,
+    ssl: isRemoteOrSsl ? { rejectUnauthorized: false } : undefined,
+    max: 5,
+  });
+
+  const adapter = new PrismaPg(pool);
+  const prisma = new PrismaClient({ adapter, log: ['error'] });
+  return { prisma, pool };
 }
 
 interface TestResult {
@@ -108,10 +127,7 @@ async function runVerification() {
       // ignore URL parsing
     }
 
-    const prisma = new PrismaClient({
-      datasources: { db: { url: dbUrl } },
-      log: ['error'],
-    });
+    const { prisma, pool } = createPrismaClient(dbUrl);
 
     try {
       // Connection & SELECT 1
@@ -167,6 +183,7 @@ async function runVerification() {
       record('Supabase', 'migration', 'FAIL', err.message);
     } finally {
       await prisma.$disconnect();
+      await pool.end();
     }
   }
 
@@ -174,12 +191,12 @@ async function runVerification() {
   // 2. RENDER KEY VALUE / VALKEY (Redis & BullMQ)
   // --------------------------------------------------------------------------
   console.log('\n2. Testing Render Key Value / Valkey (Redis & BullMQ)...');
-  const redisUrl = process.env.REDIS_URL;
+  const redisUrl = process.env.REDIS_URL?.trim();
 
   if (!redisUrl) {
-    record('Render Key Value', 'ping', 'FAIL', 'REDIS_URL is missing');
-    record('Render Key Value', 'set/get', 'SKIPPED', 'Prerequisites failed');
-    record('Render Key Value', 'BullMQ', 'SKIPPED', 'Prerequisites failed');
+    record('Render Key Value', 'ping', 'SKIPPED', 'Missing credential: REDIS_URL');
+    record('Render Key Value', 'set/get', 'SKIPPED', 'Missing credential: REDIS_URL');
+    record('Render Key Value', 'BullMQ', 'SKIPPED', 'Missing credential: REDIS_URL');
   } else {
     console.log(`   Target: ${maskUrl(redisUrl)}`);
     const redisConfig = getRedisConfig();
@@ -189,6 +206,7 @@ async function runVerification() {
       maxRetriesPerRequest: null,
       connectTimeout: 5000,
     });
+    redisClient.on('error', () => {});
 
     try {
       await redisClient.connect();
@@ -431,10 +449,7 @@ async function runVerification() {
   // --------------------------------------------------------------------------
   console.log('\n5. Testing End-to-End Workflow with Disposable Test Records...');
   if (dbUrl) {
-    const prisma = new PrismaClient({
-      datasources: { db: { url: dbUrl } },
-      log: ['error'],
-    });
+    const { prisma, pool } = createPrismaClient(dbUrl);
 
     const disposableUserEmail = `providertest_${testRunId}@dboard-test.local`;
     let createdUserId: string | null = null;
@@ -458,6 +473,7 @@ async function runVerification() {
         data: {
           name: `Provider Test Project ${testRunId}`,
           key: `TST${testRunId.toUpperCase().slice(0, 4)}`,
+          description: 'Disposable provider connectivity verification project',
           createdById: user.id,
           members: {
             create: {
@@ -499,6 +515,7 @@ async function runVerification() {
         console.warn(`   [Cleanup Notice]: ${cleanupErr.message}`);
       }
       await prisma.$disconnect();
+      await pool.end();
     }
   }
 

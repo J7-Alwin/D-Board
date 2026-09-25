@@ -17,6 +17,7 @@
     "test:web": "npm run test --workspace=web",
     "test:e2e": "npx tsx e2e/e2e_smoke_suite.ts",
     "test": "npm run test:api && npm run test:web && npm run test:e2e",
+    "verify:providers": "tsx scripts/verify-providers.ts",
     "audit": "node scripts/audit-check.mjs"
   }
 }

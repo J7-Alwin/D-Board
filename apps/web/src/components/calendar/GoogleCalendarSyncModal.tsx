@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import type { CalendarItem } from '../../api/calendar.api';
+import React, { useState, useEffect } from 'react';
+import { calendarApi, type CalendarItem } from '../../api/calendar.api';
 import {
   GoogleIcon,
   GoogleCalendarBadgeIcon,
@@ -18,6 +18,7 @@ interface GoogleCalendarSyncModalProps {
   onClose: () => void;
   items: CalendarItem[];
   projectName?: string;
+  projectId?: string;
 }
 
 // Inline SVGs for specialized graphics in the modal
@@ -72,10 +73,52 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
   onClose,
   items,
   projectName = 'All Projects',
+  projectId,
 }) => {
   const [copied, setCopied] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [syncSuccess, setSyncSuccess] = useState(false);
+  const [feedToken, setFeedToken] = useState<string | null>(null);
+  const [loadingToken, setLoadingToken] = useState(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [rotatingToken, setRotatingToken] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let isMounted = true;
+    const loadToken = async () => {
+      setLoadingToken(true);
+      setTokenError(null);
+      try {
+        const res = await calendarApi.createFeedToken(projectId);
+        if (isMounted && res.success && res.data?.token) {
+          setFeedToken(res.data.token);
+        }
+      } catch (err: any) {
+        if (isMounted) setTokenError(err.message || 'Failed to initialize subscription token');
+      } finally {
+        if (isMounted) setLoadingToken(false);
+      }
+    };
+    loadToken();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, projectId]);
+
+  const handleRegenerateToken = async () => {
+    if (rotatingToken) return;
+    setRotatingToken(true);
+    try {
+      const res = await calendarApi.createFeedToken(projectId);
+      if (res.success && res.data?.token) {
+        setFeedToken(res.data.token);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to rotate subscription token');
+    } finally {
+      setRotatingToken(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -142,7 +185,13 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
     window.URL.revokeObjectURL(url);
   };
 
-  const calendarFeedUrl = `${window.location.origin}/api/calendar/feed.ics`;
+  const calendarFeedUrl = feedToken
+    ? (projectId
+        ? `${window.location.origin}/api/projects/${projectId}/calendar/feed.ics?token=${feedToken}`
+        : `${window.location.origin}/api/calendar/feed.ics?token=${feedToken}`)
+    : (projectId
+        ? `${window.location.origin}/api/projects/${projectId}/calendar/feed.ics`
+        : `${window.location.origin}/api/calendar/feed.ics`);
 
   const handleCopyFeed = () => {
     navigator.clipboard.writeText(calendarFeedUrl);
@@ -150,14 +199,10 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
     setTimeout(() => setCopied(false), 2500);
   };
 
-  const handleGoogleConnect = () => {
-    setIsSyncing(true);
-    setTimeout(() => {
-      setIsSyncing(false);
-      setSyncSuccess(true);
-      handleDownloadICS();
-    }, 800);
+  const handleDirectOAuthSync = () => {
+    alert('Direct 2-way Google Calendar OAuth synchronization is currently in development. You can immediately import your calendar using the .ics file download or subscribe to the live auto-updating feed URL below!');
   };
+
 
   return (
     <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
@@ -196,7 +241,7 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
                 <CheckIcon size={14} />
               </span>
               <span>
-                Calendar exported successfully! Import the downloaded <code>.ics</code> file into Google Calendar Settings &gt; Import &amp; Export.
+                Calendar file generated! Import the downloaded <code>.ics</code> file into Google Calendar Settings &gt; Import &amp; Export.
               </span>
             </div>
           )}
@@ -205,15 +250,15 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
           <div className="gcal-hero-grid">
             {/* Left Column: Details & Call to action */}
             <div className="gcal-hero-left">
-              <div className="gcal-hero-badge">
+              <div className="gcal-hero-badge" style={{ background: '#EFF6FF', color: '#1D4ED8' }}>
                 <LinkIcon size={12} />
-                <span>RECOMMENDED</span>
+                <span>ACTIVE CAPABILITY</span>
               </div>
 
-              <h1 className="gcal-hero-heading">One-Click Google Sync</h1>
+              <h1 className="gcal-hero-heading">Instant Calendar Export</h1>
 
               <p className="gcal-hero-desc">
-                Automatically sync your tasks, meetings, and deadlines to your Google Calendar account.
+                Download your standard RFC 5545 iCalendar file to import all deadlines and meetings into Google Calendar, Apple Calendar, or Outlook.
               </p>
 
               <div className="gcal-hero-features">
@@ -221,38 +266,63 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
                   <span className="gcal-feature-icon-box">
                     <CheckIcon size={12} />
                   </span>
-                  <span>Sync tasks, deadlines and meetings</span>
+                  <span>Export all project deadlines, milestones, and meetings</span>
                 </div>
 
                 <div className="gcal-hero-feature-row">
                   <span className="gcal-feature-icon-box">
                     <CheckIcon size={12} />
                   </span>
-                  <span>Keeps your calendar up to date automatically</span>
+                  <span>Compatible with Google, Apple, and Outlook calendars</span>
                 </div>
 
                 <div className="gcal-hero-feature-row">
                   <span className="gcal-feature-icon-box">
                     <CheckIcon size={12} />
                   </span>
-                  <span>Secure and uses your Google account</span>
+                  <span>Live subscription feed available for background updates</span>
                 </div>
               </div>
 
-              <button
-                type="button"
-                className="gcal-hero-connect-btn"
-                onClick={handleGoogleConnect}
-                disabled={isSyncing}
-              >
-                <GoogleIcon size={18} />
-                <span>{isSyncing ? 'Exporting Calendar...' : 'Connect & Export to Google Calendar'}</span>
-                <ArrowRightIcon size={16} />
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px' }}>
+                <button
+                  type="button"
+                  className="gcal-hero-connect-btn"
+                  onClick={() => {
+                    handleDownloadICS();
+                    setSyncSuccess(true);
+                  }}
+                >
+                  <DownloadIcon size={18} />
+                  <span>Download .ics Calendar File</span>
+                  <ArrowRightIcon size={16} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDirectOAuthSync}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    padding: '8px 14px',
+                    fontSize: '13px',
+                    background: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '8px',
+                    color: '#64748B',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <GoogleIcon size={15} />
+                  <span>Direct Google OAuth 2-Way Sync (Coming Soon)</span>
+                </button>
+              </div>
 
               <div className="gcal-security-note">
                 <LockIcon size={12} />
-                <span>We only access the information you choose to sync. Your data stays secure.</span>
+                <span>Export contains only workspace calendar events you have permission to view.</span>
               </div>
             </div>
 
@@ -358,13 +428,14 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
                 <input
                   type="text"
                   readOnly
-                  value={calendarFeedUrl}
+                  value={loadingToken ? 'Generating secure subscription link...' : calendarFeedUrl}
                   className="gcal-feed-input"
                 />
               </div>
               <button
                 type="button"
                 onClick={handleCopyFeed}
+                disabled={loadingToken}
                 className="gcal-copy-btn"
               >
                 <CopyIcon size={15} />
@@ -372,16 +443,44 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
               </button>
             </div>
 
-            <div className="gcal-download-row">
-              <button
-                type="button"
-                className="gcal-download-link"
-                onClick={handleDownloadICS}
-              >
-                <DownloadIcon size={15} />
-                <span>Download .ics File</span>
-              </button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748B' }}>
+                <LockIcon size={12} />
+                <span>Private subscription token. Regenerate if ever exposed.</span>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={handleRegenerateToken}
+                  disabled={rotatingToken || loadingToken}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#2563EB',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    cursor: rotatingToken ? 'not-allowed' : 'pointer',
+                    textDecoration: 'underline',
+                    padding: 0,
+                  }}
+                >
+                  {rotatingToken ? 'Regenerating...' : 'Regenerate Secret URL'}
+                </button>
+                <button
+                  type="button"
+                  className="gcal-download-link"
+                  onClick={handleDownloadICS}
+                >
+                  <DownloadIcon size={14} />
+                  <span>Download .ics File</span>
+                </button>
+              </div>
             </div>
+            {tokenError && (
+              <div style={{ fontSize: '12px', color: '#EF4444', marginTop: '6px' }}>
+                {tokenError}
+              </div>
+            )}
           </div>
         </div>
 

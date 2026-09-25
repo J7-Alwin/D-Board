@@ -4,7 +4,7 @@ import { activityService } from './activity.service.js';
 import { notificationService } from './notification.service.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { publishToProject } from '../realtime/realtime.service.js';
-import { enqueueDeadlineJob } from '../jobs/queues.js';
+import { scheduleWorkItemDeadlines, cancelDeadlineJobs } from '../jobs/queues.js';
 import { cacheService } from '../redis/cache.service.js';
 
 export class WorkService {
@@ -61,7 +61,11 @@ export class WorkService {
    * Create a new work item and log activity
    */
   async createWorkItem(projectId: string, userId: string, data: CreateWorkItemInput) {
-    await this.verifyProjectMember(projectId, userId);
+    const { project } = await this.verifyProjectMember(projectId, userId);
+
+    if (project.status === 'ARCHIVED') {
+      throw new AppError('Cannot create work items in an archived project', 400);
+    }
 
     const assignedToId = data.assignedToId && data.assignedToId.trim() ? data.assignedToId.trim() : null;
 
@@ -166,20 +170,8 @@ export class WorkService {
       await cacheService.del(cacheService.keys.userMyWork(createdItem.assignedToId));
     }
 
-    // Schedule deadline reminder if applicable
-    if (createdItem.dueDate && createdItem.assignedToId && createdItem.status !== 'COMPLETED') {
-      const due = new Date(createdItem.dueDate);
-      const now = new Date();
-      const isOverdue = due < now;
-      await enqueueDeadlineJob({
-        workItemId: createdItem.id,
-        projectId,
-        title: createdItem.title,
-        dueDate: createdItem.dueDate.toISOString(),
-        assignedToId: createdItem.assignedToId,
-        reminderType: isOverdue ? 'DEADLINE_OVERDUE' : 'DEADLINE_SOON',
-      });
-    }
+    // Schedule deadline reminder with exact calculated delay
+    await scheduleWorkItemDeadlines(createdItem);
 
     return createdItem;
   }
@@ -329,7 +321,11 @@ export class WorkService {
     userId: string,
     data: UpdateWorkItemInput
   ) {
-    const { isAdmin } = await this.verifyProjectMember(projectId, userId);
+    const { isAdmin, project } = await this.verifyProjectMember(projectId, userId);
+
+    if (project.status === 'ARCHIVED') {
+      throw new AppError('Cannot modify work items in an archived project', 400);
+    }
 
     const existing = await prisma.workItem.findUnique({
       where: { id: workItemId },
@@ -525,20 +521,8 @@ export class WorkService {
       await cacheService.del(cacheService.keys.userMyWork(existing.assignedToId));
     }
 
-    // Schedule deadline reminder if applicable
-    if (updatedItem.dueDate && updatedItem.assignedToId && updatedItem.status !== 'COMPLETED') {
-      const due = new Date(updatedItem.dueDate);
-      const now = new Date();
-      const isOverdue = due < now;
-      await enqueueDeadlineJob({
-        workItemId: updatedItem.id,
-        projectId,
-        title: updatedItem.title,
-        dueDate: updatedItem.dueDate.toISOString(),
-        assignedToId: updatedItem.assignedToId,
-        reminderType: isOverdue ? 'DEADLINE_OVERDUE' : 'DEADLINE_SOON',
-      });
-    }
+    // Schedule or reschedule deadline reminder with exact calculated delay
+    await scheduleWorkItemDeadlines(updatedItem);
 
     return updatedItem;
   }
@@ -547,7 +531,11 @@ export class WorkService {
    * Delete work item (Admin or Creator only)
    */
   async deleteWorkItem(projectId: string, workItemId: string, userId: string) {
-    const { isAdmin } = await this.verifyProjectMember(projectId, userId);
+    const { isAdmin, project } = await this.verifyProjectMember(projectId, userId);
+
+    if (project.status === 'ARCHIVED') {
+      throw new AppError('Cannot delete work items in an archived project', 400);
+    }
 
     const existing = await prisma.workItem.findUnique({
       where: { id: workItemId },
@@ -564,6 +552,9 @@ export class WorkService {
     await prisma.workItem.delete({
       where: { id: workItemId },
     });
+
+    // Cancel pending BullMQ deadline reminder jobs
+    await cancelDeadlineJobs(workItemId);
 
     publishToProject(projectId, 'WORK_DELETED', {
       projectId,

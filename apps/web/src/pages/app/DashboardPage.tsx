@@ -847,61 +847,12 @@ export const DashboardPage: React.FC = () => {
               </div>
 
               <div className="activity-widget-list">
-                {(() => {
-                  // Synthesize display activities matching reference layout
-                  const displayedList = [...recentActivities];
-                  
-                  // If fewer than 4 items, add realistic workspace activities
-                  if (displayedList.length < 4) {
-                    const fallbackItems: ActivityItem[] = [
-                      {
-                        id: 'mock-1',
-                        projectId: data?.myProjects[0]?.id || '1',
-                        actorId: 'user-1',
-                        actor: { id: 'user-1', username: 'alwin', fullName: user?.fullName || 'Alwin James', email: '', avatarUrl: user?.avatarUrl || null },
-                        type: 'PROJECT_CREATED',
-                        metadata: { title: `Your project workspace "${data?.myProjects[0]?.name || 'klxwnqklxk'}" is ready.` },
-                        createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-                      },
-                      {
-                        id: 'mock-2',
-                        projectId: data?.myProjects[0]?.id || '1',
-                        actorId: 'user-1',
-                        actor: { id: 'user-1', username: 'alwin', fullName: user?.fullName || 'Alwin James', email: '', avatarUrl: user?.avatarUrl || null },
-                        type: 'FILE_UPLOADED',
-                        metadata: { title: 'Project update' },
-                        createdAt: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
-                      },
-                      {
-                        id: 'mock-3',
-                        projectId: data?.myProjects[0]?.id || '1',
-                        actorId: 'user-1',
-                        actor: { id: 'user-1', username: 'alwin', fullName: user?.fullName || 'Alwin James', email: '', avatarUrl: user?.avatarUrl || null },
-                        type: 'COMMENT_ADDED',
-                        metadata: { title: `${user?.fullName || 'Alwin James'} commented on "bud fix"` },
-                        createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-                      },
-                      {
-                        id: 'mock-4',
-                        projectId: data?.myProjects[0]?.id || '1',
-                        actorId: 'user-1',
-                        actor: { id: 'user-1', username: 'alwin', fullName: user?.fullName || 'Alwin James', email: '', avatarUrl: user?.avatarUrl || null },
-                        type: 'NOTE_CREATED',
-                        metadata: { title: `${user?.fullName || 'Alwin James'} shared a note with @team` },
-                        createdAt: new Date(Date.now() - 52 * 60 * 60 * 1000).toISOString(),
-                      },
-                    ];
-
-                    for (const fb of fallbackItems) {
-                      if (displayedList.length >= 4) break;
-                      // Avoid duplicate types if already present
-                      if (!displayedList.some(d => d.type === fb.type)) {
-                        displayedList.push(fb);
-                      }
-                    }
-                  }
-
-                  return displayedList.slice(0, 4).map((act) => {
+                {recentActivities.length === 0 ? (
+                  <div style={{ padding: '28px 16px', textAlign: 'center', color: '#94A3B8', fontSize: '13px' }}>
+                    No recent activity yet. Updates and project events will appear here.
+                  </div>
+                ) : (
+                  recentActivities.slice(0, 5).map((act) => {
                     const isProjectCreated = act.type === 'PROJECT_CREATED' || act.type.includes('CREATE_PROJECT');
                     const isNote = act.type.includes('NOTE');
                     const isComment = act.type.includes('COMMENT');
@@ -946,8 +897,8 @@ export const DashboardPage: React.FC = () => {
                         <span className="activity-item-date">{relTime}</span>
                       </div>
                     );
-                  });
-                })()}
+                  })
+                )}
               </div>
 
               {/* View all activity bottom button */}

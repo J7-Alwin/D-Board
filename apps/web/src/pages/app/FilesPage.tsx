@@ -51,36 +51,6 @@ import {
 } from '../../components/ui/Icons';
 import { CustomSelect } from '../../components/ui/CustomSelect';
 
-const DEFAULT_INITIAL_FOLDERS: FolderItem[] = [
-  {
-    id: 'folder-documents',
-    name: 'Documents & Specs',
-    projectId: 'all',
-    projectName: 'All Projects',
-    parentId: null,
-    color: '#3B82F6',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'folder-design-assets',
-    name: 'Design Assets',
-    projectId: 'all',
-    projectName: 'All Projects',
-    parentId: null,
-    color: '#8B5CF6',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'folder-reports',
-    name: 'Sprint Reports',
-    projectId: 'all',
-    projectName: 'All Projects',
-    parentId: null,
-    color: '#10B981',
-    createdAt: new Date().toISOString(),
-  },
-];
-
 interface FilesPageProps {
   project?: Project | null;
   hideHeader?: boolean;
@@ -112,45 +82,62 @@ export const FilesPage: React.FC<FilesPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Folder System state
-  const foldersStorageKey = `dboard_folders_${user?.id || 'guest'}`;
-  const fileFoldersMapKey = `dboard_file_folder_map_${user?.id || 'guest'}`;
-
-  const [folders, setFolders] = useState<FolderItem[]>(() => {
-    try {
-      const saved = localStorage.getItem(foldersStorageKey);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return DEFAULT_INITIAL_FOLDERS;
-  });
-
-  const [fileFolderMap, setFileFolderMap] = useState<Record<string, string>>(() => {
-    try {
-      const saved = localStorage.getItem(fileFoldersMapKey);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return {};
-  });
-
+  // Server-backed Folder System state
+  const [folders, setFolders] = useState<FolderItem[]>([]);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
   const [movingFile, setMovingFile] = useState<AttachmentDTO | null>(null);
   const [fileToDelete, setFileToDelete] = useState<AttachmentDTO | null>(null);
   const [isDeletingFile, setIsDeletingFile] = useState(false);
 
-  // Save folders to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(foldersStorageKey, JSON.stringify(folders));
-    } catch {}
-  }, [folders, foldersStorageKey]);
-
-  // Save fileFolderMap to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(fileFoldersMapKey, JSON.stringify(fileFolderMap));
-    } catch {}
-  }, [fileFolderMap, fileFoldersMapKey]);
+  // Load server-backed folders for project(s)
+  const loadFolders = useCallback(async () => {
+    const targetProjId = projectId || (selectedGlobalProjectId !== 'all' ? selectedGlobalProjectId : null);
+    if (targetProjId) {
+      try {
+        const res = await filesApi.getProjectFolders(targetProjId);
+        if (res.success && res.data?.folders) {
+          setFolders(
+            res.data.folders.map((f) => ({
+              id: f.id,
+              name: f.name,
+              projectId: f.projectId,
+              projectName: project?.name || 'Project',
+              parentId: f.parentId,
+              color: '#8B5CF6',
+              createdAt: f.createdAt,
+            }))
+          );
+        }
+      } catch (e) {
+        console.error('Failed to load project folders:', e);
+      }
+    } else if (accessibleProjects.length > 0) {
+      try {
+        const allFolderLists = await Promise.all(
+          accessibleProjects.map((p) => filesApi.getProjectFolders(p.id).catch(() => null))
+        );
+        const aggregated: FolderItem[] = [];
+        allFolderLists.forEach((res, idx) => {
+          if (res && res.success && res.data?.folders) {
+            const p = accessibleProjects[idx];
+            res.data.folders.forEach((f) => {
+              aggregated.push({
+                id: f.id,
+                name: f.name,
+                projectId: f.projectId,
+                projectName: p.name,
+                parentId: f.parentId,
+                color: '#8B5CF6',
+                createdAt: f.createdAt,
+              });
+            });
+          }
+        });
+        setFolders(aggregated);
+      } catch (e) {}
+    }
+  }, [projectId, selectedGlobalProjectId, accessibleProjects, project]);
 
   // Modals state
   const [selectedFileForViewer, setSelectedFileForViewer] = useState<AttachmentDTO | null>(null);
@@ -255,7 +242,8 @@ export const FilesPage: React.FC<FilesPageProps> = ({
 
   useEffect(() => {
     loadFiles();
-  }, [loadFiles]);
+    loadFolders();
+  }, [loadFiles, loadFolders]);
 
   // Active current folder item or active project folder
   const currentFolder = useMemo(() => {
@@ -333,56 +321,72 @@ export const FilesPage: React.FC<FilesPageProps> = ({
           const pId = currentFolderId.replace('proj-', '');
           return file.projectId === pId;
         }
-        return fileFolderMap[file.id] === currentFolderId;
+        return file.folderId === currentFolderId;
       }
-      // If at root and searching or filtered, show all; otherwise show unfiled & all root files
+      // Root view: show all files or top-level files
       return true;
     });
-  }, [files, currentFolderId, fileFolderMap]);
+  }, [files, currentFolderId]);
 
   // Handle Folder Creation
-  const handleCreateFolder = (newFolderData: Omit<FolderItem, 'id' | 'createdAt'>) => {
-    const newFolder: FolderItem = {
-      ...newFolderData,
-      id: `folder-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      createdAt: new Date().toISOString(),
-    };
-    setFolders((prev) => [newFolder, ...prev]);
-    setFeedback({ type: 'success', message: `Folder "${newFolder.name}" created successfully!` });
+  const handleCreateFolder = async (newFolderData: Omit<FolderItem, 'id' | 'createdAt'>) => {
+    const targetProjId =
+      newFolderData.projectId && newFolderData.projectId !== 'all'
+        ? newFolderData.projectId
+        : activeProjectId || accessibleProjects[0]?.id;
+
+    if (!targetProjId) {
+      setFeedback({ type: 'error', message: 'Please select a project before creating a folder.' });
+      return;
+    }
+
+    try {
+      const res = await filesApi.createFolder(targetProjId, newFolderData.name, newFolderData.parentId);
+      if (res.success) {
+        setFeedback({ type: 'success', message: `Folder "${res.data.folder.name}" created successfully!` });
+        loadFolders();
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to create folder' });
+    }
   };
 
   // Handle Folder Deletion
-  const handleDeleteFolder = (folderId: string, folderName: string) => {
+  const handleDeleteFolder = async (folderId: string, folderName: string) => {
     if (folderId.startsWith('proj-')) {
       alert('Project folders are managed via Project Settings.');
       return;
     }
-    if (!window.confirm(`Delete personal folder "${folderName}"? Files inside will be moved to Root.`)) return;
-    setFolders((prev) => prev.filter((f) => f.id !== folderId && f.parentId !== folderId));
-    setFileFolderMap((prev) => {
-      const next = { ...prev };
-      Object.keys(next).forEach((fId) => {
-        if (next[fId] === folderId) delete next[fId];
-      });
-      return next;
-    });
-    if (currentFolderId === folderId) setCurrentFolderId(null);
-    setFeedback({ type: 'success', message: `Folder "${folderName}" deleted.` });
+    if (!window.confirm(`Delete folder "${folderName}"? Files inside will be moved to Root.`)) return;
+
+    const folder = folders.find((f) => f.id === folderId);
+    const targetProjId = folder?.projectId || activeProjectId;
+    if (!targetProjId) return;
+
+    try {
+      await filesApi.deleteFolder(targetProjId, folderId);
+      if (currentFolderId === folderId) setCurrentFolderId(null);
+      setFeedback({ type: 'success', message: `Folder "${folderName}" deleted.` });
+      loadFolders();
+      loadFiles();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to delete folder' });
+    }
   };
 
   // Move file into a folder
-  const handleMoveFileToFolder = (fileId: string, targetFolderId: string | null) => {
-    setFileFolderMap((prev) => {
-      const next = { ...prev };
-      if (!targetFolderId) {
-        delete next[fileId];
-      } else {
-        next[fileId] = targetFolderId;
-      }
-      return next;
-    });
-    setMovingFile(null);
-    setFeedback({ type: 'success', message: 'File moved successfully!' });
+  const handleMoveFileToFolder = async (fileId: string, targetFolderId: string | null) => {
+    const targetFile = files.find((f) => f.id === fileId);
+    if (!targetFile) return;
+
+    try {
+      await filesApi.moveFile(targetFile.projectId, fileId, targetFolderId);
+      setMovingFile(null);
+      setFeedback({ type: 'success', message: 'File moved successfully!' });
+      loadFiles();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to move file' });
+    }
   };
 
   // Handle Drag and Drop anywhere on the page
@@ -410,13 +414,9 @@ export const FilesPage: React.FC<FilesPageProps> = ({
         if (res.success) {
           // Associate newly uploaded files with current active folder if open
           if (currentFolderId && res.data.files) {
-            setFileFolderMap((prev) => {
-              const next = { ...prev };
-              res.data.files.forEach((f) => {
-                next[f.id] = currentFolderId;
-              });
-              return next;
-            });
+            await Promise.all(
+              res.data.files.map((f) => filesApi.moveFile(targetProjId, f.id, currentFolderId).catch(() => {}))
+            );
           }
 
           setFeedback({
@@ -637,7 +637,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
               <SearchIcon size={15} />
               <input
                 type="text"
-                placeholder="Search files by name, content, or type..."
+                placeholder="Search files by name or type..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="files-search-input-field"
@@ -816,7 +816,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                   const isProj = Boolean(fld.isProjectFolder);
                   const itemsInside = isProj
                     ? files.filter((f) => f.projectId === fld.projectId).length
-                    : files.filter((f) => fileFolderMap[f.id] === fld.id).length;
+                    : files.filter((f) => f.folderId === fld.id).length;
 
                   return (
                     <div
@@ -980,7 +980,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
               <div className="files-grid-container">
                 {visibleFiles.map((file) => {
                   const theme = getCategoryTheme(file.category);
-                  const assignedFolder = folders.find((f) => f.id === fileFolderMap[file.id]);
+                  const assignedFolder = folders.find((f) => f.id === file.folderId);
 
                   return (
                     <div
@@ -1135,7 +1135,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                   <tbody>
                     {visibleFiles.map((file) => {
                       const theme = getCategoryTheme(file.category);
-                      const assignedFolder = folders.find((f) => f.id === fileFolderMap[file.id]);
+                      const assignedFolder = folders.find((f) => f.id === file.folderId);
 
                       return (
                         <tr
@@ -1413,16 +1413,16 @@ export const FilesPage: React.FC<FilesPageProps> = ({
         <FileUploadModal
           isOpen={isUploadModalOpen}
           onClose={() => setIsUploadModalOpen(false)}
-          onUploadSuccess={(createdFiles, destFolderId) => {
+          onUploadSuccess={async (createdFiles, destFolderId) => {
             setIsUploadModalOpen(false);
             if (destFolderId && createdFiles && createdFiles.length > 0) {
-              setFileFolderMap((prev) => {
-                const next = { ...prev };
-                createdFiles.forEach((f: any) => {
-                  if (f.id) next[f.id] = destFolderId;
-                });
-                return next;
-              });
+              await Promise.all(
+                createdFiles.map((f: any) =>
+                  f.id && f.projectId
+                    ? filesApi.moveFile(f.projectId, f.id, destFolderId).catch(() => {})
+                    : Promise.resolve()
+                )
+              );
             }
             setFeedback({ type: 'success', message: 'Files uploaded successfully!' });
             loadFiles();

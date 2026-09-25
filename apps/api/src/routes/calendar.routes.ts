@@ -1,10 +1,24 @@
 import { Router } from 'express';
 import { calendarController } from '../controllers/calendar.controller.js';
-import { authenticate } from '../middlewares/auth.middleware.js';
+import { authenticate, optionalAuthenticate } from '../middlewares/auth.middleware.js';
 
 const router = Router({ mergeParams: true });
 
+// GET /api/projects/:projectId/calendar/feed.ics (Supports revocable ?token=... or session cookie)
+router.get('/feed.ics', optionalAuthenticate, (req, res, next) => {
+  calendarController.getICalFeed(req as any, res, next);
+});
+
 router.use(authenticate);
+
+// Feed subscription token management
+router.post('/feed/token', (req, res, next) => {
+  calendarController.createFeedToken(req as any, res, next);
+});
+
+router.delete('/feed/token', (req, res, next) => {
+  calendarController.revokeFeedToken(req as any, res, next);
+});
 
 // GET /api/projects/:projectId/calendar/events
 router.get('/events', (req, res, next) => {

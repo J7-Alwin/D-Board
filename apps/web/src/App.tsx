@@ -24,6 +24,7 @@ import { NotesPage } from './pages/app/NotesPage';
 import { CalendarPage } from './pages/app/CalendarPage';
 import { FilesPage } from './pages/app/FilesPage';
 import { NotificationsPage } from './pages/app/NotificationsPage';
+import { ActivityPage } from './pages/app/ActivityPage';
 import { AccountSettingsPage } from './pages/app/AccountSettingsPage';
 import { TermsPage } from './pages/TermsPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
@@ -124,11 +125,19 @@ const AppRoutes: React.FC = () => {
     );
   }
 
-  // Unified Project Workspace Shell (Keeps Top Hero Banner & Tabs persistent without full page reload)
+  // Unified Project Workspace Shell
   if (path.match(/^\/app\/projects\/[^/]+/)) {
     return (
       <AppLayout>
         <ProjectWorkspaceShell />
+      </AppLayout>
+    );
+  }
+
+  if (path === '/app/activity') {
+    return (
+      <AppLayout>
+        <ActivityPage />
       </AppLayout>
     );
   }

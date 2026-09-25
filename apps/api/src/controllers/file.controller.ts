@@ -1,5 +1,8 @@
 import type { Response, NextFunction } from 'express';
 import multer from 'multer';
+import os from 'os';
+import path from 'path';
+import fs from 'fs';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware.js';
 import { fileService } from '../services/file.service.js';
 import { fileQuerySchema, renameFileSchema, attachFileSchema } from '../schemas/file.schema.js';
@@ -9,9 +12,24 @@ import { AppError } from '../middlewares/error.middleware.js';
 const MAX_FILE_SIZE_MB = Number(process.env.MAX_FILE_SIZE_MB) || 50;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-// Configure multer memory storage
+// Dedicated temporary upload directory to prevent RAM exhaustion
+const TEMP_UPLOAD_DIR = path.join(os.tmpdir(), 'dboard-temp-uploads');
+if (!fs.existsSync(TEMP_UPLOAD_DIR)) {
+  fs.mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
+}
+
+// Configure multer disk storage for memory safety
 export const uploadMiddleware = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      cb(null, TEMP_UPLOAD_DIR);
+    },
+    filename: (_req, file, cb) => {
+      const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+      const safeBase = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+      cb(null, `${uniqueSuffix}-${safeBase}`);
+    },
+  }),
   limits: {
     fileSize: MAX_FILE_SIZE_BYTES,
     files: 10, // Up to 10 files per batch
@@ -20,33 +38,38 @@ export const uploadMiddleware = multer({
 
 export class FileController {
   /**
-   * Upload one or more files to project.
+   * Upload one or more files to project with memory-safe temp streaming.
    */
   async uploadFiles(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    const rawFiles = req.files as Express.Multer.File[] | undefined;
+    const singleFile = req.file as Express.Multer.File | undefined;
+    const filesToProcess = rawFiles || (singleFile ? [singleFile] : []);
+
     try {
       if (!req.user) throw new AppError('Authentication required', 401);
       const projectId = req.params.projectId as string;
       const userId = req.user.userId;
       const workItemId = (req.body?.workItemId as string) || null;
       const noteId = (req.body?.noteId as string) || null;
-
-      const rawFiles = req.files as Express.Multer.File[] | undefined;
-      const singleFile = req.file as Express.Multer.File | undefined;
-
-      const filesToProcess = rawFiles || (singleFile ? [singleFile] : []);
+      const folderId = (req.body?.folderId as string) || null;
 
       if (filesToProcess.length === 0) {
         throw new AppError('No files were uploaded', 400);
       }
 
-      const payloads = filesToProcess.map((f) => ({
-        originalname: Buffer.from(f.originalname, 'latin1').toString('utf8'), // handle utf8 filenames
-        mimetype: f.mimetype,
-        size: f.size,
-        buffer: f.buffer,
-      }));
+      const payloads = await Promise.all(
+        filesToProcess.map(async (f) => {
+          const buffer = f.buffer || (f.path ? await fs.promises.readFile(f.path) : Buffer.alloc(0));
+          return {
+            originalname: Buffer.from(f.originalname, 'latin1').toString('utf8'),
+            mimetype: f.mimetype,
+            size: f.size,
+            buffer,
+          };
+        })
+      );
 
-      const created = await fileService.uploadFiles(projectId, userId, payloads, { workItemId, noteId });
+      const created = await fileService.uploadFiles(projectId, userId, payloads, { workItemId, noteId, folderId });
 
       res.status(201).json({
         success: true,
@@ -55,6 +78,13 @@ export class FileController {
       });
     } catch (err) {
       next(err);
+    } finally {
+      // Clean up temporary files from disk
+      for (const f of filesToProcess) {
+        if (f.path) {
+          fs.promises.unlink(f.path).catch(() => {});
+        }
+      }
     }
   }
 
@@ -132,9 +162,25 @@ export class FileController {
 
       const { file, stream } = await fileService.getFileStream(projectId, fileId, userId);
 
-      res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+      const ext = (file.extension || '').toLowerCase();
+      const isHtmlActive = ['html', 'htm', 'xhtml'].includes(ext) || (file.mimeType && file.mimeType.includes('html'));
+      const isPotentiallyActive =
+        isHtmlActive ||
+        ['svg', 'xml', 'js', 'mjs'].includes(ext) ||
+        (file.mimeType && (file.mimeType.includes('svg') || file.mimeType.includes('xml')));
+
+      // Dangerous active HTML files are forced to text/plain to completely neutralize script execution
+      const servedMimeType = isHtmlActive ? 'text/plain; charset=utf-8' : (file.mimeType || 'application/octet-stream');
+
+      res.setHeader('Content-Type', servedMimeType);
       res.setHeader('Content-Length', file.sizeBytes);
       res.setHeader('X-Content-Type-Options', 'nosniff');
+
+      if (isPotentiallyActive) {
+        // Strict CSP sandbox isolates uploaded active formats completely
+        res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+      }
+
       res.setHeader(
         'Content-Disposition',
         `inline; filename="${encodeURIComponent(file.originalName)}"`

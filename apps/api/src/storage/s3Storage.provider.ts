@@ -23,12 +23,12 @@ export class S3StorageProvider implements StorageProvider {
   private bucket: string;
 
   constructor(config?: S3StorageConfig) {
-    this.bucket = config?.bucket || process.env.AWS_S3_BUCKET || 'd-board-storage';
-    const region = config?.region || process.env.AWS_REGION || 'us-east-1';
-    const accessKeyId = config?.accessKeyId || process.env.AWS_ACCESS_KEY_ID;
-    const secretAccessKey = config?.secretAccessKey || process.env.AWS_SECRET_ACCESS_KEY;
-    const endpoint = config?.endpoint || process.env.AWS_ENDPOINT;
-    const forcePathStyle = config?.forcePathStyle ?? (Boolean(endpoint) || process.env.AWS_S3_FORCE_PATH_STYLE === 'true');
+    this.bucket = config?.bucket || process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || 'd-board-files';
+    const region = config?.region || process.env.S3_REGION || process.env.AWS_REGION || 'auto';
+    const accessKeyId = config?.accessKeyId || process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+    const secretAccessKey = config?.secretAccessKey || process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+    const endpoint = config?.endpoint || process.env.S3_ENDPOINT || process.env.AWS_ENDPOINT;
+    const forcePathStyle = config?.forcePathStyle ?? (process.env.S3_FORCE_PATH_STYLE === 'true' || process.env.AWS_S3_FORCE_PATH_STYLE === 'true');
 
     this.client = new S3Client({
       region,
@@ -42,6 +42,10 @@ export class S3StorageProvider implements StorageProvider {
             }
           : undefined,
     });
+  }
+
+  public getBucketName(): string {
+    return this.bucket;
   }
 
   /**
@@ -143,5 +147,17 @@ export class S3StorageProvider implements StorageProvider {
    */
   async getUrl(key: string): Promise<string> {
     return this.getPresignedDownloadUrl(key, 3600);
+  }
+
+  /**
+   * Non-destructive health check verifying connectivity to S3/R2 bucket
+   */
+  async checkHealth(): Promise<{ status: 'healthy' | 'degraded'; error?: string }> {
+    try {
+      await this.exists(`health-check-${Date.now()}`);
+      return { status: 'healthy' };
+    } catch (err: any) {
+      return { status: 'degraded', error: err?.message || 'S3/R2 storage unavailable' };
+    }
   }
 }

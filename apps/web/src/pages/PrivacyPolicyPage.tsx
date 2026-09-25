@@ -78,7 +78,7 @@ export const PrivacyPolicyPage: React.FC = () => {
           </p>
           <ul style={{ paddingLeft: '1.5rem', color: 'var(--text-secondary, #575757)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <li>
-              <strong>Account Information:</strong> Full name, unique @username handle, email address, and cryptographically hashed passwords (using Argon2id).
+              <strong>Account Information:</strong> Full name, unique @username handle, email address, and cryptographically hashed passwords (using bcrypt with 12 salt rounds).
             </li>
             <li>
               <strong>Google OAuth Profile Data:</strong> When signing in with Google, we access your verified email address, display name, and avatar profile picture. We do not access your Google Drive or contacts.
@@ -126,7 +126,7 @@ export const PrivacyPolicyPage: React.FC = () => {
         <section>
           <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.75rem' }}>5. Security Architecture</h2>
           <p style={{ color: 'var(--text-secondary, #575757)' }}>
-            We employ modern defense-in-depth security standards: passwords are encrypted with Argon2id, reset tokens and OTPs are hashed using SHA-256 before storage, session tokens use secure HTTP-only cookies, and strict Insecure Direct Object Reference (IDOR) filters guarantee cross-tenant data isolation.
+            We employ modern defense-in-depth security standards: passwords are encrypted with bcrypt (12 salt rounds), reset tokens and OTPs are hashed using SHA-256 before storage, session tokens use secure HTTP-only cookies, and strict Insecure Direct Object Reference (IDOR) filters guarantee cross-tenant data isolation.
           </p>
         </section>
 

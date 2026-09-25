@@ -234,77 +234,8 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
   const isImg = !heroImgError && Boolean(avatarUrl && isLikelyImageUrl(avatarUrl));
   const isEmojiOrPreset = !heroImgError && !isImg && avatarUrl.length > 0 && avatarUrl.length <= 8;
 
-  // Fallback sample items matching the exact reference screenshot if no work items exist yet
-  const displayItems = workItems.length > 0 ? workItems : [
-    {
-      id: 'demo-1',
-      projectId: project.id,
-      title: 'bud fix',
-      type: 'BUG',
-      status: 'BLOCKED',
-      priority: 'HIGH',
-      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-      updatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-      createdById: project.createdById || 'u1',
-      createdBy: { id: project.createdById || 'u1', email: 'alwin@example.com', username: 'aj7', fullName: 'Alwin James' },
-      assignedTo: { id: 'u2', email: 'alwin@test.com', username: 'j7alwin', fullName: 'alwin' },
-    } as WorkItem,
-    {
-      id: 'demo-2',
-      projectId: project.id,
-      title: 'vrv',
-      type: 'IMPROVEMENT',
-      status: 'TODO',
-      priority: 'MEDIUM',
-      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-      updatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-      createdById: project.createdById || 'u1',
-      createdBy: { id: project.createdById || 'u1', email: 'alwin@example.com', username: 'aj7', fullName: 'Alwin James' },
-      assignedTo: { id: 'u2', email: 'alwin@test.com', username: 'j7alwin', fullName: 'alwin' },
-    } as WorkItem,
-    {
-      id: 'demo-3',
-      projectId: project.id,
-      title: 'uguikj',
-      type: 'FEATURE',
-      status: 'TODO',
-      priority: 'MEDIUM',
-      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-      updatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-      createdById: project.createdById || 'u1',
-      createdBy: { id: project.createdById || 'u1', email: 'alwin@example.com', username: 'aj7', fullName: 'Alwin James' },
-      assignedTo: { id: 'u2', email: 'alwin@test.com', username: 'j7alwin', fullName: 'alwin' },
-    } as WorkItem,
-  ];
-
-  // Fallback sample activities matching screenshot if none recorded
-  const displayActivities = recentActivities.length > 0 ? recentActivities : [
-    {
-      id: 'act-1',
-      projectId: project.id,
-      actorId: 'u1',
-      type: 'COMMENT_ADDED',
-      createdAt: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
-      actor: { id: 'u1', username: 'aj7', fullName: 'Alwin James', email: 'aj7@example.com' },
-      workItem: { id: 'w1', title: 'bud fix', type: 'BUG' },
-    } as ActivityItem,
-    {
-      id: 'act-2',
-      projectId: project.id,
-      actorId: 'u1',
-      type: 'WORK_STATUS_CHANGED',
-      createdAt: new Date(Date.now() - 3.1 * 3600 * 1000).toISOString(),
-      actor: { id: 'u1', username: 'aj7', fullName: 'Alwin James', email: 'aj7@example.com' },
-    } as ActivityItem,
-    {
-      id: 'act-3',
-      projectId: project.id,
-      actorId: 'u2',
-      type: 'PROJECT_CREATED',
-      createdAt: new Date(Date.now() - 4 * 3600 * 1000).toISOString(),
-      actor: { id: 'u2', username: 'j7alwin', fullName: 'alwin', email: 'alwin@test.com' },
-    } as ActivityItem,
-  ];
+  const displayItems = workItems;
+  const displayActivities = recentActivities;
 
   return (
     <div className="project-workspace-page po-overview-wrapper">
@@ -443,7 +374,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                 <div className="po-metric-icon-box purple">
                   <LayersIcon size={18} />
                 </div>
-                <div className="po-metric-main-num">{stats?.total ?? (workItems.length || 3)}</div>
+                <div className="po-metric-main-num">{stats?.total ?? workItems.length}</div>
                 <div className="po-metric-sparkline-box purple">
                   <svg width="22" height="18" viewBox="0 0 22 18" fill="none">
                     <rect x="2" y="10" width="3" height="8" rx="1.5" fill="#A855F7" />
@@ -497,7 +428,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                 <div className="po-metric-icon-box red">
                   <AlertCircleIcon size={18} />
                 </div>
-                <div className="po-metric-main-num red">{stats?.overdue ?? 2}</div>
+                <div className="po-metric-main-num red">{stats?.overdue ?? 0}</div>
                 <div className="po-metric-arrow-red">↗</div>
               </div>
               <span className="po-metric-title-label red">Overdue</span>
@@ -518,7 +449,12 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
             </div>
 
             <div className="po-work-items-list-body">
-              {displayItems.map((item, idx) => (
+              {displayItems.length === 0 ? (
+                <div style={{ padding: '36px 16px', textAlign: 'center', color: '#94A3B8', fontSize: '13px' }}>
+                  No work items created yet. Click &quot;Add Task&quot; above to create your first task.
+                </div>
+              ) : (
+                displayItems.slice(0, 5).map((item, idx) => (
                 <div
                   key={item.id}
                   className="po-work-item-row"
@@ -534,7 +470,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                   <div className="po-work-item-info-col">
                     <h4 className="po-work-item-title">{item.title}</h4>
                     <span className="po-work-item-metadata">
-                      #{(item as any).key || (project.key ? `${project.key}-${idx + 1}` : `TASK-${idx + 1}`)} • Opened {formatTimeAgo(item.createdAt)} by {item.createdBy?.fullName || item.createdBy?.username || 'Alwin James'}
+                      #{(item as any).key || (project.key ? `${project.key}-${idx + 1}` : `TASK-${idx + 1}`)} • Opened {formatTimeAgo(item.createdAt)} by {item.createdBy?.fullName || item.createdBy?.username || 'Team member'}
                     </span>
                   </div>
 
@@ -563,7 +499,8 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                     •••
                   </button>
                 </div>
-              ))}
+              ))
+              )}
             </div>
           </div>
 
@@ -588,7 +525,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
 
               <div className="po-card-content-body">
                 <p className="po-desc-paragraph">
-                  {project.description || 'iuioioihewkj'}
+                  {project.description || 'No project description provided.'}
                 </p>
 
                 <div className="po-desc-meta-pills-row">
@@ -596,7 +533,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                     <span className="po-desc-meta-label">Category</span>
                     <div className="po-desc-meta-pill cat-pill-accent">
                       <ApplicationCategoryIcon category={project.category} size={14} className="po-meta-icon" />
-                      <span>{project.category || 'Web Application'}</span>
+                      <span>{project.category || 'General'}</span>
                     </div>
                   </div>
 
@@ -607,7 +544,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                       <span>
                         {project.endDate
                           ? new Date(project.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                          : 'Sep 30, 2026'}
+                          : 'No deadline set'}
                       </span>
                     </div>
                   </div>
@@ -833,7 +770,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
               <div className="po-card-title-flex">
                 <UsersIcon size={17} className="po-card-header-icon" />
                 <h3 className="po-card-title-text">
-                  Team Members ({project.members?.length || 2})
+                  Team Members ({project.members?.length || 1})
                 </h3>
               </div>
               <Link to={`/app/projects/${project.id}/members`} className="po-card-view-all-link">
@@ -843,70 +780,37 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
 
             <div className="po-card-content-body">
               <div className="po-team-members-vertical-list">
-                {/* Owner: Alwin James */}
-                <div className="po-member-list-item">
-                  <div className="po-member-avatar-box">
-                    <div className="po-member-circle-avatar owner-avatar-circle">
-                      A
-                    </div>
-                  </div>
-                  <div className="po-member-names-col">
-                    <span className="po-member-display-name">Alwin James</span>
-                    <span className="po-member-username">@aj7</span>
-                  </div>
-                  <div className="po-member-role-group">
-                    <span className="po-member-role-badge-dark">OWNER</span>
-                    <span className="po-member-active-green-dot" />
-                  </div>
-                </div>
-
-                {/* Member: alwin */}
-                <div className="po-member-list-item">
-                  <div className="po-member-avatar-box">
-                    <div className="po-member-circle-avatar member-avatar-circle">
-                      a
-                    </div>
-                  </div>
-                  <div className="po-member-names-col">
-                    <span className="po-member-display-name">alwin</span>
-                    <span className="po-member-username">@j7alwin</span>
-                  </div>
-                  <div className="po-member-role-group">
-                    <span className="po-member-role-badge-member">MEMBER</span>
-                    <span className="po-member-active-green-dot" />
-                  </div>
-                </div>
-
-                {/* Extra Project Members from API if available */}
-                {project.members &&
-                  project.members.map((m) => {
-                    if (m.user?.username === 'aj7' || m.user?.username === 'j7alwin') return null;
-                    return (
-                      <div key={m.id} className="po-member-list-item">
-                        <div className="po-member-avatar-box">
-                          {m.user?.avatarUrl ? (
-                            <img src={m.user.avatarUrl} alt="" className="po-member-avatar-img" />
-                          ) : (
-                            <div className="po-member-circle-avatar member-avatar-circle">
-                              {(m.user?.fullName || m.user?.username || 'm')[0].toLowerCase()}
-                            </div>
-                          )}
-                        </div>
-                        <div className="po-member-names-col">
-                          <span className="po-member-display-name">
-                            {m.user?.fullName || m.user?.username}
-                          </span>
-                          <span className="po-member-username">@{m.user?.username}</span>
-                        </div>
-                        <div className="po-member-role-group">
-                          <span className="po-member-role-badge-member">
-                            {m.role === 'PROJECT_ADMIN' ? 'ADMIN' : 'MEMBER'}
-                          </span>
-                          <span className="po-member-active-green-dot" />
-                        </div>
+                {project.members && project.members.length > 0 ? (
+                  project.members.map((m) => (
+                    <div key={m.id} className="po-member-list-item">
+                      <div className="po-member-avatar-box">
+                        {m.user?.avatarUrl ? (
+                          <img src={m.user.avatarUrl} alt="" className="po-member-avatar-img" />
+                        ) : (
+                          <div className="po-member-circle-avatar member-avatar-circle">
+                            {(m.user?.fullName || m.user?.username || 'U')[0].toUpperCase()}
+                          </div>
+                        )}
                       </div>
-                    );
-                  })}
+                      <div className="po-member-names-col">
+                        <span className="po-member-display-name">
+                          {m.user?.fullName || m.user?.username || 'Team Member'}
+                        </span>
+                        <span className="po-member-username">@{m.user?.username || 'user'}</span>
+                      </div>
+                      <div className="po-member-role-group">
+                        <span className={m.role === 'PROJECT_ADMIN' ? 'po-member-role-badge-dark' : 'po-member-role-badge-member'}>
+                          {m.role === 'PROJECT_ADMIN' ? 'ADMIN' : 'MEMBER'}
+                        </span>
+                        <span className="po-member-active-green-dot" />
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ padding: '16px', textAlign: 'center', color: '#94A3B8', fontSize: '13px' }}>
+                    No members yet.
+                  </div>
+                )}
               </div>
 
               <button
@@ -932,40 +836,46 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
             </div>
 
             <div className="po-card-content-body">
-              <div className="po-activity-timeline-feed">
-                {displayActivities.slice(0, 4).map((act, idx, arr) => (
-                  <div key={act.id} className="po-activity-timeline-item">
-                    <div className="po-activity-dot-rail">
-                      <span className="po-activity-dot" />
-                      {idx < arr.length - 1 && <span className="po-activity-rail-line" />}
-                    </div>
-                    <div className="po-activity-item-details">
-                      <div className="po-activity-item-top">
-                        <span className="po-activity-actor-name">
-                          {act.actor?.fullName || act.actor?.username || 'Alwin James'}
-                        </span>
-                        <span className="po-activity-item-timestamp">
-                          {new Date(act.createdAt).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+              {displayActivities.length === 0 ? (
+                <div style={{ padding: '24px 16px', textAlign: 'center', color: '#94A3B8', fontSize: '13px' }}>
+                  No project activity recorded yet.
+                </div>
+              ) : (
+                <div className="po-activity-timeline-feed">
+                  {displayActivities.slice(0, 4).map((act, idx, arr) => (
+                    <div key={act.id} className="po-activity-timeline-item">
+                      <div className="po-activity-dot-rail">
+                        <span className="po-activity-dot" />
+                        {idx < arr.length - 1 && <span className="po-activity-rail-line" />}
+                      </div>
+                      <div className="po-activity-item-details">
+                        <div className="po-activity-item-top">
+                          <span className="po-activity-actor-name">
+                            {act.actor?.fullName || act.actor?.username || 'Team Member'}
+                          </span>
+                          <span className="po-activity-item-timestamp">
+                            {new Date(act.createdAt).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                        <span className="po-activity-action-desc">
+                          {act.type === 'WORK_CREATED' && `created work item "${act.workItem?.title || 'task'}"`}
+                          {act.type === 'WORK_STATUS_CHANGED' && `updated a task`}
+                          {act.type === 'WORK_COMPLETED' && `completed a task`}
+                          {act.type === 'COMMENT_ADDED' && `commented on "${act.workItem?.title || 'task'}"`}
+                          {act.type === 'PROJECT_CREATED' && `created the project`}
+                          {!['WORK_CREATED', 'WORK_STATUS_CHANGED', 'WORK_COMPLETED', 'COMMENT_ADDED', 'PROJECT_CREATED'].includes(act.type) &&
+                            `updated workspace`}
                         </span>
                       </div>
-                      <span className="po-activity-action-desc">
-                        {act.type === 'WORK_CREATED' && `created work item "${act.workItem?.title || 'task'}"`}
-                        {act.type === 'WORK_STATUS_CHANGED' && `updated a task`}
-                        {act.type === 'WORK_COMPLETED' && `completed a task`}
-                        {act.type === 'COMMENT_ADDED' && `commented on "${act.workItem?.title || 'bud fix'}"`}
-                        {act.type === 'PROJECT_CREATED' && `created the project`}
-                        {!['WORK_CREATED', 'WORK_STATUS_CHANGED', 'WORK_COMPLETED', 'COMMENT_ADDED', 'PROJECT_CREATED'].includes(act.type) &&
-                          `updated a task`}
-                      </span>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import mammoth from 'mammoth';
+import DOMPurify from 'dompurify';
 import type { AttachmentDTO } from '../../../api/files.api';
 import { filesApi } from '../../../api/files.api';
 import { FileTextIcon, DownloadIcon } from '../../ui/Icons';
@@ -31,7 +32,16 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({ file }) => {
           if (!active) return;
           try {
             const result = await mammoth.convertToHtml({ arrayBuffer });
-            setDocHtml(result.value || '<p><em>(Empty document)</em></p>');
+            const sanitizedHtml = DOMPurify.sanitize(result.value || '<p><em>(Empty document)</em></p>', {
+              ALLOWED_TAGS: [
+                'p', 'b', 'i', 'em', 'strong', 'u', 's', 'strike', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'span', 'br', 'hr',
+                'blockquote', 'sub', 'sup', 'img'
+              ],
+              ALLOWED_ATTR: ['src', 'alt', 'title', 'width', 'height', 'style', 'class', 'colspan', 'rowspan'],
+              ALLOW_DATA_ATTR: false,
+            });
+            setDocHtml(sanitizedHtml);
           } catch (err: any) {
             throw new Error(err.message || 'Failed to convert DOCX document');
           }

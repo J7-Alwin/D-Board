@@ -32,13 +32,25 @@ export const ArchiveViewer: React.FC<ArchiveViewerProps> = ({ file }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [archiveWarning, setArchiveWarning] = useState<string | null>(null);
+
+  const MAX_ARCHIVE_FILE_BYTES = 25 * 1024 * 1024; // 25 MB max file size
+  const MAX_ZIP_ENTRIES = 500;
+  const MAX_DECOMPRESSED_BYTES = 100 * 1024 * 1024; // 100 MB zip bomb defense
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
+    setArchiveWarning(null);
     setSelectedEntryPath(null);
     setPreviewContent(null);
+
+    if (file.sizeBytes > MAX_ARCHIVE_FILE_BYTES) {
+      setLoading(false);
+      setError('Archive is too large to inspect in-browser (> 25 MB). Please download the file directly.');
+      return;
+    }
 
     filesApi
       .fetchFileArrayBuffer(file.projectId, file.id)
@@ -49,15 +61,42 @@ export const ArchiveViewer: React.FC<ArchiveViewerProps> = ({ file }) => {
           setZipInstance(zip);
 
           const list: ZipEntryInfo[] = [];
+          let accumulatedSize = 0;
+          let entryCount = 0;
+          let hasTraversal = false;
+
           zip.forEach((relativePath, zipEntry) => {
+            entryCount++;
+            if (entryCount > MAX_ZIP_ENTRIES) {
+              return;
+            }
+
+            // Path Traversal / Zip Slip Defense
+            if (relativePath.includes('..') || relativePath.startsWith('/') || relativePath.startsWith('\\')) {
+              hasTraversal = true;
+            }
+
+            const uncompressedSize = (zipEntry as any)._data?.uncompressedSize || 0;
+            accumulatedSize += uncompressedSize;
+
+            if (accumulatedSize > MAX_DECOMPRESSED_BYTES) {
+              throw new Error('Archive total uncompressed size exceeds safe limit (100 MB). Inspection aborted to protect device resources.');
+            }
+
             list.push({
               path: relativePath,
               name: relativePath.split('/').filter(Boolean).pop() || relativePath,
               isDir: zipEntry.dir,
-              uncompressedSize: (zipEntry as any)._data?.uncompressedSize || 0,
+              uncompressedSize,
               date: zipEntry.date || new Date(),
             });
           });
+
+          if (entryCount > MAX_ZIP_ENTRIES) {
+            setArchiveWarning(`Archive contains ${entryCount} items. Showing the first ${MAX_ZIP_ENTRIES} entries.`);
+          } else if (hasTraversal) {
+            setArchiveWarning('Archive contains entries with path traversal sequences. Download with caution.');
+          }
 
           // Sort directories first, then alphabetically
           list.sort((a, b) => {
@@ -148,6 +187,11 @@ export const ArchiveViewer: React.FC<ArchiveViewerProps> = ({ file }) => {
 
   return (
     <div className="archive-viewer-container">
+      {archiveWarning && (
+        <div style={{ padding: '8px 16px', background: '#FFFBEB', color: '#B45309', borderBottom: '1px solid #FDE68A', fontSize: '13px' }}>
+          ⚠️ {archiveWarning}
+        </div>
+      )}
       {/* Archive Header Stats */}
       <div className="archive-viewer-toolbar">
         <div className="archive-stats">

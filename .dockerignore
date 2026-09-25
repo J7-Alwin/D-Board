@@ -1,0 +1,16 @@
+node_modules
+apps/api/node_modules
+apps/web/node_modules
+apps/api/dist
+apps/web/dist
+.git
+.gitignore
+.env
+.env.local
+.agents
+.claude
+.windsurf
+uploads_storage
+uploads_storage_test
+coverage
+*.log

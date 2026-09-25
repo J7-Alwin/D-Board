@@ -3,6 +3,8 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
+import helmet from "helmet";
+import { env, validateEnv } from "./config/env.js";
 import prisma from "./prisma.js";
 import authRoutes from "./routes/auth.routes.js";
 import { projectRoutes } from "./routes/project.routes.js";
@@ -14,59 +16,101 @@ import globalCalendarRoutes from "./routes/globalCalendar.routes.js";
 import { globalFilesRoutes } from "./routes/globalFiles.routes.js";
 import notificationRoutes from "./routes/notification.routes.js";
 import userRoutes from "./routes/user.routes.js";
+import { globalActivityRoutes } from "./routes/globalActivity.routes.js";
+import { searchRoutes } from "./routes/search.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
+import { requestIdMiddleware } from "./middlewares/requestId.middleware.js";
 import { initRealtime } from "./realtime/realtime.service.js";
 import { authRateLimiter, invitationRateLimiter, apiRateLimiter } from "./middlewares/rateLimit.middleware.js";
 import { getRedisClient, closeRedis } from "./redis/redis.client.js";
 import { initWorkers, closeWorkers } from "./jobs/index.js";
+import healthRoutes from "./routes/health.routes.js";
+import docsRoutes from "./routes/docs.routes.js";
 
 dotenv.config();
 
+// Startup validation of configuration environment
+validateEnv();
+
 const app = express();
 const httpServer = http.createServer(app);
-const PORT = process.env.PORT || 5000;
-const CLIENT_URL = process.env.APP_URL || "http://localhost:5173";
+const PORT = env.PORT || 5000;
 
-// Initialize Redis and BullMQ Workers
-getRedisClient();
-initWorkers();
+// Initialize Redis and BullMQ Workers (only if not running purely unit tests)
+if (process.env.NODE_ENV !== "test") {
+  getRedisClient();
+  if (process.env.ENABLE_EMBEDDED_WORKER !== "false") {
+    initWorkers();
+    console.log("[Worker] Embedded BullMQ workers initialized in API process");
+  } else {
+    console.log("[Worker] Embedded BullMQ workers disabled via ENABLE_EMBEDDED_WORKER=false");
+  }
+  initRealtime(httpServer);
+}
 
-// Initialize Socket.IO
-initRealtime(httpServer);
+// Strict CORS Origins
+const allowedOrigins = [
+  env.APP_URL,
+  ...(env.CLIENT_URL ? [env.CLIENT_URL] : []),
+  ...(env.NODE_ENV === "production" ? [] : ["http://localhost:5173", "http://127.0.0.1:5173"]),
+];
 
-// Middleware
+// Security Headers with Helmet
 app.use(
-  cors({
-    origin: [CLIENT_URL, "http://localhost:5173", "http://127.0.0.1:5173"],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        connectSrc: ["'self'", ...allowedOrigins],
+        fontSrc: ["'self'", "https:", "data:"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        frameSrc: ["'none'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    hsts: env.NODE_ENV === "production" ? {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    } : false,
+    frameguard: { action: "deny" },
+    noSniff: true,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   })
 );
+
+// CORS
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS blocked request from origin: ${origin}`));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
+    exposedHeaders: ["X-Request-Id"],
+  })
+);
+
+// Request / Correlation ID tracking
+app.use(requestIdMiddleware);
+
 app.use(cookieParser());
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+// Hardened request body limits (file uploads use multer with diskStorage up to 50MB per file)
+app.use(express.json({ limit: "2mb" }));
+app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
-// Health check
-app.get("/api/health", async (_req, res) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-
-    res.status(200).json({
-      success: true,
-      message: "D-Board API is running",
-      database: "connected",
-    });
-  } catch (error) {
-    console.error("Database connection failed:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "D-Board API is running, but database connection failed",
-      database: "disconnected",
-    });
-  }
-});
+// System Health & Documentation Endpoints
+app.use("/api", healthRoutes);
+app.use("/api", docsRoutes);
 
 // API Routes with Rate Limiting
 app.use("/api/auth", authRateLimiter, authRoutes);
@@ -79,15 +123,18 @@ app.use("/api/calendar", apiRateLimiter, globalCalendarRoutes);
 app.use("/api/files", apiRateLimiter, globalFilesRoutes);
 app.use("/api/notifications", apiRateLimiter, notificationRoutes);
 app.use("/api/user", apiRateLimiter, userRoutes);
+app.use("/api/activities", apiRateLimiter, globalActivityRoutes);
+app.use("/api/search", apiRateLimiter, searchRoutes);
 
 // Centralized error handler
 app.use(errorHandler);
 
-
-// Start server
-httpServer.listen(PORT, () => {
-  console.log(`D-Board API running on http://localhost:${PORT}`);
-});
+// Start server (only in non-test mode)
+if (process.env.NODE_ENV !== "test") {
+  httpServer.listen(Number(PORT), "0.0.0.0", () => {
+    console.log(`D-Board API running on http://0.0.0.0:${PORT}`);
+  });
+}
 
 // Graceful Shutdown Management
 let isShuttingDown = false;
@@ -105,8 +152,10 @@ async function gracefulShutdown(signal: string) {
       });
     });
 
-    // 2. Close BullMQ workers and queues
-    await closeWorkers();
+    // 2. Close BullMQ workers and queues (if running in this process)
+    if (process.env.ENABLE_EMBEDDED_WORKER !== "false") {
+      await closeWorkers();
+    }
 
     // 3. Close Redis connection
     await closeRedis();

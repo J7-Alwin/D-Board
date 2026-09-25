@@ -3,17 +3,56 @@ import { Redis, type RedisOptions } from 'ioredis';
 let redisClient: Redis | null = null;
 let isReady = false;
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-
 /**
  * Common connection configuration for Redis and BullMQ
  */
 export function getRedisConfig(): RedisOptions {
+  const url = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+  let host = '127.0.0.1';
+  let port = 6379;
+  let username: string | undefined;
+  let password: string | undefined;
+  let db: number | undefined;
+  let tls: any = undefined;
+
+  try {
+    const parsed = new URL(url);
+    host = parsed.hostname || '127.0.0.1';
+    port = parsed.port ? parseInt(parsed.port, 10) : 6379;
+    if (parsed.username) {
+      username = decodeURIComponent(parsed.username);
+    }
+    if (parsed.password) {
+      password = decodeURIComponent(parsed.password);
+    }
+    if (parsed.pathname && parsed.pathname.length > 1) {
+      const dbNum = parseInt(parsed.pathname.slice(1), 10);
+      if (!isNaN(dbNum)) db = dbNum;
+    }
+    const isTls = parsed.protocol === 'rediss:' || process.env.REDIS_TLS === 'true';
+    if (isTls) {
+      tls = {
+        rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED === 'true',
+      };
+    }
+  } catch {
+    // If not a valid URL format, fallback to default host/port
+  }
+
   return {
+    host,
+    port,
+    username,
+    password,
+    db,
+    tls,
     maxRetriesPerRequest: null, // Required by BullMQ
     enableOfflineQueue: false,  // Fail fast when Redis is down
-    connectTimeout: 5000,
+    connectTimeout: 10000,
     retryStrategy(times) {
+      if (process.env.NODE_ENV === 'test') {
+        return null;
+      }
       if (times > 5) {
         // Stop reconnecting aggressively if server is absent
         return null;
@@ -29,7 +68,8 @@ export function getRedisConfig(): RedisOptions {
  */
 export function getRedisClient(): Redis {
   if (!redisClient) {
-    redisClient = new Redis(REDIS_URL, getRedisConfig());
+    const url = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+    redisClient = new Redis(url, getRedisConfig());
 
     redisClient.on('connect', () => {
       // Connected

@@ -68,17 +68,73 @@ export class ProjectController {
     }
   }
 
+  async archiveProject(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const project = await projectService.archiveProject(projectId, req.user.userId);
+      res.status(200).json({
+        success: true,
+        message: 'Project archived successfully',
+        data: { project },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async unarchiveProject(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const project = await projectService.unarchiveProject(projectId, req.user.userId);
+      res.status(200).json({
+        success: true,
+        message: 'Project restored from archive successfully',
+        data: { project },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async deleteProject(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       if (!req.user) {
         throw new AppError('Authentication required', 401);
       }
       const projectId = String(req.params.projectId);
-      const result = await projectService.deleteProject(projectId, req.user.userId);
+      const confirmProjectName = (req.body?.confirmProjectName || req.query?.confirmProjectName) as string | undefined;
+      const result = await projectService.deleteProject(projectId, req.user.userId, confirmProjectName);
       res.status(200).json({
         success: true,
         message: 'Project deleted successfully',
         data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async transferOwnership(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const { targetUserId } = req.body;
+      if (!targetUserId) {
+        throw new AppError('Target user ID is required', 400);
+      }
+      const result = await projectService.transferOwnership(projectId, req.user.userId, targetUserId);
+      res.status(200).json({
+        success: true,
+        message: 'Project ownership transferred successfully',
+        data: { project: result },
       });
     } catch (error) {
       next(error);

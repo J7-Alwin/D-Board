@@ -5,6 +5,7 @@ export interface UserProfile {
   fullName: string | null;
   username: string;
   email: string;
+  isEmailVerified: boolean;
   avatarUrl: string | null;
   googleId: string | null;
   hasPassword: boolean;

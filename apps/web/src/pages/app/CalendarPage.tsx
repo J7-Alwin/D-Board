@@ -1058,6 +1058,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         onClose={() => setSyncModalOpen(false)}
         items={items}
         projectName={project?.name || 'D-Board'}
+        projectId={activeProjectId || undefined}
       />
     </div>
   );

@@ -10,8 +10,9 @@ import {
 } from '../utils/security.js';
 import { RegisterInput, LoginInput } from '../schemas/auth.schema.js';
 import { AppError } from '../middlewares/error.middleware.js';
-import { sendWelcomeEmail, sendPasswordResetOtpEmail } from './email.service.js';
+import { sendWelcomeEmail, sendPasswordResetOtpEmail, sendEmailVerificationEmail } from './email.service.js';
 import { invitationService } from './invitation.service.js';
+import { sessionService } from './session.service.js';
 
 export interface PublicUser {
   id: string;
@@ -23,6 +24,11 @@ export interface PublicUser {
   termsAccepted: boolean;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface AuthSessionMeta {
+  userAgent?: string;
+  ipAddress?: string;
 }
 
 function sanitizeUser(user: any): PublicUser {
@@ -39,7 +45,10 @@ function sanitizeUser(user: any): PublicUser {
   };
 }
 
-export async function register(input: RegisterInput): Promise<{ user: PublicUser; token: string }> {
+export async function register(
+  input: RegisterInput,
+  meta?: AuthSessionMeta
+): Promise<{ user: PublicUser; token: string; verificationToken?: string }> {
   const normalizedUsername = input.username.trim().toLowerCase();
   const normalizedEmail = input.email.toLowerCase().trim();
 
@@ -67,6 +76,11 @@ export async function register(input: RegisterInput): Promise<{ user: PublicUser
 
   const passwordHash = await hashPassword(input.password);
 
+  // Generate email verification token (24 hour expiration)
+  const verificationToken = generateSecureToken(32);
+  const verificationTokenHash = hashToken(verificationToken);
+  const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
   const newUser = await prisma.user.create({
     data: {
       fullName: input.fullName?.trim() || null,
@@ -76,6 +90,9 @@ export async function register(input: RegisterInput): Promise<{ user: PublicUser
       avatarUrl: input.avatarUrl || null,
       termsAccepted: input.termsAccepted ?? true,
       isEmailVerified: false,
+      emailVerificationTokenHash: verificationTokenHash,
+      emailVerificationExpiresAt: verificationExpiresAt,
+      passwordResetAttempts: 0,
     },
   });
 
@@ -89,21 +106,40 @@ export async function register(input: RegisterInput): Promise<{ user: PublicUser
     fullName: newUser.fullName,
   }).catch((err) => console.error('[AuthService] Welcome email dispatch failed:', err));
 
+  // Send Email Verification token link
+  sendEmailVerificationEmail({
+    toEmail: newUser.email,
+    username: newUser.username,
+    token: verificationToken,
+  }).catch((err) => console.error('[AuthService] Verification email dispatch failed:', err));
+
+  // Create authoritative session
+  const { session } = await sessionService.createSession(newUser.id, {
+    userAgent: meta?.userAgent,
+    ipAddress: meta?.ipAddress,
+    rememberMe: true,
+  });
+
   const tokenPayload: JwtPayload = {
     userId: newUser.id,
     email: newUser.email,
     username: newUser.username,
+    sessionId: session.id,
   };
 
-  const token = generateJwt(tokenPayload);
+  const token = generateJwt(tokenPayload, '7d');
 
   return {
     user: sanitizeUser(newUser),
     token,
+    verificationToken,
   };
 }
 
-export async function login(input: LoginInput): Promise<{ user: PublicUser; token: string }> {
+export async function login(
+  input: LoginInput,
+  meta?: AuthSessionMeta
+): Promise<{ user: PublicUser; token: string }> {
   const isEmail = input.identifier.includes('@');
   
   const user = await prisma.user.findFirst({
@@ -118,6 +154,12 @@ export async function login(input: LoginInput): Promise<{ user: PublicUser; toke
     throw error;
   }
 
+  if (user.isDeactivated) {
+    const error: AppError = new Error('This account has been deactivated.');
+    error.statusCode = 401;
+    throw error;
+  }
+
   const isPasswordValid = await verifyPassword(input.password, user.passwordHash);
   if (!isPasswordValid) {
     const error: AppError = new Error('Invalid username/email or password');
@@ -128,13 +170,21 @@ export async function login(input: LoginInput): Promise<{ user: PublicUser; toke
   // Link any pending invitations in case user had invites created while offline
   await invitationService.linkPendingInvitationsForUser(user.email, user.id);
 
+  const rememberMe = input.rememberMe !== false;
+  const { session } = await sessionService.createSession(user.id, {
+    userAgent: meta?.userAgent,
+    ipAddress: meta?.ipAddress,
+    rememberMe,
+  });
+
   const tokenPayload: JwtPayload = {
     userId: user.id,
     email: user.email,
     username: user.username,
+    sessionId: session.id,
   };
 
-  const token = generateJwt(tokenPayload);
+  const token = generateJwt(tokenPayload, rememberMe ? '7d' : '1d');
 
   return {
     user: sanitizeUser(user),
@@ -147,7 +197,7 @@ export async function getUserById(userId: string): Promise<PublicUser> {
     where: { id: userId },
   });
 
-  if (!user) {
+  if (!user || user.isDeactivated) {
     const error: AppError = new Error('User not found');
     error.statusCode = 404;
     throw error;
@@ -157,7 +207,71 @@ export async function getUserById(userId: string): Promise<PublicUser> {
 }
 
 /**
- * Request a 6-digit OTP for password recovery
+ * Verify email address using verification token
+ */
+export async function verifyEmail(token: string): Promise<boolean> {
+  const cleanToken = token.trim();
+  const hashedToken = hashToken(cleanToken);
+
+  const user = await prisma.user.findFirst({
+    where: {
+      emailVerificationTokenHash: hashedToken,
+      emailVerificationExpiresAt: { gt: new Date() },
+    },
+  });
+
+  if (!user) {
+    const error: AppError = new Error('Invalid or expired email verification token. Please request a new one.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      isEmailVerified: true,
+      emailVerificationTokenHash: null,
+      emailVerificationExpiresAt: null,
+    },
+  });
+
+  return true;
+}
+
+/**
+ * Resend email verification link with safe anti-enumeration behavior
+ */
+export async function resendVerificationEmail(email: string): Promise<boolean> {
+  const normalizedEmail = email.toLowerCase().trim();
+  const user = await prisma.user.findUnique({
+    where: { email: normalizedEmail },
+  });
+
+  if (user && !user.isEmailVerified && !user.isDeactivated) {
+    const token = generateSecureToken(32);
+    const tokenHash = hashToken(token);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerificationTokenHash: tokenHash,
+        emailVerificationExpiresAt: expiresAt,
+      },
+    });
+
+    sendEmailVerificationEmail({
+      toEmail: user.email,
+      username: user.username,
+      token,
+    }).catch((err) => console.error('[AuthService] Resend verification email failed:', err));
+  }
+
+  return true;
+}
+
+/**
+ * Request a 6-digit OTP for password recovery (brute force protected)
  */
 export async function requestPasswordReset(email: string): Promise<{ success: boolean; otp?: string }> {
   const normalizedEmail = email.toLowerCase().trim();
@@ -165,8 +279,8 @@ export async function requestPasswordReset(email: string): Promise<{ success: bo
     where: { email: normalizedEmail },
   });
 
-  if (!user) {
-    // Return success silently to prevent user enumeration
+  if (!user || user.isDeactivated) {
+    // Generic response to prevent user enumeration
     return { success: true };
   }
 
@@ -180,6 +294,7 @@ export async function requestPasswordReset(email: string): Promise<{ success: bo
     data: {
       passwordResetTokenHash: hashedOtp,
       passwordResetExpiresAt: expiresAt,
+      passwordResetAttempts: 0,
     },
   });
 
@@ -190,29 +305,74 @@ export async function requestPasswordReset(email: string): Promise<{ success: bo
     otp,
   }).catch((err) => console.error('[AuthService] Password reset OTP email failed:', err));
 
-  return { success: true, otp };
+  // Only expose OTP in test/local development environments
+  const shouldExposeOtp = process.env.NODE_ENV !== 'production';
+  return { success: true, ...(shouldExposeOtp ? { otp } : {}) };
 }
 
 /**
- * Pre-verify 6-digit OTP code before setting new password
+ * Pre-verify 6-digit OTP code before setting new password (tracks attempts and locks on repeated failure)
  */
 export async function verifyPasswordResetOtp(email: string, otp: string): Promise<boolean> {
   const normalizedEmail = email.toLowerCase().trim();
   const cleanOtp = otp.trim();
-  const hashedOtp = hashToken(cleanOtp);
 
-  const user = await prisma.user.findFirst({
-    where: {
-      email: normalizedEmail,
-      passwordResetTokenHash: hashedOtp,
-      passwordResetExpiresAt: {
-        gt: new Date(),
-      },
-    },
+  const user = await prisma.user.findUnique({
+    where: { email: normalizedEmail },
   });
 
-  if (!user) {
+  if (!user || !user.passwordResetTokenHash || !user.passwordResetExpiresAt) {
     const error: AppError = new Error('Invalid or expired 6-digit verification code. Please request a new one.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (user.passwordResetExpiresAt <= new Date()) {
+    const error: AppError = new Error('Verification code has expired. Please request a new code.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Check attempt lockout
+  if (user.passwordResetAttempts >= 5) {
+    // Invalidate code upon lockout
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordResetTokenHash: null,
+        passwordResetExpiresAt: null,
+        passwordResetAttempts: 0,
+      },
+    });
+    const error: AppError = new Error('Too many incorrect attempts. This verification code has been invalidated for security. Please request a new code.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const hashedOtp = hashToken(cleanOtp);
+  if (user.passwordResetTokenHash !== hashedOtp) {
+    const newAttempts = user.passwordResetAttempts + 1;
+    if (newAttempts >= 5) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordResetTokenHash: null,
+          passwordResetExpiresAt: null,
+          passwordResetAttempts: 0,
+        },
+      });
+      const error: AppError = new Error('Too many incorrect attempts. This verification code has been invalidated for security. Please request a new code.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Increment failed attempt counter
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordResetAttempts: { increment: 1 } },
+    });
+    const remaining = 5 - newAttempts;
+    const error: AppError = new Error(`Invalid 6-digit verification code. You have ${remaining} attempts remaining.`);
     error.statusCode = 400;
     throw error;
   }
@@ -230,24 +390,70 @@ export async function resetPassword(
   let user: any = null;
 
   if (identifier.otp && identifier.email) {
-    const hashedOtp = hashToken(identifier.otp.trim());
-    user = await prisma.user.findFirst({
-      where: {
-        email: identifier.email.toLowerCase().trim(),
-        passwordResetTokenHash: hashedOtp,
-        passwordResetExpiresAt: {
-          gt: new Date(),
+    const normalizedEmail = identifier.email.toLowerCase().trim();
+    const cleanOtp = identifier.otp.trim();
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+
+    if (!existing || !existing.passwordResetTokenHash || !existing.passwordResetExpiresAt) {
+      const error: AppError = new Error('Invalid or expired verification code. Please request a new code.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (existing.passwordResetExpiresAt <= new Date()) {
+      const error: AppError = new Error('Verification code has expired. Please request a new code.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (existing.passwordResetAttempts >= 5) {
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          passwordResetTokenHash: null,
+          passwordResetExpiresAt: null,
+          passwordResetAttempts: 0,
         },
-      },
-    });
+      });
+      const error: AppError = new Error('Too many incorrect attempts. This verification code has been invalidated. Please request a new code.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const hashedOtp = hashToken(cleanOtp);
+    if (existing.passwordResetTokenHash !== hashedOtp) {
+      const newAttempts = existing.passwordResetAttempts + 1;
+      if (newAttempts >= 5) {
+        await prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            passwordResetTokenHash: null,
+            passwordResetExpiresAt: null,
+            passwordResetAttempts: 0,
+          },
+        });
+        const error: AppError = new Error('Too many incorrect attempts. This verification code has been invalidated. Please request a new code.');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: { passwordResetAttempts: { increment: 1 } },
+      });
+      const remaining = 5 - newAttempts;
+      const error: AppError = new Error(`Invalid verification code. You have ${remaining} attempts remaining.`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    user = existing;
   } else if (identifier.token) {
     const hashedToken = hashToken(identifier.token.trim());
     user = await prisma.user.findFirst({
       where: {
         passwordResetTokenHash: hashedToken,
-        passwordResetExpiresAt: {
-          gt: new Date(),
-        },
+        passwordResetExpiresAt: { gt: new Date() },
       },
     });
   }
@@ -267,29 +473,56 @@ export async function resetPassword(
       passwordHash: newPasswordHash,
       passwordResetTokenHash: null,
       passwordResetExpiresAt: null,
+      passwordResetAttempts: 0,
     },
   });
+
+  // Revoke all existing sessions upon password reset
+  await sessionService.revokeAllUserSessions(user.id);
 }
 
 export interface GoogleProfile {
-  id: string;
+  id?: string;
+  googleId?: string;
   email: string;
+  email_verified?: boolean;
+  emailVerified?: boolean;
   name?: string;
+  fullName?: string;
   picture?: string;
 }
 
 /**
- * Unified Google OAuth handler:
- * - If email exists, attach googleId and log into existing account.
- * - If new, create account and dispatch Welcome email.
- * - Always auto-link pending invitations.
+ * Hardened Google OAuth handler:
+ * - Strictly checks email_verified
+ * - Prevents attaching an unverified identity
+ * - Prevents account hijacking if existing account belongs to a different Google ID
+ * - Authoritative session creation
  */
-export async function handleGoogleAuth(profile: GoogleProfile): Promise<{ user: PublicUser; token: string; isNewUser?: boolean }> {
+export async function handleGoogleAuth(
+  profile: GoogleProfile,
+  meta?: AuthSessionMeta
+): Promise<{ user: PublicUser; token: string; isNewUser?: boolean }> {
+  // Never trust unverified Google emails
+  const isVerified = profile.email_verified === true || profile.emailVerified === true;
+  if (!isVerified) {
+    const error: AppError = new Error('Google email is not verified. Please verify your email with Google first.');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const googleId = profile.id || profile.googleId;
+  if (!googleId) {
+    const error: AppError = new Error('Missing Google ID in OAuth profile');
+    error.statusCode = 400;
+    throw error;
+  }
+
   const normalizedEmail = profile.email.toLowerCase().trim();
 
   // 1. Check by googleId first
   let user = await prisma.user.findUnique({
-    where: { googleId: profile.id },
+    where: { googleId },
   });
 
   let isBrandNewUser = false;
@@ -301,18 +534,25 @@ export async function handleGoogleAuth(profile: GoogleProfile): Promise<{ user: 
     });
 
     if (user) {
-      // 3. Seamlessly link Google ID to existing account (Unified Single Identity)
+      // Prevent account hijacking: If account already has a different Google ID, reject
+      if (user.googleId && user.googleId !== googleId) {
+        const error: AppError = new Error('This email address is already linked with another Google account.');
+        error.statusCode = 409;
+        throw error;
+      }
+
+      // Safe linking because Google verified email
       user = await prisma.user.update({
         where: { id: user.id },
         data: {
-          googleId: profile.id,
-          fullName: user.fullName || profile.name || null,
+          googleId,
+          fullName: user.fullName || profile.name || profile.fullName || null,
           avatarUrl: user.avatarUrl || profile.picture || null,
           isEmailVerified: true,
         },
       });
     } else {
-      // 4. Create new user for first-time Google signin
+      // 3. Create new user for first-time Google signin
       isBrandNewUser = true;
       const baseUsername = (normalizedEmail.split('@')[0] || 'user').toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '');
       let candidateUsername = baseUsername;
@@ -323,22 +563,22 @@ export async function handleGoogleAuth(profile: GoogleProfile): Promise<{ user: 
 
       user = await prisma.user.create({
         data: {
-          fullName: profile.name || null,
+          fullName: profile.name || profile.fullName || null,
           username: candidateUsername,
           email: normalizedEmail,
-          googleId: profile.id,
+          googleId,
           avatarUrl: profile.picture || null,
-          isEmailVerified: true,
+          isEmailVerified: true, // Google verified
           termsAccepted: true,
         },
       });
     }
   }
 
-  // 5. Link any pending invitations
+  // Link any pending invitations
   await invitationService.linkPendingInvitationsForUser(user.email, user.id);
 
-  // 6. Send welcome email if brand new user
+  // Send welcome email if brand new user
   if (isBrandNewUser) {
     sendWelcomeEmail({
       toEmail: user.email,
@@ -347,13 +587,21 @@ export async function handleGoogleAuth(profile: GoogleProfile): Promise<{ user: 
     }).catch((err) => console.error('[AuthService] Welcome email dispatch failed for Google user:', err));
   }
 
+  // Create session
+  const { session } = await sessionService.createSession(user.id, {
+    userAgent: meta?.userAgent,
+    ipAddress: meta?.ipAddress,
+    rememberMe: true,
+  });
+
   const tokenPayload: JwtPayload = {
     userId: user.id,
     email: user.email,
     username: user.username,
+    sessionId: session.id,
   };
 
-  const token = generateJwt(tokenPayload);
+  const token = generateJwt(tokenPayload, '7d');
 
   return {
     user: sanitizeUser(user),
@@ -363,12 +611,11 @@ export async function handleGoogleAuth(profile: GoogleProfile): Promise<{ user: 
 }
 
 /**
- * Update username for an authenticated user (e.g. initial Google login setup)
+ * Update username for an authenticated user
  */
 export async function updateUsername(userId: string, newUsername: string): Promise<{ user: PublicUser; token: string }> {
   const normalizedUsername = newUsername.trim().toLowerCase();
 
-  // Check if username is already taken by another user (case-insensitive)
   const existing = await prisma.user.findFirst({
     where: {
       username: { equals: normalizedUsername, mode: 'insensitive' },
@@ -405,6 +652,8 @@ export const authService = {
   register,
   login,
   getUserById,
+  verifyEmail,
+  resendVerificationEmail,
   requestPasswordReset,
   verifyPasswordResetOtp,
   resetPassword,

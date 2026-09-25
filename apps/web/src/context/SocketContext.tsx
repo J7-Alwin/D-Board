@@ -12,7 +12,14 @@ const SocketContext = createContext<SocketContextType>({
   isConnected: false,
 });
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+function resolveSocketUrl(): string {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (!envUrl) return 'http://localhost:5000';
+  const trimmed = envUrl.trim().replace(/\/+$/, '');
+  return trimmed.replace(/\/api$/, '');
+}
+
+const SOCKET_SERVER_URL = resolveSocketUrl();
 
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
@@ -30,7 +37,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     // Connect to Socket.IO server with HTTP-only cookie support
-    const socket = io(API_BASE_URL, {
+    const socket = io(SOCKET_SERVER_URL, {
       withCredentials: true,
       transports: ['websocket', 'polling'],
       reconnection: true,

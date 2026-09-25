@@ -3,6 +3,8 @@ import type { Server as HTTPServer } from 'http';
 import prisma from '../prisma.js';
 import { verifyJwt } from '../utils/security.js';
 import { RealtimeEventType } from './realtime.types.js';
+import { sessionService } from '../services/session.service.js';
+import env from '../config/env.js';
 
 let io: SocketIOServer | null = null;
 
@@ -40,9 +42,8 @@ function extractToken(socket: Socket): string | null {
  */
 export function initRealtime(httpServer: HTTPServer): SocketIOServer {
   const allowedOrigins = [
-    process.env.APP_URL || 'http://localhost:5173',
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
+    env.APP_URL || 'http://localhost:5173',
+    ...(env.NODE_ENV !== 'production' ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : []),
   ];
 
   io = new SocketIOServer(httpServer, {
@@ -67,14 +68,22 @@ export function initRealtime(httpServer: HTTPServer): SocketIOServer {
         return next(new Error('Authentication error: Invalid token'));
       }
 
-      // Verify user exists in database
+      // Check session validity if token contains sessionId
+      if (decoded.sessionId) {
+        const { valid } = await sessionService.validateSession(decoded.sessionId);
+        if (!valid) {
+          return next(new Error('Authentication error: Session has been revoked or expired'));
+        }
+      }
+
+      // Verify user exists and is active in database
       const user = await prisma.user.findUnique({
         where: { id: decoded.userId },
-        select: { id: true, username: true, email: true },
+        select: { id: true, username: true, email: true, isDeactivated: true },
       });
 
-      if (!user) {
-        return next(new Error('Authentication error: User not found'));
+      if (!user || user.isDeactivated) {
+        return next(new Error('Authentication error: User account not found or deactivated'));
       }
 
       socket.data.userId = user.id;
@@ -152,7 +161,7 @@ export function initRealtime(httpServer: HTTPServer): SocketIOServer {
     });
 
     socket.on('disconnect', () => {
-      // Disconnection cleanup handled automatically by Socket.io
+      // Cleaned up by Socket.io
     });
   });
 
@@ -164,6 +173,47 @@ export function initRealtime(httpServer: HTTPServer): SocketIOServer {
  */
 export function getIO(): SocketIOServer | null {
   return io;
+}
+
+/**
+ * Forcefully evict all socket connections of a user from a project room upon membership revocation
+ */
+export async function evictUserFromProjectRoom(userId: string, projectId: string): Promise<void> {
+  if (!io) return;
+  try {
+    const roomName = `project:${projectId}`;
+    const userRoomName = `user:${userId}`;
+
+    // 1. Notify user's private channel
+    io.to(userRoomName).emit('ROOM_MEMBERSHIP_REVOKED', {
+      projectId,
+      timestamp: new Date().toISOString(),
+    });
+
+    // 2. Remove all sockets of this user from project room
+    const sockets = await io.in(userRoomName).fetchSockets();
+    for (const socket of sockets) {
+      socket.leave(roomName);
+    }
+  } catch (err) {
+    console.error(`[Realtime] Failed to evict user ${userId} from project ${projectId}:`, err);
+  }
+}
+
+/**
+ * Notify user of role change
+ */
+export async function notifyUserRoleUpdated(userId: string, projectId: string, newRole: string): Promise<void> {
+  if (!io) return;
+  try {
+    io.to(`user:${userId}`).emit('USER_PROJECT_ROLE_UPDATED', {
+      projectId,
+      role: newRole,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error(`[Realtime] Failed to notify user ${userId} of role change:`, err);
+  }
 }
 
 /**

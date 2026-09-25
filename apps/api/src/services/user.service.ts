@@ -1,6 +1,7 @@
-import prisma from '../prisma.js';
+import prisma, { Prisma } from '../prisma.js';
 import { hashPassword, verifyPassword } from '../utils/security.js';
 import { AppError } from '../middlewares/error.middleware.js';
+import { sessionService } from './session.service.js';
 import {
   UpdateProfileInput,
   ChangePasswordInput,
@@ -17,6 +18,7 @@ export interface UserProfileResponse {
   fullName: string | null;
   username: string;
   email: string;
+  isEmailVerified: boolean;
   avatarUrl: string | null;
   googleId: string | null;
   hasPassword: boolean;
@@ -52,6 +54,7 @@ function formatProfileResponse(user: any): UserProfileResponse {
     fullName: user.fullName || null,
     username: user.username,
     email: user.email,
+    isEmailVerified: !!user.isEmailVerified,
     avatarUrl: user.avatarUrl || null,
     googleId: user.googleId || null,
     hasPassword: !!user.passwordHash,
@@ -148,6 +151,9 @@ export async function changeUserPassword(
     data: { passwordHash: newPasswordHash },
   });
 
+  // Revoke all sessions on password change for security
+  await sessionService.revokeAllUserSessions(userId);
+
   // Automated Security Alert Email Dispatch
   sendPasswordChangedAlertEmail({
     toEmail: user.email,
@@ -224,6 +230,7 @@ export async function exportUserData(userId: string): Promise<Record<string, any
       assignedWorkItems: {
         select: {
           id: true,
+          projectId: true,
           title: true,
           description: true,
           type: true,
@@ -233,9 +240,92 @@ export async function exportUserData(userId: string): Promise<Record<string, any
           createdAt: true,
         },
       },
+      createdWorkItems: {
+        select: {
+          id: true,
+          projectId: true,
+          title: true,
+          description: true,
+          type: true,
+          status: true,
+          priority: true,
+          dueDate: true,
+          createdAt: true,
+        },
+      },
+      uploadedAttachments: {
+        select: {
+          id: true,
+          projectId: true,
+          originalName: true,
+          sizeBytes: true,
+          mimeType: true,
+          category: true,
+          createdAt: true,
+        },
+      },
+      createdCalendarEvents: {
+        select: {
+          id: true,
+          projectId: true,
+          title: true,
+          description: true,
+          startAt: true,
+          endAt: true,
+          allDay: true,
+          location: true,
+          createdAt: true,
+        },
+      },
+      calendarAttendees: {
+        include: {
+          calendarEvent: {
+            select: {
+              id: true,
+              projectId: true,
+              title: true,
+              startAt: true,
+              endAt: true,
+            },
+          },
+        },
+      },
+      sentInvitations: {
+        select: {
+          id: true,
+          projectId: true,
+          invitedEmail: true,
+          role: true,
+          status: true,
+          createdAt: true,
+          expiresAt: true,
+        },
+      },
+      receivedInvitations: {
+        select: {
+          id: true,
+          projectId: true,
+          role: true,
+          status: true,
+          createdAt: true,
+        },
+      },
+      notifications: {
+        take: 100,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          type: true,
+          title: true,
+          message: true,
+          readAt: true,
+          createdAt: true,
+        },
+      },
       createdNotes: {
         select: {
           id: true,
+          projectId: true,
           title: true,
           content: true,
           visibility: true,
@@ -245,6 +335,7 @@ export async function exportUserData(userId: string): Promise<Record<string, any
       comments: {
         select: {
           id: true,
+          workItemId: true,
           body: true,
           createdAt: true,
         },
@@ -254,6 +345,7 @@ export async function exportUserData(userId: string): Promise<Record<string, any
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
+          projectId: true,
           type: true,
           createdAt: true,
         },
@@ -284,8 +376,27 @@ export async function exportUserData(userId: string): Promise<Record<string, any
       joinedAt: m.joinedAt,
     })),
     assignedWorkItems: user.assignedWorkItems,
+    createdWorkItems: user.createdWorkItems,
+    uploadedFiles: user.uploadedAttachments,
+    calendarEvents: {
+      created: user.createdCalendarEvents,
+      attending: user.calendarAttendees.map((ca) => ca.calendarEvent),
+    },
+    invitations: {
+      sent: user.sentInvitations,
+      received: user.receivedInvitations,
+    },
     notes: user.createdNotes,
     comments: user.comments,
+    notifications: user.notifications.map((n) => ({
+      id: n.id,
+      type: n.type,
+      title: n.title,
+      message: n.message,
+      read: !!n.readAt,
+      readAt: n.readAt,
+      createdAt: n.createdAt,
+    })),
     recentActivities: user.activities,
     exportedAt: new Date().toISOString(),
     version: '1.0',
@@ -303,16 +414,66 @@ export async function exportUserData(userId: string): Promise<Record<string, any
   return exportArchive;
 }
 
-export async function deleteUserAccount(userId: string): Promise<void> {
+export async function deleteUserAccount(userId: string): Promise<{ success: boolean; message: string }> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
   });
 
-  if (!user) {
+  if (!user || user.isDeactivated) {
     throw new AppError('User not found', 404);
   }
 
-  // Send farewell email
+  // 1. Owner protection: verify user is not the sole administrator of any active project
+  const ownedProjects = await prisma.project.findMany({
+    where: { createdById: userId, status: { not: 'ARCHIVED' } },
+    include: {
+      members: {
+        where: { role: 'PROJECT_ADMIN', userId: { not: userId } },
+      },
+    },
+  });
+
+  for (const project of ownedProjects) {
+    if (project.members.length === 0) {
+      throw new AppError(
+        `Cannot delete account because you are the sole administrator of project "${project.name}". Please transfer project ownership or assign another administrator before deleting your account.`,
+        400
+      );
+    }
+  }
+
+  const adminMemberships = await prisma.projectMember.findMany({
+    where: { userId, role: 'PROJECT_ADMIN' },
+    include: {
+      project: {
+        include: {
+          members: { where: { role: 'PROJECT_ADMIN' } },
+        },
+      },
+    },
+  });
+
+  for (const m of adminMemberships) {
+    if (m.project.members.length <= 1 && m.project.status !== 'ARCHIVED') {
+      throw new AppError(
+        `Cannot delete account because you are the only administrator of project "${m.project.name}". Please assign another administrator before deleting your account.`,
+        400
+      );
+    }
+  }
+
+  // 2. Transfer project ownership to another administrator if user is creator
+  for (const project of ownedProjects) {
+    const successorAdmin = project.members[0];
+    if (successorAdmin) {
+      await prisma.project.update({
+        where: { id: project.id },
+        data: { createdById: successorAdmin.userId },
+      });
+    }
+  }
+
+  // 3. Send farewell email
   await sendAccountDeletedEmail({
     toEmail: user.email,
     username: user.username,
@@ -320,8 +481,56 @@ export async function deleteUserAccount(userId: string): Promise<void> {
     console.error('[User Service]: Failed to dispatch account deleted email:', err);
   });
 
-  // Delete user account (foreign key cascades handle relations)
-  await prisma.user.delete({
-    where: { id: userId },
+  // 4. Revoke all active sessions
+  await sessionService.revokeAllUserSessions(userId);
+
+  // 5. Unassign user from active work items in projects
+  await prisma.workItem.updateMany({
+    where: { assignedToId: userId },
+    data: { assignedToId: null },
   });
+
+  // 6. Remove project memberships
+  await prisma.projectMember.deleteMany({
+    where: { userId },
+  });
+
+  // 7. Soft-deactivate and anonymize personal authentication info
+  // Preserves shared project history, work items, comments, notes, files, calendar, activities
+  const anonymizedUsername = `deleted_user_${userId.replace(/-/g, '').slice(0, 8)}`;
+  const anonymizedEmail = `deleted_${userId}@deleted.d-board.local`;
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      fullName: 'Former Member',
+      username: anonymizedUsername,
+      email: anonymizedEmail,
+      passwordHash: null,
+      googleId: null,
+      passwordResetTokenHash: null,
+      passwordResetExpiresAt: null,
+      passwordResetAttempts: 0,
+      emailVerificationTokenHash: null,
+      emailVerificationExpiresAt: null,
+      avatarUrl: null,
+      bio: null,
+      headline: null,
+      isEmailVerified: false,
+      isDeactivated: true,
+      deactivatedAt: new Date(),
+      notificationPreferences: Prisma.JsonNull,
+    },
+  });
+
+  return { success: true, message: 'User account deactivated successfully' };
 }
+
+export const userService = {
+  getUserProfile,
+  updateUserProfile,
+  changeUserPassword,
+  updateNotificationPreferences,
+  exportUserData,
+  deleteUserAccount,
+};

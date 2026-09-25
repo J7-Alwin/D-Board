@@ -1,9 +1,7 @@
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'd-board-development-jwt-secret-key-32chars!';
-const JWT_EXPIRES_IN = '7d';
+import env from '../config/env.js';
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = await bcrypt.genSalt(12);
@@ -26,12 +24,13 @@ export interface JwtPayload {
   userId: string;
   email: string;
   username: string;
+  sessionId?: string;
 }
 
-export function generateJwt(payload: JwtPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+export function generateJwt(payload: JwtPayload, expiresIn: string = '7d'): string {
+  return jwt.sign(payload, env.JWT_SECRET, { expiresIn: expiresIn as any });
 }
 
 export function verifyJwt(token: string): JwtPayload {
-  return jwt.verify(token, JWT_SECRET) as JwtPayload;
+  return jwt.verify(token, env.JWT_SECRET) as JwtPayload;
 }

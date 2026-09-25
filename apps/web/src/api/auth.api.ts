@@ -1,4 +1,4 @@
-import { apiClient, type ApiResponse } from './client';
+import { apiClient, API_BASE_URL, type ApiResponse } from './client';
 
 export interface User {
   id: string;
@@ -104,6 +104,7 @@ export const authApi = {
   },
 
   getGoogleAuthUrl(): string {
-    return `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/auth/google`;
+    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    return `${base}/auth/google`;
   },
 };

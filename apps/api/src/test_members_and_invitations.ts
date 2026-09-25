@@ -6,35 +6,46 @@ import { workService } from './services/work.service.js';
 async function runTests() {
   console.log('🚀 Starting Members, Invitations, and My Work Integration Test Suite...');
 
-  // 1. Create or upsert test users
+  // 1. Create or upsert test users (with verified email for invitation acceptance)
   const adminUser = await prisma.user.upsert({
     where: { email: 'inv_admin@example.com' },
-    update: {},
+    update: { isEmailVerified: true },
     create: {
       email: 'inv_admin@example.com',
       username: 'invadmin',
       fullName: 'Invite Admin',
+      isEmailVerified: true,
     },
   });
 
   const memberUser = await prisma.user.upsert({
     where: { email: 'inv_member@example.com' },
-    update: {},
+    update: { isEmailVerified: true },
     create: {
       email: 'inv_member@example.com',
       username: 'invmember',
       fullName: 'Invite Member',
+      isEmailVerified: true,
     },
   });
 
   const outsiderUser = await prisma.user.upsert({
     where: { email: 'inv_outsider@example.com' },
-    update: {},
+    update: { isEmailVerified: true },
     create: {
       email: 'inv_outsider@example.com',
       username: 'invoutsider',
       fullName: 'Invite Outsider',
+      isEmailVerified: true,
     },
+  });
+
+  // Pre-cleanup any leftover invitations or projects from prior aborted runs
+  await prisma.invitation.deleteMany({
+    where: { invitedEmail: { in: ['inv_member@example.com', 'inv_outsider@example.com'] } },
+  });
+  await prisma.project.deleteMany({
+    where: { name: 'Titan Workspace Platform' },
   });
 
   // 2. Create test project with adminUser as creator

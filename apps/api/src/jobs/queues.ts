@@ -129,6 +129,114 @@ export async function enqueueDeadlineJob(
 }
 
 /**
+ * Remove any pending deadline reminder jobs for a work item (e.g. on complete, date change, or unassign)
+ */
+export async function cancelDeadlineJobs(workItemId: string): Promise<void> {
+  if (isRedisReady()) {
+    try {
+      const q = getDeadlineQueue();
+      const jobTypes = ['DEADLINE_SOON', 'DEADLINE_OVERDUE'];
+      for (const type of jobTypes) {
+        const jobId = `deadline_${workItemId}_${type}`;
+        const job = await q.getJob(jobId);
+        if (job) {
+          await job.remove();
+        }
+      }
+    } catch (err) {
+      console.warn('[Queue:Deadlines] Failed to remove deadline jobs:', err);
+    }
+  }
+}
+
+/**
+ * Schedule deadline reminders with exact delays and deterministic job IDs
+ */
+export async function scheduleWorkItemDeadlines(item: {
+  id: string;
+  projectId: string;
+  title: string;
+  dueDate: Date | string | null;
+  assignedToId: string | null;
+  status: string;
+}): Promise<void> {
+  // Always cancel any existing jobs first to prevent duplicates
+  await cancelDeadlineJobs(item.id);
+
+  // If completed, or missing due date or assignee, no reminders are scheduled
+  if (!item.dueDate || !item.assignedToId || item.status === 'COMPLETED') {
+    return;
+  }
+
+  const dueDateObj = new Date(item.dueDate);
+  const dueMs = dueDateObj.getTime();
+  const nowMs = Date.now();
+  const dueDateIso = dueDateObj.toISOString();
+
+  if (dueMs <= nowMs) {
+    // Already overdue: trigger overdue notification immediately (delay: 0)
+    await enqueueDeadlineJob(
+      {
+        workItemId: item.id,
+        projectId: item.projectId,
+        title: item.title,
+        dueDate: dueDateIso,
+        assignedToId: item.assignedToId,
+        reminderType: 'DEADLINE_OVERDUE',
+      },
+      `deadline_${item.id}_DEADLINE_OVERDUE`,
+      0
+    );
+    return;
+  }
+
+  // Future due date:
+  // 1) DEADLINE_SOON
+  const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+  let soonDelayMs: number | null = null;
+  if (dueMs - nowMs > twentyFourHoursMs) {
+    // Due > 24 hours away: trigger reminder 24h before due date
+    soonDelayMs = (dueMs - twentyFourHoursMs) - nowMs;
+  } else if (dueMs - nowMs > 60 * 60 * 1000) {
+    // Due between 1h and 24h away: trigger reminder halfway
+    soonDelayMs = Math.floor((dueMs - nowMs) / 2);
+  } else {
+    // Due in <= 1 hour: trigger reminder in half of remaining time
+    soonDelayMs = Math.max(0, Math.floor((dueMs - nowMs) / 2));
+  }
+
+  if (soonDelayMs !== null && soonDelayMs >= 0) {
+    await enqueueDeadlineJob(
+      {
+        workItemId: item.id,
+        projectId: item.projectId,
+        title: item.title,
+        dueDate: dueDateIso,
+        assignedToId: item.assignedToId,
+        reminderType: 'DEADLINE_SOON',
+      },
+      `deadline_${item.id}_DEADLINE_SOON`,
+      soonDelayMs
+    );
+  }
+
+  // 2) DEADLINE_OVERDUE: trigger exactly at dueDate
+  const overdueDelayMs = dueMs - nowMs;
+  await enqueueDeadlineJob(
+    {
+      workItemId: item.id,
+      projectId: item.projectId,
+      title: item.title,
+      dueDate: dueDateIso,
+      assignedToId: item.assignedToId,
+      reminderType: 'DEADLINE_OVERDUE',
+    },
+    `deadline_${item.id}_DEADLINE_OVERDUE`,
+    overdueDelayMs
+  );
+}
+
+/**
  * Enqueue a Cleanup Job
  */
 export async function enqueueCleanupJob(data: CleanupJobData, customJobId?: string): Promise<{ queued: boolean; jobId?: string }> {

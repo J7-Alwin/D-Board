@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { prisma } from '../prisma.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { activityService } from './activity.service.js';
@@ -16,7 +17,7 @@ export class CalendarService {
   private async getMembershipAndProject(projectId: string, userId: string) {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      select: { id: true, name: true, createdById: true },
+      select: { id: true, name: true, createdById: true, status: true },
     });
 
     if (!project) {
@@ -42,6 +43,66 @@ export class CalendarService {
     const isAdmin = isOwner || membership?.role === 'PROJECT_ADMIN';
 
     return { project, membership, isAdmin };
+  }
+
+  /**
+   * Helper to validate attendee authorization:
+   * Every attendee must exist, be active (not deactivated), and be an active member of this project.
+   */
+  private async validateAttendees(projectId: string, attendeeIds: string[]) {
+    if (!attendeeIds || attendeeIds.length === 0) return;
+
+    const uniqueAttendeeIds = Array.from(new Set(attendeeIds));
+
+    // Fetch the project to check creator/owner
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { createdById: true },
+    });
+
+    if (!project) {
+      throw new AppError('Project not found', 404);
+    }
+
+    // Fetch memberships for these attendees in this specific project
+    const members = await prisma.projectMember.findMany({
+      where: {
+        projectId,
+        userId: { in: uniqueAttendeeIds },
+      },
+      include: {
+        user: {
+          select: { id: true, isDeactivated: true },
+        },
+      },
+    });
+
+    const validMemberUserIds = new Set<string>();
+    for (const m of members) {
+      if (!m.user.isDeactivated) {
+        validMemberUserIds.add(m.userId);
+      }
+    }
+
+    // Check project creator/owner if included
+    if (uniqueAttendeeIds.includes(project.createdById)) {
+      const owner = await prisma.user.findUnique({
+        where: { id: project.createdById },
+        select: { id: true, isDeactivated: true },
+      });
+      if (owner && !owner.isDeactivated) {
+        validMemberUserIds.add(owner.id);
+      }
+    }
+
+    for (const aId of uniqueAttendeeIds) {
+      if (!validMemberUserIds.has(aId)) {
+        throw new AppError(
+          `Attendee ${aId} is not an active member of this project or the account is deactivated`,
+          400
+        );
+      }
+    }
   }
 
   /**
@@ -321,7 +382,11 @@ export class CalendarService {
     userId: string,
     data: CreateCalendarEventInput
   ) {
-    await this.getMembershipAndProject(projectId, userId);
+    const { project } = await this.getMembershipAndProject(projectId, userId);
+
+    if (project.status === 'ARCHIVED') {
+      throw new AppError('Cannot create calendar events in an archived project', 400);
+    }
 
     // If relatedWorkItemId is provided, verify it belongs to this project
     if (data.relatedWorkItemId) {
@@ -334,6 +399,9 @@ export class CalendarService {
     }
 
     const attendeeIds = data.attendeeIds || [];
+
+    // Validate that all attendees exist, are active, and belong to this project
+    await this.validateAttendees(projectId, attendeeIds);
 
     const event = await prisma.$transaction(async (tx) => {
       const created = await tx.calendarEvent.create({
@@ -440,7 +508,11 @@ export class CalendarService {
     userId: string,
     data: UpdateCalendarEventInput
   ) {
-    const { isAdmin } = await this.getMembershipAndProject(projectId, userId);
+    const { isAdmin, project } = await this.getMembershipAndProject(projectId, userId);
+
+    if (project.status === 'ARCHIVED') {
+      throw new AppError('Cannot modify calendar events in an archived project', 400);
+    }
 
     const existing = await prisma.calendarEvent.findFirst({
       where: { id: eventId, projectId },
@@ -465,6 +537,9 @@ export class CalendarService {
     }
 
     const attendeeIds = data.attendeeIds;
+    if (attendeeIds !== undefined) {
+      await this.validateAttendees(projectId, attendeeIds);
+    }
 
     const updated = await prisma.$transaction(async (tx) => {
       if (attendeeIds !== undefined) {
@@ -579,7 +654,11 @@ export class CalendarService {
    * Delete calendar event.
    */
   async deleteCalendarEvent(projectId: string, eventId: string, userId: string) {
-    const { isAdmin } = await this.getMembershipAndProject(projectId, userId);
+    const { isAdmin, project } = await this.getMembershipAndProject(projectId, userId);
+
+    if (project.status === 'ARCHIVED') {
+      throw new AppError('Cannot delete calendar events in an archived project', 400);
+    }
 
     const existing = await prisma.calendarEvent.findFirst({
       where: { id: eventId, projectId },
@@ -621,6 +700,189 @@ export class CalendarService {
     });
 
     return { success: true, message: 'Calendar event deleted successfully' };
+  }
+
+  /**
+   * Generate RFC 5545 iCalendar stream (.ics) for authenticated user's calendar items.
+   */
+  async generateICalFeed(userId: string, projectId?: string): Promise<string> {
+    const calendarData = await this.getCalendarItems(userId, {
+      projectId,
+      type: 'ALL',
+      start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      end: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+
+    const lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//D-Board//Workspace Calendar//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'X-WR-CALNAME:D-Board Calendar',
+      'X-WR-TIMEZONE:UTC',
+    ];
+
+    for (const item of calendarData.items) {
+      const start = new Date(item.startAt)
+        .toISOString()
+        .replace(/[-:]/g, '')
+        .split('.')[0] + 'Z';
+      const end = new Date(item.endAt)
+        .toISOString()
+        .replace(/[-:]/g, '')
+        .split('.')[0] + 'Z';
+      const summary = (item.title || 'Event')
+        .replace(/\\/g, '\\\\')
+        .replace(/,/g, '\\,')
+        .replace(/;/g, '\\;')
+        .replace(/\n/g, '\\n');
+      const desc = (item.description || (item.project?.name ? `Project: ${item.project.name}` : 'D-Board item'))
+        .replace(/\\/g, '\\\\')
+        .replace(/,/g, '\\,')
+        .replace(/;/g, '\\;')
+        .replace(/\n/g, '\\n');
+      const location = (item.location || 'D-Board Workspace')
+        .replace(/\\/g, '\\\\')
+        .replace(/,/g, '\\,')
+        .replace(/;/g, '\\;');
+
+      lines.push(
+        'BEGIN:VEVENT',
+        `UID:${item.id}@dboard.workspace`,
+        `DTSTAMP:${start}`,
+        `DTSTART:${start}`,
+        `DTEND:${end}`,
+        `SUMMARY:${summary}`,
+        `DESCRIPTION:${desc}`,
+        `LOCATION:${location}`,
+        'STATUS:CONFIRMED',
+        'END:VEVENT'
+      );
+    }
+
+    lines.push('END:VCALENDAR');
+    return lines.join('\r\n');
+  }
+
+  /**
+   * Create or rotate a high-entropy revocable calendar feed subscription token.
+   * Cryptographically generated with 256-bit entropy. Raw token is never stored in DB.
+   */
+  async createFeedToken(userId: string, projectId?: string | null): Promise<{ token: string; createdAt: Date }> {
+    if (projectId) {
+      await this.getMembershipAndProject(projectId, userId);
+    }
+
+    const rawToken = `dbcal_${crypto.randomBytes(32).toString('hex')}`;
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+    // Revoke previous active tokens for this user & project scope to enforce rotation
+    await prisma.calendarFeedToken.updateMany({
+      where: {
+        userId,
+        projectId: projectId || null,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+      },
+    });
+
+    // Store only tokenHash (never rawToken)
+    await prisma.calendarFeedToken.create({
+      data: {
+        tokenHash,
+        userId,
+        projectId: projectId || null,
+      },
+    });
+
+    return { token: rawToken, createdAt: new Date() };
+  }
+
+  /**
+   * Revoke existing calendar feed subscription token.
+   */
+  async revokeFeedToken(userId: string, projectId?: string | null): Promise<{ success: boolean; message: string }> {
+    if (projectId) {
+      await this.getMembershipAndProject(projectId, userId);
+    }
+
+    await prisma.calendarFeedToken.updateMany({
+      where: {
+        userId,
+        projectId: projectId || null,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+      },
+    });
+
+    return { success: true, message: 'Calendar feed token revoked successfully' };
+  }
+
+  /**
+   * Validate a calendar feed token from request query.
+   * Strict security checks:
+   * - Computes SHA-256 hash
+   * - Token must exist and not be revoked
+   * - User must not be deactivated
+   * - If projectId expected: token.projectId MUST match expected projectId (no cross-project leakage)
+   * - User must currently be an active member or owner of the project
+   */
+  async authenticateFeedToken(rawToken: string, expectedProjectId?: string): Promise<{ userId: string; projectId?: string | null }> {
+    if (!rawToken || typeof rawToken !== 'string') {
+      throw new AppError('Calendar feed subscription token required', 401);
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(rawToken.trim()).digest('hex');
+
+    const feedToken = await prisma.calendarFeedToken.findUnique({
+      where: { tokenHash },
+      include: {
+        user: { select: { id: true, isDeactivated: true } },
+      },
+    });
+
+    if (!feedToken || feedToken.revokedAt || feedToken.user.isDeactivated) {
+      throw new AppError('Invalid or expired calendar feed token', 401);
+    }
+
+    if (expectedProjectId) {
+      if (feedToken.projectId !== expectedProjectId) {
+        throw new AppError('Calendar feed token is not authorized for this project', 403);
+      }
+
+      // Verify that user is still an active member of this project
+      const project = await prisma.project.findUnique({
+        where: { id: expectedProjectId },
+        select: { createdById: true },
+      });
+
+      const isOwner = project?.createdById === feedToken.userId;
+      const membership = await prisma.projectMember.findUnique({
+        where: {
+          projectId_userId: {
+            projectId: expectedProjectId,
+            userId: feedToken.userId,
+          },
+        },
+      });
+
+      if (!isOwner && !membership) {
+        throw new AppError('User is no longer an active member of this project', 403);
+      }
+    }
+
+    // Touch lastUsedAt asynchronously
+    prisma.calendarFeedToken.update({
+      where: { id: feedToken.id },
+      data: { lastUsedAt: new Date() },
+    }).catch(() => {});
+
+    return { userId: feedToken.userId, projectId: feedToken.projectId };
   }
 }
 

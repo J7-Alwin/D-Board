@@ -85,6 +85,14 @@ export const resetPasswordSchema = z.object({
   message: 'Either 6-digit OTP with email or reset token must be provided',
 });
 
+export const verifyEmailSchema = z.object({
+  token: z.string().trim().min(1, 'Verification token is required'),
+});
+
+export const resendVerificationSchema = z.object({
+  email: z.string().trim().email('Invalid email address'),
+});
+
 export const updateUsernameSchema = z.object({
   username: z
     .string()
@@ -99,5 +107,6 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
+export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
 export type UpdateUsernameInput = z.infer<typeof updateUsernameSchema>;
-

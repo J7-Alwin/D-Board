@@ -2,7 +2,7 @@ import { prisma } from '../prisma.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { activityService } from './activity.service.js';
 import { ActivityType, ProjectRole } from '../generated/prisma/index.js';
-import { publishToProject } from '../realtime/realtime.service.js';
+import { publishToProject, evictUserFromProjectRoom, notifyUserRoleUpdated } from '../realtime/realtime.service.js';
 
 export class MemberService {
   /**
@@ -165,6 +165,8 @@ export class MemberService {
       actorId,
     });
 
+    await notifyUserRoleUpdated(updated.userId, projectId, updated.role);
+
     return updated;
   }
 
@@ -235,6 +237,9 @@ export class MemberService {
       userId: targetMember.userId,
       actorId,
     });
+
+    // Revoke real-time room membership immediately
+    await evictUserFromProjectRoom(targetMember.userId, projectId);
 
     return { success: true, message: 'Member removed from project' };
   }

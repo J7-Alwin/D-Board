@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { fileController, uploadMiddleware } from '../controllers/file.controller.js';
+import { uploadRateLimiter } from '../middlewares/rateLimit.middleware.js';
 
 export const fileRoutes: Router = Router({ mergeParams: true });
 
-// Upload files
-fileRoutes.post('/', uploadMiddleware.array('files', 10), fileController.uploadFiles);
+// Upload files with dedicated upload rate limiter
+fileRoutes.post('/', uploadRateLimiter, uploadMiddleware.array('files', 10), fileController.uploadFiles);
 
 // List project files
 fileRoutes.get('/', fileController.getProjectFiles);

@@ -4,6 +4,7 @@ import { storageService } from '../storage/storage.service.js';
 import { classifyFile, sanitizeFilename, type FileCategory } from '../utils/fileClassifier.js';
 import { activityService } from './activity.service.js';
 import { publishToProject } from '../realtime/realtime.service.js';
+import { enqueueCleanupJob } from '../jobs/queues.js';
 import type { FileQueryParams } from '../schemas/file.schema.js';
 
 export interface UploadedFilePayload {
@@ -22,7 +23,7 @@ export class FileService {
   private async getMembershipAndProject(projectId: string, userId: string) {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      select: { id: true, name: true, createdById: true },
+      select: { id: true, name: true, createdById: true, status: true },
     });
 
     if (!project) {
@@ -57,12 +58,27 @@ export class FileService {
     projectId: string,
     userId: string,
     files: UploadedFilePayload[],
-    options?: { workItemId?: string | null; noteId?: string | null } | string | null
+    options?: { workItemId?: string | null; noteId?: string | null; folderId?: string | null } | string | null
   ) {
-    await this.getMembershipAndProject(projectId, userId);
+    const { project } = await this.getMembershipAndProject(projectId, userId);
+
+    if (project.status === 'ARCHIVED') {
+      throw new AppError('Cannot upload files to an archived project', 400);
+    }
 
     if (!files || files.length === 0) {
       throw new AppError('No files were provided for upload', 400);
+    }
+
+    const opts = typeof options === 'object' && options !== null ? options : {};
+    const sanitizedFolderId = (opts as any).folderId || null;
+    if (sanitizedFolderId) {
+      const folder = await prisma.fileFolder.findFirst({
+        where: { id: sanitizedFolderId, projectId },
+      });
+      if (!folder) {
+        throw new AppError('Target folder not found in this project', 404);
+      }
     }
 
     // Check user's 200 MB storage limit
@@ -108,37 +124,114 @@ export class FileService {
     const attachmentsToCreate: any[] = [];
 
     try {
-      // 1. Upload binary streams to storage
+      // 1. Process files and upload to storage with project-scoped deduplication
       for (const file of files) {
         const cleanName = sanitizeFilename(file.originalname);
-        const { storageKey, extension } = storageService.generateStorageKey(projectId, cleanName);
+        const { extension } = storageService.generateStorageKey(projectId, cleanName);
         const { category } = classifyFile(cleanName, file.mimetype);
-        const checksum = storageService.computeChecksum(file.buffer);
+        const contentHash = storageService.computeChecksum(file.buffer);
 
-        await storageService.upload(storageKey, file.buffer, file.mimetype || 'application/octet-stream');
-        uploadedStorageKeys.push(storageKey);
+        // Project-scoped deduplication: check if this project already has a stored object with identical contentHash
+        let storedObject = await prisma.storedObject.findUnique({
+          where: {
+            projectId_contentHash: {
+              projectId,
+              contentHash,
+            },
+          },
+        });
+
+        let storageKey: string;
+        let isNewPhysicalObject = false;
+
+        if (storedObject) {
+          // Re-use existing physical S3 object (same project + same content hash)
+          storageKey = storedObject.storageKey;
+        } else {
+          // New physical S3 object needed for this project
+          const generated = storageService.generateStorageKey(projectId, cleanName);
+          storageKey = generated.storageKey;
+
+          await storageService.upload(storageKey, file.buffer, file.mimetype || 'application/octet-stream');
+          uploadedStorageKeys.push(storageKey);
+          isNewPhysicalObject = true;
+        }
 
         attachmentsToCreate.push({
           projectId,
           uploadedById: userId,
           workItemId: workItemId || null,
           noteId: noteId || null,
+          folderId: sanitizedFolderId,
           originalName: cleanName,
           storageKey,
           mimeType: file.mimetype || 'application/octet-stream',
           sizeBytes: file.size,
           extension,
           category,
-          checksum,
+          checksum: contentHash,
+          contentHash,
+          isNewPhysicalObject,
+          existingStoredObjectId: storedObject?.id || null,
         });
       }
 
-      // 2. Persist metadata and activities in database transaction
+      // 2. Ensure StoredObject records exist for all new uploads (handling races safely)
+      for (const item of attachmentsToCreate) {
+        if (!item.existingStoredObjectId) {
+          try {
+            const newStoredObj = await prisma.storedObject.create({
+              data: {
+                projectId,
+                contentHash: item.contentHash,
+                storageKey: item.storageKey,
+                mimeType: item.mimeType,
+                sizeBytes: item.sizeBytes,
+              },
+            });
+            item.existingStoredObjectId = newStoredObj.id;
+          } catch (raceErr: any) {
+            if (raceErr.code === 'P2002') {
+              // Another simultaneous upload completed first; bind to winner
+              const winner = await prisma.storedObject.findUniqueOrThrow({
+                where: {
+                  projectId_contentHash: {
+                    projectId,
+                    contentHash: item.contentHash,
+                  },
+                },
+              });
+              item.existingStoredObjectId = winner.id;
+              // Delete redundant physical S3 object
+              await storageService.delete(item.storageKey).catch(() => {});
+              item.storageKey = winner.storageKey;
+            } else {
+              throw raceErr;
+            }
+          }
+        }
+      }
+
+      // 3. Persist Attachment metadata in database transaction
       const createdAttachments = await prisma.$transaction(async (tx) => {
         const results = [];
-        for (const meta of attachmentsToCreate) {
+        for (const item of attachmentsToCreate) {
           const attachment = await tx.attachment.create({
-            data: meta,
+            data: {
+              projectId: item.projectId,
+              uploadedById: item.uploadedById,
+              workItemId: item.workItemId,
+              noteId: item.noteId,
+              folderId: item.folderId,
+              originalName: item.originalName,
+              storageKey: item.storageKey,
+              mimeType: item.mimeType,
+              sizeBytes: item.sizeBytes,
+              extension: item.extension,
+              category: item.category,
+              checksum: item.checksum,
+              storedObjectId: item.existingStoredObjectId,
+            },
             include: {
               uploadedBy: {
                 select: { id: true, fullName: true, username: true, avatarUrl: true },
@@ -146,12 +239,16 @@ export class FileService {
               project: {
                 select: { id: true, name: true, key: true },
               },
+              folder: {
+                select: { id: true, name: true },
+              },
               workItem: {
                 select: { id: true, title: true, type: true, status: true },
               },
               note: {
                 select: { id: true, title: true, visibility: true, createdById: true },
               },
+              storedObject: true,
             },
           });
 
@@ -193,7 +290,13 @@ export class FileService {
     } catch (err: any) {
       // Clean up any uploaded storage objects if metadata persistence fails (prevent orphans)
       for (const key of uploadedStorageKeys) {
-        await storageService.delete(key).catch(() => {});
+        await storageService.delete(key).catch((cleanupErr) => {
+          console.warn(`[FileService] Failed immediate cleanup of ${key}, enqueuing orphan cleanup:`, cleanupErr);
+          enqueueCleanupJob({
+            type: 'ORPHAN_STORAGE_CLEANUP',
+            storageKey: key,
+          }).catch(() => {});
+        });
       }
       throw err;
     }
@@ -202,13 +305,20 @@ export class FileService {
   /**
    * Helper to construct Prisma visibility filter for files:
    * 1. Direct uploads: accessible in project
-   * 2. WorkItem attachments: visible ONLY to work item creator, current assignee, or file uploader
-   * 3. Note attachments: visible to all members if TEAM visibility, or ONLY to note creator and mentioned users if private
+   * 2. WorkItem attachments: visible to work item creator, current assignee, file uploader, or admin
+   * 3. Note attachments: visible to all members if TEAM visibility, or note creator, mentioned users, uploader, or admin
    */
-  private getFileVisibilityFilter(userId: string) {
+  private getFileVisibilityFilter(userId: string, isAdmin: boolean = false) {
+    if (isAdmin) {
+      return { deletedAt: null };
+    }
+
     return {
       deletedAt: null,
       OR: [
+        {
+          uploadedById: userId,
+        },
         {
           workItemId: null,
           noteId: null,
@@ -244,9 +354,9 @@ export class FileService {
    * Get project files with search, filtering, and pagination.
    */
   async getProjectFiles(projectId: string, userId: string, params: FileQueryParams) {
-    await this.getMembershipAndProject(projectId, userId);
+    const { isAdmin } = await this.getMembershipAndProject(projectId, userId);
 
-    const visibilityClause = this.getFileVisibilityFilter(userId);
+    const visibilityClause = this.getFileVisibilityFilter(userId, isAdmin);
 
     const where: any = {
       projectId,
@@ -474,6 +584,7 @@ export class FileService {
             mentions: { select: { userId: true } },
           },
         },
+        storedObject: true,
       },
     });
 
@@ -511,12 +622,14 @@ export class FileService {
    */
   async getFileStream(projectId: string, fileId: string, userId: string) {
     const file = await this.getFileById(projectId, fileId, userId);
-    const exists = await storageService.exists(file.storageKey);
+    // Authoritative physical S3 storage key from StoredObject
+    const physicalKey = file.storedObject ? file.storedObject.storageKey : file.storageKey;
+    const exists = await storageService.exists(physicalKey);
     if (!exists) {
       throw new AppError('File storage object is missing or corrupted', 404);
     }
 
-    const stream = await storageService.getStream(file.storageKey);
+    const stream = await storageService.getStream(physicalKey);
     return { file, stream };
   }
 
@@ -525,12 +638,14 @@ export class FileService {
    */
   async getFileBuffer(projectId: string, fileId: string, userId: string): Promise<{ file: any; buffer: Buffer }> {
     const file = await this.getFileById(projectId, fileId, userId);
-    const exists = await storageService.exists(file.storageKey);
+    // Authoritative physical S3 storage key from StoredObject
+    const physicalKey = file.storedObject ? file.storedObject.storageKey : file.storageKey;
+    const exists = await storageService.exists(physicalKey);
     if (!exists) {
       throw new AppError('File storage object is missing or corrupted', 404);
     }
 
-    const buffer = await storageService.getBuffer(file.storageKey);
+    const buffer = await storageService.getBuffer(physicalKey);
     return { file, buffer };
   }
 
@@ -538,7 +653,12 @@ export class FileService {
    * Rename display filename (storageKey remains unchanged).
    */
   async renameFile(projectId: string, fileId: string, userId: string, newName: string) {
-    const { isAdmin } = await this.getMembershipAndProject(projectId, userId);
+    const { isAdmin, project } = await this.getMembershipAndProject(projectId, userId);
+
+    if (project.status === 'ARCHIVED') {
+      throw new AppError('Cannot rename files in an archived project', 400);
+    }
+
     const existing = await this.getFileById(projectId, fileId, userId);
 
     const isAuthor = existing.uploadedById === userId;
@@ -602,7 +722,12 @@ export class FileService {
    * Delete file (both binary storage and database metadata).
    */
   async deleteFile(projectId: string, fileId: string, userId: string) {
-    const { isAdmin } = await this.getMembershipAndProject(projectId, userId);
+    const { isAdmin, project } = await this.getMembershipAndProject(projectId, userId);
+
+    if (project.status === 'ARCHIVED') {
+      throw new AppError('Cannot delete files in an archived project', 400);
+    }
+
     const existing = await this.getFileById(projectId, fileId, userId);
 
     const isAuthor = existing.uploadedById === userId;
@@ -610,14 +735,53 @@ export class FileService {
       throw new AppError('You do not have permission to delete this file', 403);
     }
 
-    // 1. Delete binary from storage
-    await storageService.delete(existing.storageKey).catch(() => {});
+    // 1. Soft-delete metadata first so it disappears immediately from active views
+    await prisma.attachment.update({
+      where: { id: fileId },
+      data: { deletedAt: new Date() },
+    });
 
-    // 2. Delete database record and create activity in transaction
+    // 2. Reference counting: determine whether another logical file record still references this physical object
+    // 2. Check if other logical files still reference this physical stored object
+    let shouldDeletePhysicalStorage = false;
+    const storageKeyToDelete = existing.storageKey;
+    const storedObjectId = existing.storedObjectId;
+
+    let remainingReferences = 0;
+    if (storedObjectId) {
+      remainingReferences = await prisma.attachment.count({
+        where: {
+          storedObjectId,
+          id: { not: fileId },
+          deletedAt: null,
+        },
+      });
+    } else {
+      // Legacy fallback check across identical storage keys
+      remainingReferences = await prisma.attachment.count({
+        where: {
+          storageKey: storageKeyToDelete,
+          id: { not: fileId },
+          deletedAt: null,
+        },
+      });
+    }
+
+    if (remainingReferences === 0) {
+      shouldDeletePhysicalStorage = true;
+    }
+
+    // 3. Delete database records atomically in transaction
     await prisma.$transaction(async (tx) => {
       await tx.attachment.delete({
         where: { id: fileId },
       });
+
+      if (shouldDeletePhysicalStorage && storedObjectId) {
+        await tx.storedObject.delete({
+          where: { id: storedObjectId },
+        }).catch(() => {});
+      }
 
       await activityService.createActivity(
         {
@@ -632,6 +796,19 @@ export class FileService {
         tx
       );
     });
+
+    // 4. Attempt binary deletion from storage only if reference count == 0
+    if (shouldDeletePhysicalStorage) {
+      try {
+        await storageService.delete(storageKeyToDelete);
+      } catch (storageErr) {
+        console.warn(`[FileService] Storage delete failed for ${storageKeyToDelete}, enqueuing BullMQ cleanup:`, storageErr);
+        await enqueueCleanupJob({
+          type: 'ORPHAN_STORAGE_CLEANUP',
+          storageKey: storageKeyToDelete,
+        }).catch((qErr) => console.error('[FileService] Failed to enqueue orphan storage cleanup job:', qErr));
+      }
+    }
 
     publishToProject(projectId, 'FILE_DELETED', {
       projectId,

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import DOMPurify from 'dompurify';
 import type { AttachmentDTO } from '../../../api/files.api';
 import { filesApi } from '../../../api/files.api';
 import { FileTextIcon, CopyIcon, CheckIcon, DownloadIcon } from '../../ui/Icons';
@@ -83,7 +84,10 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({ file }) => {
     // Paragraphs
     html = html.replace(/\n\n/g, '<br/><br/>');
 
-    return html;
+    return DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: ['h1', 'h2', 'h3', 'p', 'strong', 'em', 'blockquote', 'pre', 'code', 'ul', 'ol', 'li', 'br', 'div', 'input'],
+      ALLOWED_ATTR: ['class', 'type', 'disabled', 'checked'],
+    });
   };
 
   if (loading) {

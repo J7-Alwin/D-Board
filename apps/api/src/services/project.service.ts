@@ -1,6 +1,7 @@
 import { prisma } from '../prisma.js';
 import { CreateProjectInput, UpdateProjectInput } from '../schemas/project.schema.js';
 import { AppError } from '../middlewares/error.middleware.js';
+import { enqueueEmailJob } from '../jobs/queues.js';
 
 export class ProjectService {
   /**
@@ -8,9 +9,17 @@ export class ProjectService {
    * 1. Create Project
    * 2. Create ProjectMember for creator as PROJECT_ADMIN
    * 3. Create pending invitations (if any)
+   * 4. Post-commit: Enqueue invitation emails via BullMQ
    */
   async createProject(userId: string, data: CreateProjectInput) {
-    return await prisma.$transaction(async (tx) => {
+    const pendingEmailDispatches: Array<{
+      email: string;
+      role: string;
+      message: string | null;
+      expiresAt: Date;
+    }> = [];
+
+    const fullProject = await prisma.$transaction(async (tx) => {
       // 1. Create project
       const project = await tx.project.create({
         data: {
@@ -38,15 +47,16 @@ export class ProjectService {
       });
 
       // 3. Process invitations (if provided)
-      if (data.invitations && data.invitations.length > 0) {
-        // De-duplicate emails & exclude creator's own email
-        const creator = await tx.user.findUnique({
-          where: { id: userId },
-          select: { email: true, fullName: true, username: true },
-        });
+      const creator = await tx.user.findUnique({
+        where: { id: userId },
+        select: { email: true, fullName: true, username: true },
+      });
 
+      const rawInvitations = data.invitations || (data as any).invitedMembers || [];
+      if (rawInvitations && rawInvitations.length > 0) {
+        // De-duplicate emails & exclude creator's own email
         const seenEmails = new Set<string>();
-        const validInvitations = data.invitations.filter((inv) => {
+        const validInvitations = rawInvitations.filter((inv: any) => {
           const email = inv.email.toLowerCase().trim();
           if (creator && email === creator.email.toLowerCase()) return false;
           if (seenEmails.has(email)) return false;
@@ -80,6 +90,14 @@ export class ProjectService {
             },
           });
 
+          // Queue for post-commit dispatch
+          pendingEmailDispatches.push({
+            email: normalizedEmail,
+            role: inv.role || 'PROJECT_MEMBER',
+            message: inv.message || null,
+            expiresAt,
+          });
+
           // Dispatch in-app notification if invited user is already registered
           if (existingUser) {
             await tx.notification.create({
@@ -110,7 +128,7 @@ export class ProjectService {
       });
 
       // Return created project with member counts
-      const fullProject = await tx.project.findUnique({
+      const created = await tx.project.findUnique({
         where: { id: project.id },
         include: {
           createdBy: {
@@ -129,8 +147,31 @@ export class ProjectService {
         },
       });
 
-      return fullProject;
+      return created;
     });
+
+    // POST-COMMIT: Enqueue invitation emails via BullMQ outside the DB transaction
+    if (fullProject && pendingEmailDispatches.length > 0) {
+      const inviterName = fullProject.createdBy?.fullName || fullProject.createdBy?.username || 'A team member';
+      for (const dispatch of pendingEmailDispatches) {
+        try {
+          await enqueueEmailJob({
+            type: 'PROJECT_INVITATION',
+            toEmail: dispatch.email,
+            inviterName,
+            projectName: fullProject.name,
+            projectKey: fullProject.key,
+            role: dispatch.role,
+            message: dispatch.message,
+            expiresAt: dispatch.expiresAt.toISOString(),
+          });
+        } catch (dispatchErr) {
+          console.error(`[ProjectService] Failed to enqueue invitation email to ${dispatch.email}:`, dispatchErr);
+        }
+      }
+    }
+
+    return fullProject;
   }
 
   /**
@@ -307,9 +348,87 @@ export class ProjectService {
   }
 
   /**
-   * Delete project (Project Admin or Creator only)
+   * Archive project (Project Admin or Creator only)
    */
-  async deleteProject(projectId: string, userId: string) {
+  async archiveProject(projectId: string, userId: string) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { members: true },
+    });
+
+    if (!project) {
+      throw new AppError('Project not found', 404);
+    }
+
+    const isCreator = project.createdById === userId;
+    const member = project.members.find((m) => m.userId === userId);
+    const isAdmin = isCreator || member?.role === 'PROJECT_ADMIN';
+
+    if (!isAdmin) {
+      throw new AppError('Only project administrators can archive this project', 403);
+    }
+
+    if (project.status === 'ARCHIVED') {
+      return project;
+    }
+
+    const updated = await prisma.project.update({
+      where: { id: projectId },
+      data: {
+        status: 'ARCHIVED',
+        archivedAt: new Date(),
+      },
+      include: {
+        createdBy: {
+          select: { id: true, fullName: true, username: true, avatarUrl: true },
+        },
+      },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Unarchive project (Project Admin or Creator only)
+   */
+  async unarchiveProject(projectId: string, userId: string) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { members: true },
+    });
+
+    if (!project) {
+      throw new AppError('Project not found', 404);
+    }
+
+    const isCreator = project.createdById === userId;
+    const member = project.members.find((m) => m.userId === userId);
+    const isAdmin = isCreator || member?.role === 'PROJECT_ADMIN';
+
+    if (!isAdmin) {
+      throw new AppError('Only project administrators can unarchive this project', 403);
+    }
+
+    const updated = await prisma.project.update({
+      where: { id: projectId },
+      data: {
+        status: 'ACTIVE',
+        archivedAt: null,
+      },
+      include: {
+        createdBy: {
+          select: { id: true, fullName: true, username: true, avatarUrl: true },
+        },
+      },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Delete project (Project Admin or Creator only, requires exact project name confirmation if provided)
+   */
+  async deleteProject(projectId: string, userId: string, confirmProjectName?: string) {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: { members: true },
@@ -327,11 +446,59 @@ export class ProjectService {
       throw new AppError('Only project administrators can delete this project', 403);
     }
 
+    if (confirmProjectName !== undefined && confirmProjectName !== project.name) {
+      throw new AppError(`Project name does not match. Please enter "${project.name}" to confirm permanent deletion.`, 400);
+    }
+
     await prisma.project.delete({
       where: { id: projectId },
     });
 
     return { id: projectId, name: project.name };
+  }
+
+  /**
+   * Transfer project ownership from current creator to another project member
+   */
+  async transferOwnership(projectId: string, currentUserId: string, targetUserId: string) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        members: { where: { userId: targetUserId } },
+      },
+    });
+
+    if (!project) {
+      throw new AppError('Project not found', 404);
+    }
+
+    if (project.createdById !== currentUserId) {
+      throw new AppError('Only the current project owner can transfer ownership', 403);
+    }
+
+    if (currentUserId === targetUserId) {
+      throw new AppError('You are already the owner of this project', 400);
+    }
+
+    const targetMember = project.members[0];
+    if (!targetMember) {
+      throw new AppError('The new owner must be an existing member of the project', 400);
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      // Ensure the new owner is a PROJECT_ADMIN
+      await tx.projectMember.update({
+        where: { id: targetMember.id },
+        data: { role: 'PROJECT_ADMIN' },
+      });
+
+      const updatedProject = await tx.project.update({
+        where: { id: projectId },
+        data: { createdById: targetUserId },
+      });
+
+      return updatedProject;
+    });
   }
 }
 

@@ -104,7 +104,7 @@ export class NotificationService {
     if (created.type === 'WORK_ASSIGNED') {
       (async () => {
         try {
-          const recipient = await client.user.findUnique({
+          const recipient = await prisma.user.findUnique({
             where: { id: created.recipientId },
             select: { email: true, username: true, fullName: true, notificationPreferences: true },
           });

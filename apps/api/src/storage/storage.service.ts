@@ -11,7 +11,7 @@ export class StorageService {
     if (provider) {
       this.provider = provider;
     } else {
-      const driver = process.env.STORAGE_DRIVER || (process.env.AWS_ACCESS_KEY_ID ? 's3' : 'local');
+      const driver = process.env.STORAGE_DRIVER || (process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID ? 's3' : 'local');
       if (driver === 's3') {
         this.provider = new S3StorageProvider();
       } else {
@@ -69,7 +69,22 @@ export class StorageService {
     }
     return null;
   }
+
+  /**
+   * Lightweight health check verifying storage provider connectivity without downloading user data.
+   */
+  async checkHealth(): Promise<{ status: 'healthy' | 'degraded'; driver: string; error?: string }> {
+    const driver = process.env.STORAGE_DRIVER || (process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID ? 's3' : 'local');
+    try {
+      // Test non-destructive existence check for root namespace
+      await this.provider.exists(`health-check-${Date.now()}`);
+      return { status: 'healthy', driver };
+    } catch (err: any) {
+      return { status: 'degraded', driver, error: err.message || 'Storage unavailable' };
+    }
+  }
 }
 
 export const storageService = new StorageService();
+
 

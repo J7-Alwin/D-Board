@@ -37,6 +37,13 @@ export interface DeadlineReminderJobData {
   reminderType: 'DEADLINE_SOON' | 'DEADLINE_OVERDUE';
 }
 
-export interface CleanupJobData {
-  type: 'EXPIRED_INVITATIONS' | 'EXPIRED_RESET_TOKENS' | 'EXPIRED_NOTIFICATIONS';
+export interface OrphanStorageCleanupJobData {
+  type: 'ORPHAN_STORAGE_CLEANUP';
+  storageKey: string;
 }
+
+export type CleanupJobData =
+  | { type: 'EXPIRED_INVITATIONS' }
+  | { type: 'EXPIRED_RESET_TOKENS' }
+  | { type: 'EXPIRED_NOTIFICATIONS' }
+  | OrphanStorageCleanupJobData;

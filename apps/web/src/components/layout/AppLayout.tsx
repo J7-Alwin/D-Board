@@ -5,6 +5,7 @@ import { useSocket } from '../../context/SocketContext';
 import { projectsApi, type Project } from '../../api/projects.api';
 import { invitationsApi } from '../../api/invitations.api';
 import { notificationsApi } from '../../api/notifications.api';
+import { searchApi, type SearchResultItem } from '../../api/search.api';
 import { NotificationDropdown } from '../notifications/NotificationDropdown';
 import {
   LayersIcon,
@@ -43,6 +44,13 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     joined: [],
   });
 
+  // Global Search State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResultItem | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on outside click
@@ -51,10 +59,40 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setProfileDropdownOpen(false);
       }
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setSearchOpen(false);
+      }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Debounced search query
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchResults(null);
+      setSearchLoading(false);
+      return;
+    }
+
+    setSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await searchApi.searchGlobal(q);
+        if (res.success && res.data) {
+          setSearchResults(res.data);
+          setSearchOpen(true);
+        }
+      } catch (err) {
+        console.error('Search failed', err);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const refreshCountsAndProjects = () => {
     if (!user) return;
@@ -385,14 +423,221 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             >
               <MenuIcon size={22} />
             </button>
-            <div className="workspace-search">
+            <div className="workspace-search" ref={searchContainerRef} style={{ position: 'relative' }}>
               <SearchIcon size={16} />
               <input
                 type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  if (e.target.value.trim().length >= 2) setSearchOpen(true);
+                }}
+                onFocus={() => {
+                  if (searchQuery.trim().length >= 2) setSearchOpen(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setSearchOpen(false);
+                }}
                 placeholder="Search projects, tasks, notes..."
                 className="topbar-input"
-                aria-label="Search projects"
+                aria-label="Search workspace"
               />
+              {searchLoading && (
+                <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)' }}>
+                  <div className="btn-spinner" style={{ width: '14px', height: '14px', borderColor: '#9CA3AF', borderTopColor: 'transparent' }} />
+                </div>
+              )}
+
+              {/* Global Search Results Floating Dropdown */}
+              {searchOpen && searchQuery.trim().length >= 2 && (
+                <div
+                  className="workspace-search-results-dropdown"
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 8px)',
+                    left: 0,
+                    width: '420px',
+                    maxHeight: '440px',
+                    overflowY: 'auto',
+                    background: '#FFFFFF',
+                    borderRadius: '10px',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #E5E7EB',
+                    zIndex: 1000,
+                    padding: '8px 0',
+                  }}
+                >
+                  {searchLoading && !searchResults ? (
+                    <div style={{ padding: '16px', textAlign: 'center', fontSize: '13px', color: '#9CA3AF' }}>
+                      Searching workspace...
+                    </div>
+                  ) : !searchResults ||
+                    (searchResults.projects.length === 0 &&
+                      searchResults.workItems.length === 0 &&
+                      searchResults.notes.length === 0 &&
+                      searchResults.files.length === 0) ? (
+                    <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: '13px', color: '#6B7280' }}>
+                      No results found for &ldquo;{searchQuery}&rdquo;
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Projects Section */}
+                      {searchResults.projects.length > 0 && (
+                        <div>
+                          <div style={{ padding: '6px 16px', fontSize: '11px', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Projects ({searchResults.projects.length})
+                          </div>
+                          {searchResults.projects.map((p) => (
+                            <div
+                              key={p.id}
+                              onClick={() => {
+                                setSearchOpen(false);
+                                setSearchQuery('');
+                                navigate(`/app/projects/${p.id}`);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '8px 16px',
+                                cursor: 'pointer',
+                                transition: 'background 0.1s ease',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = '#F9FAFB')}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                            >
+                              <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4F46E5', fontSize: '11px', fontWeight: 700 }}>
+                                {p.key}
+                              </div>
+                              <div style={{ overflow: 'hidden' }}>
+                                <div style={{ fontSize: '13px', fontWeight: 600, color: '#111827', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{p.name}</div>
+                                {p.description && <div style={{ fontSize: '11px', color: '#6B7280', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{p.description}</div>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Work Items Section */}
+                      {searchResults.workItems.length > 0 && (
+                        <div style={{ marginTop: '8px', borderTop: '1px solid #F3F4F6', paddingTop: '6px' }}>
+                          <div style={{ padding: '6px 16px', fontSize: '11px', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Tasks &amp; Work Items ({searchResults.workItems.length})
+                          </div>
+                          {searchResults.workItems.map((item) => (
+                            <div
+                              key={item.id}
+                              onClick={() => {
+                                setSearchOpen(false);
+                                setSearchQuery('');
+                                navigate(`/app/projects/${item.projectId}/board`);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '8px 16px',
+                                cursor: 'pointer',
+                                transition: 'background 0.1s ease',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = '#F9FAFB')}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                                <CheckSquareIcon size={14} />
+                                <span style={{ fontSize: '13px', color: '#1F2937', fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                  {item.title}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: '11px', color: '#6B7280', background: '#F3F4F6', padding: '2px 6px', borderRadius: '4px', flexShrink: 0 }}>
+                                {item.projectName}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Notes Section */}
+                      {searchResults.notes.length > 0 && (
+                        <div style={{ marginTop: '8px', borderTop: '1px solid #F3F4F6', paddingTop: '6px' }}>
+                          <div style={{ padding: '6px 16px', fontSize: '11px', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Notes ({searchResults.notes.length})
+                          </div>
+                          {searchResults.notes.map((note) => (
+                            <div
+                              key={note.id}
+                              onClick={() => {
+                                setSearchOpen(false);
+                                setSearchQuery('');
+                                navigate(`/app/projects/${note.projectId}/notes`);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '8px 16px',
+                                cursor: 'pointer',
+                                transition: 'background 0.1s ease',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = '#F9FAFB')}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                                <FileTextIcon size={14} />
+                                <span style={{ fontSize: '13px', color: '#1F2937', fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                  {note.title}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: '11px', color: '#6B7280', background: '#F3F4F6', padding: '2px 6px', borderRadius: '4px', flexShrink: 0 }}>
+                                {note.projectName}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Files Section */}
+                      {searchResults.files.length > 0 && (
+                        <div style={{ marginTop: '8px', borderTop: '1px solid #F3F4F6', paddingTop: '6px' }}>
+                          <div style={{ padding: '6px 16px', fontSize: '11px', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Files ({searchResults.files.length})
+                          </div>
+                          {searchResults.files.map((file) => (
+                            <div
+                              key={file.id}
+                              onClick={() => {
+                                setSearchOpen(false);
+                                setSearchQuery('');
+                                navigate(`/app/projects/${file.projectId}/files`);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '8px 16px',
+                                cursor: 'pointer',
+                                transition: 'background 0.1s ease',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = '#F9FAFB')}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                                <FolderIcon size={14} />
+                                <span style={{ fontSize: '13px', color: '#1F2937', fontWeight: 500, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                  {file.originalName}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: '11px', color: '#6B7280', background: '#F3F4F6', padding: '2px 6px', borderRadius: '4px', flexShrink: 0 }}>
+                                {file.projectName}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

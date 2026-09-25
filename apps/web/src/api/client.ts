@@ -18,7 +18,17 @@ export class ApiError extends Error {
   }
 }
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+function resolveApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (!envUrl) return '/api';
+  const trimmed = envUrl.trim().replace(/\/+$/, '');
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+  }
+  return trimmed;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 export async function safeParseJson<T = any>(response: Response, fallbackMessage = 'Request failed'): Promise<T> {
   const contentType = response.headers.get('content-type');

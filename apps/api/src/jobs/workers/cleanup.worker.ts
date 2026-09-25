@@ -44,6 +44,11 @@ export function createCleanupWorker(): Worker<CleanupJobData> {
         });
         console.log(`[CleanupWorker] Purged ${res.count} notifications older than 7 days.`);
         return { cleaned: res.count, type: data.type };
+      } else if (data.type === 'ORPHAN_STORAGE_CLEANUP') {
+        const { storageService } = await import('../../storage/storage.service.js');
+        await storageService.delete(data.storageKey);
+        console.log(`[CleanupWorker] Successfully purged orphan storage key: ${data.storageKey}`);
+        return { cleaned: 1, type: data.type, storageKey: data.storageKey };
       }
 
       return { cleaned: 0 };

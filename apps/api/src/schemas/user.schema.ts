@@ -11,7 +11,7 @@ export const updateProfileSchema = z.object({
   headline: z.string().max(120).nullable().optional(),
   bio: z.string().max(500).nullable().optional(),
   timezone: z.string().max(50).optional(),
-  avatarUrl: z.string().nullable().optional(),
+  avatarUrl: z.string().max(2048, 'Avatar URL cannot exceed 2048 characters').nullable().optional(),
 });
 
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

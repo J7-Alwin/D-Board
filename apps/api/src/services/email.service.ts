@@ -66,6 +66,9 @@ export interface SendWorkItemAssignedOptions {
 }
 
 function getTransporter() {
+  if (process.env.NODE_ENV === 'test') {
+    return null;
+  }
   const host = process.env.SMTP_HOST;
   const port = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
   const user = process.env.SMTP_USER;
@@ -181,13 +184,73 @@ export async function sendPasswordResetOtpEmail(options: SendPasswordResetOtpOpt
     }
   }
 
-  // Fallback console simulator
-  console.log('====================================================');
-  console.log('📬 [D-BOARD PASSWORD RESET OTP SIMULATOR (Local Dev)]');
-  console.log(`To: ${options.toEmail}`);
-  console.log(`Subject: Your D-Board Verification Code: ${options.otp}`);
-  console.log(`OTP Code: [ ${options.otp} ] (Expires in 15 mins)`);
-  console.log('====================================================');
+  // Fallback console simulator (local development only)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('====================================================');
+    console.log('📬 [D-BOARD PASSWORD RESET OTP SIMULATOR (Local Dev)]');
+    console.log(`To: ${options.toEmail}`);
+    console.log(`Subject: Your D-Board Verification Code: ${options.otp}`);
+    console.log(`OTP Code: [ ${options.otp} ] (Expires in 15 mins)`);
+    console.log('====================================================');
+  }
+  return true;
+}
+
+export interface SendEmailVerificationOptions {
+  toEmail: string;
+  username: string;
+  token: string;
+}
+
+/**
+ * Send email verification link
+ */
+export async function sendEmailVerificationEmail(options: SendEmailVerificationOptions): Promise<boolean> {
+  const appUrl = getAppUrl();
+  const verifyUrl = `${appUrl}/verify-email?token=${encodeURIComponent(options.token)}`;
+  const transporter = getTransporter();
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
+      <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #1F1F1F;">Verify Your Email Address</h2>
+      <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 20px;">
+        Hello <strong>${options.username}</strong>,<br/>
+        Thank you for joining D-Board. Please click the button below to verify your email address and activate project collaboration features:
+      </p>
+      <div style="margin-bottom: 28px;">
+        <a href="${verifyUrl}" style="display: inline-block; background-color: #1F1F1F; color: #FFFFFF; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 8px; text-decoration: none;">
+          Verify Email Address &rarr;
+        </a>
+      </div>
+      <p style="font-size: 13px; color: #8E8E8E; line-height: 1.5; border-top: 1px solid #ECECE6; padding-top: 16px;">
+        This verification link will expire in 24 hours. If you did not create a D-Board account, please disregard this email.
+      </p>
+    </div>
+  `;
+
+  if (transporter) {
+    try {
+      await transporter.sendMail({
+        from: getEmailFrom(),
+        to: options.toEmail,
+        subject: 'Verify your D-Board email address',
+        text: `Hello ${options.username},\n\nPlease verify your email by clicking the link below:\n${verifyUrl}\n\nThis link expires in 24 hours.\n\n— The D-Board Team`,
+        html,
+      });
+      return true;
+    } catch (err) {
+      console.error('[Email Service Error]: Failed to send verification email via SMTP transport:', err);
+    }
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('====================================================');
+    console.log('📬 [D-BOARD EMAIL VERIFICATION SIMULATOR (Local Dev)]');
+    console.log(`To: ${options.toEmail}`);
+    console.log(`Verify Link: ${verifyUrl}`);
+    console.log('====================================================');
+  }
   return true;
 }
 

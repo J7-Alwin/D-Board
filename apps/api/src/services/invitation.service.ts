@@ -40,6 +40,11 @@ export class InvitationService {
    */
   static async createInvitation(projectId: string, actorId: string, input: CreateInvitationInput) {
     const { project } = await this.verifyProjectAdmin(projectId, actorId);
+
+    if (project.status === 'ARCHIVED') {
+      throw new AppError('Cannot invite members to an archived project', 400);
+    }
+
     const normalizedEmail = input.email.toLowerCase().trim();
 
     // 1. Fetch actor details
@@ -168,6 +173,10 @@ export class InvitationService {
   static async resendInvitation(projectId: string, invitationId: string, actorId: string) {
     const { project } = await this.verifyProjectAdmin(projectId, actorId);
 
+    if (project.status === 'ARCHIVED') {
+      throw new AppError('Cannot resend invitations for an archived project', 400);
+    }
+
     const invitation = await prisma.invitation.findUnique({
       where: { id: invitationId },
     });
@@ -176,8 +185,15 @@ export class InvitationService {
       throw new AppError('Invitation not found', 404);
     }
 
-    if (invitation.status !== 'PENDING') {
+    // Only allow resend for PENDING or EXPIRED invitations
+    if (invitation.status !== 'PENDING' && invitation.status !== 'EXPIRED') {
       throw new AppError(`Cannot resend an invitation that is already ${invitation.status.toLowerCase()}`, 400);
+    }
+
+    // Rate limiting: prevent spamming resend within 60 seconds
+    const nowMs = Date.now();
+    if (invitation.updatedAt && nowMs - new Date(invitation.updatedAt).getTime() < 60 * 1000) {
+      throw new AppError('Please wait 60 seconds before resending this invitation', 429);
     }
 
     const actor = await prisma.user.findUnique({
@@ -185,13 +201,14 @@ export class InvitationService {
       select: { fullName: true, username: true },
     });
 
-    // Extend expiry by 7 days from now
+    // Extend expiry by 7 days from now and ensure status is PENDING
     const newExpiresAt = new Date();
     newExpiresAt.setDate(newExpiresAt.getDate() + 7);
 
     const updated = await prisma.invitation.update({
       where: { id: invitationId },
       data: {
+        status: 'PENDING',
         expiresAt: newExpiresAt,
       },
       include: {
@@ -315,11 +332,15 @@ export class InvitationService {
   static async acceptInvitation(invitationId: string, userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, fullName: true, username: true },
+      select: { id: true, email: true, fullName: true, username: true, isEmailVerified: true },
     });
 
     if (!user) {
       throw new AppError('User not found', 404);
+    }
+
+    if (!user.isEmailVerified) {
+      throw new AppError('You must verify your email address before accepting project invitations. Please check your inbox for the verification link.', 403);
     }
 
     const invitation = await prisma.invitation.findUnique({

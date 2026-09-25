@@ -73,7 +73,7 @@ export const FeaturesPage: React.FC = () => {
       details: [
         'Markdown-enabled collaborative project documentation',
         'Asset and file attachment storage scoped to each project',
-        'Full version history and fast text search',
+        'Secure deduplication, metadata tracking, and fast text search',
       ],
     },
     {

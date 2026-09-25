@@ -76,6 +76,9 @@ enum ActivityType {
   FILE_UPLOADED
   FILE_RENAMED
   FILE_DELETED
+  FOLDER_CREATED
+  FOLDER_RENAMED
+  FOLDER_DELETED
 }
 
 enum NoteVisibility {
@@ -128,42 +131,50 @@ enum NotificationType {
 }
 
 model User {
-  id                     String          @id @default(uuid())
-  fullName               String?
-  username               String          @unique
-  email                  String          @unique
-  passwordHash           String?
-  avatarUrl              String?
-  isEmailVerified        Boolean         @default(false)
-  termsAccepted          Boolean         @default(true)
-  googleId               String?         @unique
-  passwordResetTokenHash String?
-  passwordResetExpiresAt DateTime?
-  bio                    String?
-  headline               String?
-  timezone               String?         @default("UTC")
-  notificationPreferences Json?
-  createdAt              DateTime        @default(now())
-  updatedAt              DateTime        @updatedAt
+  id                         String          @id @default(uuid())
+  fullName                   String?
+  username                   String          @unique
+  email                      String          @unique
+  passwordHash               String?
+  avatarUrl                  String?
+  isEmailVerified            Boolean         @default(false)
+  emailVerificationTokenHash String?
+  emailVerificationExpiresAt DateTime?
+  termsAccepted              Boolean         @default(true)
+  googleId                   String?         @unique
+  passwordResetTokenHash     String?
+  passwordResetExpiresAt     DateTime?
+  passwordResetAttempts      Int             @default(0)
+  isDeactivated              Boolean         @default(false)
+  deactivatedAt              DateTime?
+  bio                        String?
+  headline                   String?
+  timezone                   String?         @default("UTC")
+  notificationPreferences    Json?
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
 
   // Relations
-  createdProjects        Project[]       @relation("CreatedProjects")
-  memberships            ProjectMember[]
-  sentInvitations        Invitation[]    @relation("SentInvitations")
-  receivedInvitations    Invitation[]    @relation("ReceivedInvitations")
-  createdWorkItems       WorkItem[]      @relation("CreatedWorkItems")
-  assignedWorkItems      WorkItem[]      @relation("AssignedWorkItems")
-  comments               Comment[]       @relation("UserComments")
-  activities             Activity[]      @relation("UserActivities")
-  createdNotes           Note[]          @relation("CreatedNotes")
-  updatedNotes           Note[]          @relation("UpdatedNotes")
-  noteMentions           NoteMention[]   @relation("UserNoteMentions")
-  createdCalendarEvents  CalendarEvent[]         @relation("CreatedCalendarEvents")
-  updatedCalendarEvents  CalendarEvent[]         @relation("UpdatedCalendarEvents")
-  calendarAttendees      CalendarEventAttendee[] @relation("UserCalendarAttendees")
-  uploadedAttachments    Attachment[]            @relation("UserAttachments")
-  notifications          Notification[]          @relation("UserNotifications")
-  actedNotifications     Notification[]          @relation("ActorNotifications")
+  sessions                   Session[]
+  createdProjects            Project[]       @relation("CreatedProjects")
+  memberships                ProjectMember[]
+  sentInvitations            Invitation[]    @relation("SentInvitations")
+  receivedInvitations        Invitation[]    @relation("ReceivedInvitations")
+  createdWorkItems           WorkItem[]      @relation("CreatedWorkItems")
+  assignedWorkItems          WorkItem[]      @relation("AssignedWorkItems")
+  comments                   Comment[]       @relation("UserComments")
+  activities                 Activity[]      @relation("UserActivities")
+  createdNotes               Note[]          @relation("CreatedNotes")
+  updatedNotes               Note[]          @relation("UpdatedNotes")
+  noteMentions               NoteMention[]   @relation("UserNoteMentions")
+  createdCalendarEvents      CalendarEvent[]         @relation("CreatedCalendarEvents")
+  updatedCalendarEvents      CalendarEvent[]         @relation("UpdatedCalendarEvents")
+  calendarAttendees          CalendarEventAttendee[] @relation("UserCalendarAttendees")
+  uploadedAttachments        Attachment[]            @relation("UserAttachments")
+  createdFolders             FileFolder[]            @relation("UserFolders")
+  notifications              Notification[]          @relation("UserNotifications")
+  actedNotifications         Notification[]          @relation("ActorNotifications")
+  calendarFeedTokens         CalendarFeedToken[]     @relation("UserCalendarFeedTokens")
 }
 
 model Project {
@@ -180,7 +191,7 @@ model Project {
   avatarUrl       String?
   status          ProjectStatus   @default(ACTIVE)
   createdById     String
-  createdBy       User            @relation("CreatedProjects", fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy       User            @relation("CreatedProjects", fields: [createdById], references: [id], onDelete: Restrict)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   archivedAt      DateTime?
@@ -192,7 +203,10 @@ model Project {
   notes           Note[]
   calendarEvents  CalendarEvent[]
   attachments     Attachment[]
+  folders         FileFolder[]
+  storedObjects   StoredObject[]
   notifications   Notification[]
+  calendarFeedTokens CalendarFeedToken[] @relation("ProjectCalendarFeedTokens")
 
   @@index([createdById])
   @@index([status])
@@ -222,7 +236,7 @@ model Invitation {
   invitedUserId String?
   invitedUser  User?            @relation("ReceivedInvitations", fields: [invitedUserId], references: [id], onDelete: SetNull)
   invitedById  String
-  invitedBy    User             @relation("SentInvitations", fields: [invitedById], references: [id], onDelete: Cascade)
+  invitedBy    User             @relation("SentInvitations", fields: [invitedById], references: [id], onDelete: Restrict)
   role         ProjectRole      @default(PROJECT_MEMBER)
   status       InvitationStatus @default(PENDING)
   message      String?
@@ -249,7 +263,7 @@ model WorkItem {
   status         WorkItemStatus   @default(TODO)
   priority       WorkItemPriority @default(MEDIUM)
   createdById    String
-  createdBy      User             @relation("CreatedWorkItems", fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy      User             @relation("CreatedWorkItems", fields: [createdById], references: [id], onDelete: Restrict)
   assignedToId   String?
   assignedTo     User?            @relation("AssignedWorkItems", fields: [assignedToId], references: [id], onDelete: SetNull)
   dueDate        DateTime?
@@ -275,7 +289,7 @@ model Comment {
   workItemId    String
   workItem      WorkItem       @relation(fields: [workItemId], references: [id], onDelete: Cascade)
   authorId      String
-  author        User           @relation("UserComments", fields: [authorId], references: [id], onDelete: Cascade)
+  author        User           @relation("UserComments", fields: [authorId], references: [id], onDelete: Restrict)
   body          String
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -293,7 +307,7 @@ model Note {
   title         String
   content       String
   createdById   String
-  createdBy     User           @relation("CreatedNotes", fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy     User           @relation("CreatedNotes", fields: [createdById], references: [id], onDelete: Restrict)
   updatedById   String?
   updatedBy     User?          @relation("UpdatedNotes", fields: [updatedById], references: [id], onDelete: SetNull)
   visibility    NoteVisibility @default(TEAM)
@@ -339,7 +353,7 @@ model CalendarEvent {
   allDay            Boolean           @default(false)
   location          String?
   createdById       String
-  createdBy         User              @relation("CreatedCalendarEvents", fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy         User              @relation("CreatedCalendarEvents", fields: [createdById], references: [id], onDelete: Restrict)
   updatedById       String?
   updatedBy         User?             @relation("UpdatedCalendarEvents", fields: [updatedById], references: [id], onDelete: SetNull)
   relatedWorkItemId String?
@@ -369,34 +383,57 @@ model CalendarEventAttendee {
   @@index([calendarEventId])
 }
 
-model Attachment {
-  id           String        @id @default(uuid())
-  projectId    String
-  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  uploadedById String
-  uploadedBy   User          @relation("UserAttachments", fields: [uploadedById], references: [id], onDelete: Cascade)
-  workItemId   String?
-  workItem     WorkItem?     @relation(fields: [workItemId], references: [id], onDelete: SetNull)
-  noteId       String?
-  note         Note?         @relation(fields: [noteId], references: [id], onDelete: SetNull)
-  originalName String
-  storageKey   String        @unique
-  mimeType     String
-  sizeBytes    Int
-  extension    String
-  category     FileCategory  @default(OTHER)
-  checksum     String?
-  deletedAt    DateTime?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+model StoredObject {
+  id          String       @id @default(uuid())
+  projectId   String
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contentHash String
+  storageKey  String       @unique
+  mimeType    String
+  sizeBytes   Int
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
-  activities   Activity[]
+  attachments Attachment[]
+
+  @@unique([projectId, contentHash])
+  @@index([projectId, contentHash])
+}
+
+model Attachment {
+  id             String        @id @default(uuid())
+  projectId      String
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedById   String
+  uploadedBy     User          @relation("UserAttachments", fields: [uploadedById], references: [id], onDelete: Restrict)
+  storedObjectId String?
+  storedObject   StoredObject? @relation(fields: [storedObjectId], references: [id], onDelete: Restrict)
+  workItemId     String?
+  workItem       WorkItem?     @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+  noteId         String?
+  note           Note?         @relation(fields: [noteId], references: [id], onDelete: SetNull)
+  folderId       String?
+  folder         FileFolder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  originalName   String
+  storageKey     String
+  mimeType       String
+  sizeBytes      Int
+  extension      String
+  category       FileCategory  @default(OTHER)
+  checksum       String?
+  deletedAt      DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  activities     Activity[]
 
   @@index([projectId, category])
   @@index([projectId, createdAt])
   @@index([uploadedById])
   @@index([workItemId])
   @@index([noteId])
+  @@index([folderId])
+  @@index([storedObjectId])
 }
 
 model Activity {
@@ -404,7 +441,7 @@ model Activity {
   projectId       String
   project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   actorId         String
-  actor           User           @relation("UserActivities", fields: [actorId], references: [id], onDelete: Cascade)
+  actor           User           @relation("UserActivities", fields: [actorId], references: [id], onDelete: Restrict)
   workItemId      String?
   workItem        WorkItem?      @relation(fields: [workItemId], references: [id], onDelete: SetNull)
   noteId          String?
@@ -453,4 +490,57 @@ model Notification {
   @@index([recipientId, readAt, createdAt])
   @@index([recipientId, createdAt])
   @@index([projectId])
+}
+
+model Session {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionTokenHash String    @unique
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  lastUsedAt       DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+model FileFolder {
+  id          String       @id @default(uuid())
+  projectId   String
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  parentId    String?
+  parent      FileFolder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    FileFolder[] @relation("FolderHierarchy")
+  createdById String
+  createdBy   User         @relation("UserFolders", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  attachments Attachment[]
+
+  @@index([projectId, parentId])
+  @@index([projectId])
+  @@index([createdById])
+}
+
+model CalendarFeedToken {
+  id          String    @id @default(uuid())
+  tokenHash   String    @unique
+  userId      String
+  user        User      @relation("UserCalendarFeedTokens", fields: [userId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project?  @relation("ProjectCalendarFeedTokens", fields: [projectId], references: [id], onDelete: Cascade)
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tokenHash])
+  @@index([userId, projectId])
 }

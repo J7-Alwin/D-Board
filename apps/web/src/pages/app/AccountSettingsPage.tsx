@@ -6,6 +6,7 @@ import {
   type UserProfile,
   type NotificationPreferences,
 } from '../../api/user.api';
+import { authApi } from '../../api/auth.api';
 import {
   UserIcon,
   LockIcon,
@@ -320,8 +321,8 @@ export const AccountSettingsPage: React.FC = () => {
                 {(profile?.username || profile?.fullName || 'a')[0].toLowerCase()}
               </span>
               <div className="as-pill-text-col">
-                <span className="as-pill-name">{profile?.username || 'alwin'}</span>
-                <span className="as-pill-email">{profile?.email || 'j7alwin@gmail.com'}</span>
+                <span className="as-pill-name">{profile?.fullName || profile?.username || 'User'}</span>
+                <span className="as-pill-email">{profile?.email || ''}</span>
               </div>
               <span className="as-pill-chevron">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -517,7 +518,7 @@ export const AccountSettingsPage: React.FC = () => {
                     <span className="as-field-at">@</span>
                     <input
                       type="text"
-                      placeholder="j7alwin"
+                      placeholder={profile?.username || "username"}
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       required
@@ -530,18 +531,24 @@ export const AccountSettingsPage: React.FC = () => {
                 <div className="as-field-group">
                   <div className="as-label-with-pill">
                     <label className="as-field-label">Email Address *</label>
-                    <span className="as-green-verified-badge">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                      <span>Verified</span>
-                    </span>
+                    {profile?.isEmailVerified ? (
+                      <span className="as-green-verified-badge">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        <span>Verified</span>
+                      </span>
+                    ) : (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600, color: '#D97706', background: '#FEF3C7', padding: '2px 8px', borderRadius: '10px' }}>
+                        <span>Unverified</span>
+                      </span>
+                    )}
                   </div>
                   <div className="as-field-input-box as-field-disabled">
                     <MailIcon size={16} className="as-field-icon" />
                     <input
                       type="email"
-                      value={profile?.email || 'j7alwin@gmail.com'}
+                      value={profile?.email || ''}
                       disabled
                     />
                   </div>
@@ -671,26 +678,39 @@ export const AccountSettingsPage: React.FC = () => {
                     <div className="as-provider-text">
                       <span className="as-provider-name">Google Account</span>
                       <span className="as-provider-email">
-                        Connected ({profile?.email || 'j7alwin@gmail.com'})
+                        {profile?.googleId ? `Connected (${profile.email})` : 'Not connected'}
                       </span>
                     </div>
                   </div>
 
                   <div className="as-provider-actions">
-                    <span className="as-connected-pill">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="#10B981" aria-hidden="true">
-                        <circle cx="12" cy="12" r="10" fill="#10B981" />
-                        <path d="m9 12 2 2 4-4" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <span>Connected</span>
-                    </span>
-                    <button type="button" className="as-more-btn" title="More options">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                        <circle cx="5" cy="12" r="2" />
-                        <circle cx="12" cy="12" r="2" />
-                        <circle cx="19" cy="12" r="2" />
-                      </svg>
-                    </button>
+                    {profile?.googleId ? (
+                      <span className="as-connected-pill">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#10B981" aria-hidden="true">
+                          <circle cx="12" cy="12" r="10" fill="#10B981" />
+                          <path d="m9 12 2 2 4-4" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <span>Connected</span>
+                      </span>
+                    ) : (
+                      <a
+                        href={authApi.getGoogleAuthUrl()}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '6px 12px',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          borderRadius: '6px',
+                          border: '1px solid #CBD5E1',
+                          background: '#F8FAFC',
+                          color: '#334155',
+                          textDecoration: 'none'
+                        }}
+                      >
+                        Link Google
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>
@@ -846,7 +866,7 @@ export const AccountSettingsPage: React.FC = () => {
                     </div>
                     <p className="as-banner-info-text">
                       When your password is changed, an automated security notification will be sent to{' '}
-                      <strong>{profile?.email || 'j7alwin@gmail.com'}</strong>.
+                      <strong>{profile?.email || 'your registered email'}</strong>.
                     </p>
                   </div>
 
@@ -1034,8 +1054,13 @@ export const AccountSettingsPage: React.FC = () => {
                     </svg>
                   </div>
                   <div className="as-notif-info">
-                    <h4>Weekly Progress Digest</h4>
-                    <p>Receive a weekly summary email of completed tasks, upcoming goals, and team activity.</p>
+                    <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>Weekly Progress Digest</span>
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: '#92400E', background: '#FEF3C7', padding: '2px 8px', borderRadius: '10px' }}>
+                        Coming Soon
+                      </span>
+                    </h4>
+                    <p>Automated weekly summary emails are currently in active development. Enabling this will queue your account for summaries when digest delivery launches.</p>
                   </div>
                 </div>
                 <div className="as-notif-toggle-col">

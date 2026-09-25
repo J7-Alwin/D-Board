@@ -18,6 +18,11 @@ export interface AttachmentDTO {
   uploadedById: string;
   workItemId: string | null;
   noteId?: string | null;
+  folderId?: string | null;
+  folder?: {
+    id: string;
+    name: string;
+  } | null;
   originalName: string;
   storageKey: string;
   mimeType: string;
@@ -51,6 +56,25 @@ export interface AttachmentDTO {
     visibility: string;
     createdById: string;
   } | null;
+}
+
+export interface FolderDTO {
+  id: string;
+  projectId: string;
+  name: string;
+  parentId: string | null;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: {
+    id: string;
+    fullName: string | null;
+    username: string;
+    avatarUrl: string | null;
+  };
+  _count?: {
+    attachments: number;
+  };
 }
 
 export interface FileQueryParams {
@@ -159,14 +183,10 @@ export const filesApi = {
     if (workItemId) formData.append('workItemId', workItemId);
     if (noteId) formData.append('noteId', noteId);
 
-    const token = localStorage.getItem('dboard_token');
     const xhr = new XMLHttpRequest();
 
     return new Promise((resolve, reject) => {
       xhr.open('POST', `/api/projects/${projectId}/files`);
-      if (token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      }
       xhr.withCredentials = true;
 
       xhr.upload.onprogress = (e) => {
@@ -247,14 +267,9 @@ export const filesApi = {
    * Fetch raw file ArrayBuffer for client-side parsers (SheetJS, Mammoth, JSZip).
    */
   async fetchFileArrayBuffer(projectId: string, fileId: string): Promise<ArrayBuffer> {
-    const token = localStorage.getItem('dboard_token');
-    const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
     const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
     const res = await fetch(`${base}/projects/${projectId}/files/${fileId}/content`, {
       credentials: 'include',
-      headers,
     });
 
     if (!res.ok) {
@@ -268,14 +283,9 @@ export const filesApi = {
    * Fetch raw file text content for code/markdown/data viewers.
    */
   async fetchFileText(projectId: string, fileId: string): Promise<string> {
-    const token = localStorage.getItem('dboard_token');
-    const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
     const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
     const res = await fetch(`${base}/projects/${projectId}/files/${fileId}/content`, {
       credentials: 'include',
-      headers,
     });
 
     if (!res.ok) {
@@ -289,14 +299,9 @@ export const filesApi = {
    * Fetch file Blob for image/pdf object URLs.
    */
   async fetchFileBlob(projectId: string, fileId: string): Promise<Blob> {
-    const token = localStorage.getItem('dboard_token');
-    const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
     const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
     const res = await fetch(`${base}/projects/${projectId}/files/${fileId}/content`, {
       credentials: 'include',
-      headers,
     });
 
     if (!res.ok) {
@@ -304,5 +309,66 @@ export const filesApi = {
     }
 
     return await res.blob();
+  },
+
+  /**
+   * Get all folders for a project.
+   */
+  async getProjectFolders(projectId: string): Promise<{ success: boolean; data: { folders: FolderDTO[] } }> {
+    return apiClient<{ success: boolean; data: { folders: FolderDTO[] } }>(`/projects/${projectId}/folders`);
+  },
+
+  /**
+   * Create a new folder.
+   */
+  async createFolder(
+    projectId: string,
+    name: string,
+    parentId?: string | null
+  ): Promise<{ success: boolean; data: { folder: FolderDTO } }> {
+    return apiClient<{ success: boolean; data: { folder: FolderDTO } }>(`/projects/${projectId}/folders`, {
+      method: 'POST',
+      body: JSON.stringify({ name, parentId }),
+    });
+  },
+
+  /**
+   * Rename a folder.
+   */
+  async renameFolder(
+    projectId: string,
+    folderId: string,
+    name: string
+  ): Promise<{ success: boolean; data: { folder: FolderDTO } }> {
+    return apiClient<{ success: boolean; data: { folder: FolderDTO } }>(`/projects/${projectId}/folders/${folderId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  /**
+   * Delete a folder.
+   */
+  async deleteFolder(
+    projectId: string,
+    folderId: string
+  ): Promise<{ success: boolean; message: string }> {
+    return apiClient<{ success: boolean; message: string }>(`/projects/${projectId}/folders/${folderId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Move a file into a folder or to root (folderId: null).
+   */
+  async moveFile(
+    projectId: string,
+    fileId: string,
+    folderId: string | null
+  ): Promise<{ success: boolean; data: { file: AttachmentDTO } }> {
+    return apiClient<{ success: boolean; data: { file: AttachmentDTO } }>(`/projects/${projectId}/files/${fileId}/move`, {
+      method: 'PATCH',
+      body: JSON.stringify({ folderId }),
+    });
   },
 };

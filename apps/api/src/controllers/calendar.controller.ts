@@ -125,6 +125,63 @@ export class CalendarController {
       next(error);
     }
   }
+
+  async getICalFeed(req: any, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const projectId = req.params?.projectId as string | undefined;
+      const rawToken = req.query?.token as string | undefined;
+
+      let effectiveUserId: string;
+
+      if (rawToken && typeof rawToken === 'string' && rawToken.trim()) {
+        // Authenticate via high-entropy revocable feed token
+        const feedAuth = await calendarService.authenticateFeedToken(rawToken.trim(), projectId);
+        effectiveUserId = feedAuth.userId;
+      } else if (req.user?.userId) {
+        // Fallback to active browser session
+        effectiveUserId = req.user.userId;
+      } else {
+        throw new AppError('Authentication or valid calendar feed subscription token required', 401);
+      }
+
+      const icsString = await calendarService.generateICalFeed(effectiveUserId, projectId);
+
+      res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+      res.setHeader('Content-Disposition', 'inline; filename="feed.ics"');
+      res.status(200).send(icsString);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createFeedToken(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const projectId = req.params.projectId as string | undefined;
+
+      const result = await calendarService.createFeedToken(req.user.userId, projectId || null);
+
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async revokeFeedToken(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const projectId = req.params.projectId as string | undefined;
+
+      const result = await calendarService.revokeFeedToken(req.user.userId, projectId || null);
+
+      res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const calendarController = new CalendarController();

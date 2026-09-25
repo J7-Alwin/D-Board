@@ -185,4 +185,40 @@ export const calendarApi = {
     });
     return safeParseJson<{ success: boolean; message: string }>(res, 'Failed to delete calendar event');
   },
+
+  createFeedToken: async (
+    projectId?: string
+  ): Promise<{ success: boolean; data: { token: string; feedUrl: string }; message: string }> => {
+    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    const endpoint = projectId
+      ? `${base}/projects/${projectId}/calendar/feed/token`
+      : `${base}/calendar/feed/token`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+    return safeParseJson<{ success: boolean; data: { token: string; feedUrl: string }; message: string }>(
+      res,
+      'Failed to generate calendar feed token'
+    );
+  },
+
+  revokeFeedToken: async (
+    projectId?: string
+  ): Promise<{ success: boolean; message: string }> => {
+    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    const endpoint = projectId
+      ? `${base}/projects/${projectId}/calendar/feed/token`
+      : `${base}/calendar/feed/token`;
+    const res = await fetch(endpoint, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+    return safeParseJson<{ success: boolean; message: string }>(
+      res,
+      'Failed to revoke calendar feed token'
+    );
+  },
 };

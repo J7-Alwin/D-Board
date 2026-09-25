@@ -24,6 +24,10 @@ export type RealtimeEventType =
   | 'FILE_UPLOADED'
   | 'FILE_RENAMED'
   | 'FILE_DELETED'
+  | 'FILE_MOVED'
+  | 'FOLDER_CREATED'
+  | 'FOLDER_RENAMED'
+  | 'FOLDER_DELETED'
   // Member Events
   | 'MEMBER_ADDED'
   | 'MEMBER_REMOVED'

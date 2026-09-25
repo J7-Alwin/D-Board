@@ -7,7 +7,11 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "typecheck": "tsc --noEmit"
+    "worker": "node dist/worker.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run src/tests/unit",
+    "test:integration": "vitest run src/tests/integration"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1130.0",
@@ -24,6 +28,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
+    "helmet": "^8.3.0",
     "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.3.0",
@@ -38,9 +43,12 @@
     "@types/multer": "^2.2.0",
     "@types/node": "^24.3.0",
     "@types/pg": "^8.23.1",
+    "@types/supertest": "^7.2.1",
     "prisma": "^7.10.0",
     "socket.io-client": "^4.8.3",
+    "supertest": "^7.2.2",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.11"
   }
 }

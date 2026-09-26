@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
-    "build": "prisma generate --schema=prisma/schema.prisma && tsc",
+    "build": "prisma generate --schema=prisma/schema.prisma && tsc && node scripts/copy-prisma.js",
     "start": "node dist/server.js",
     "worker": "node dist/worker.js",
     "typecheck": "tsc --noEmit",

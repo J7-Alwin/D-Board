@@ -3,6 +3,7 @@ import prisma from '../prisma.js';
 import { isRedisReady, getRedisClient } from '../redis/redis.client.js';
 import { storageService } from '../storage/storage.service.js';
 import { getEmailQueue, getDeadlineQueue, getCleanupQueue } from '../jobs/queues.js';
+import { logger } from '../utils/logger.js';
 
 export async function getLiveness(_req: Request, res: Response): Promise<void> {
   res.status(200).json({
@@ -24,6 +25,9 @@ export async function getReadiness(_req: Request, res: Response): Promise<void> 
     checks.database = { status: 'healthy', latencyMs: Date.now() - dbStart };
   } catch (err: any) {
     overallReady = false;
+    const errorCode = err?.code || 'UNKNOWN';
+    const errorName = err?.name || 'DatabaseError';
+    logger.warn(`[Health] Database probe query failed: [${errorCode}] ${errorName}`);
     checks.database = {
       status: 'unhealthy',
       latencyMs: Date.now() - dbStart,

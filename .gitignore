@@ -22,6 +22,7 @@ node_modules/
 .env.production.local
 !.env.example
 *.pem
+!apps/api/certs/supabase-root-ca.pem
 *.key
 *.cert
 credentials.json

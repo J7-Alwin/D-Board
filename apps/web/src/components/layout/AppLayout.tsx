@@ -49,6 +49,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const [searchResults, setSearchResults] = useState<SearchResultItem | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -413,17 +414,29 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       {/* Main Workspace Area */}
       <div className="app-workspace-main">
         {/* Topbar */}
-        <header className="workspace-topbar">
+        <header className={`workspace-topbar ${mobileSearchOpen ? 'mobile-search-active' : ''}`}>
           <div className="workspace-topbar-left">
-            <button
-              type="button"
-              className="mobile-hamburger-btn"
-              onClick={() => setSidebarOpen(true)}
-              aria-label="Open navigation drawer"
-            >
-              <MenuIcon size={22} />
-            </button>
-            <div className="workspace-search" ref={searchContainerRef} style={{ position: 'relative' }}>
+            {!mobileSearchOpen && (
+              <button
+                type="button"
+                className="mobile-hamburger-btn"
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Open navigation drawer"
+              >
+                <MenuIcon size={22} />
+              </button>
+            )}
+            {!mobileSearchOpen && (
+              <button
+                type="button"
+                className="mobile-search-toggle-btn"
+                onClick={() => setMobileSearchOpen(true)}
+                aria-label="Open search"
+              >
+                <SearchIcon size={19} />
+              </button>
+            )}
+            <div className={`workspace-search ${mobileSearchOpen ? 'mobile-search-expanded' : ''}`} ref={searchContainerRef} style={{ position: 'relative' }}>
               <SearchIcon size={16} />
               <input
                 type="text"
@@ -436,13 +449,31 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                   if (searchQuery.trim().length >= 2) setSearchOpen(true);
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') setSearchOpen(false);
+                  if (e.key === 'Escape') {
+                    setSearchOpen(false);
+                    setMobileSearchOpen(false);
+                  }
                 }}
                 placeholder="Search projects, tasks, notes..."
                 className="topbar-input"
                 aria-label="Search workspace"
+                autoFocus={mobileSearchOpen}
               />
-              {searchLoading && (
+              {mobileSearchOpen && (
+                <button
+                  type="button"
+                  className="mobile-search-close-btn"
+                  onClick={() => {
+                    setMobileSearchOpen(false);
+                    setSearchOpen(false);
+                    setSearchQuery('');
+                  }}
+                  aria-label="Close search"
+                >
+                  <CloseIcon size={16} />
+                </button>
+              )}
+              {searchLoading && !mobileSearchOpen && (
                 <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)' }}>
                   <div className="btn-spinner" style={{ width: '14px', height: '14px', borderColor: '#9CA3AF', borderTopColor: 'transparent' }} />
                 </div>
@@ -456,7 +487,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                     position: 'absolute',
                     top: 'calc(100% + 8px)',
                     left: 0,
-                    width: '420px',
+                    width: 'min(calc(100vw - 2rem), 420px)',
+                    maxWidth: 'calc(100vw - 2rem)',
                     maxHeight: '440px',
                     overflowY: 'auto',
                     background: '#FFFFFF',

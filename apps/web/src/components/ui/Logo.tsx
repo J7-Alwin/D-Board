@@ -147,6 +147,7 @@ export const Logo: React.FC<LogoProps> = ({
           </div>
           {withTagline && (
             <span
+              className="dboard-brand-tagline"
               style={{
                 fontSize: `${sizeConfig.subSize}px`,
                 fontWeight: 600,

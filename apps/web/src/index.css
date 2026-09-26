@@ -43,6 +43,21 @@
 
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Safe Area Insets */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  /* Dynamic Viewport Units for Mobile & iPhone Safari */
+  --app-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-height: 100dvh;
+  }
 }
 
 *, *::before, *::after {
@@ -61,13 +76,28 @@ html {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   scroll-behavior: smooth;
+  overflow-x: hidden;
+  width: 100%;
 }
 
 body {
   min-height: 100vh;
+  min-height: var(--app-height);
+  width: 100%;
   background-color: var(--bg-cream);
   color: var(--text-primary);
   overflow-x: hidden;
+  position: relative;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Fluid Media Defaults */
+img, svg, video, canvas, audio, iframe, embed, object {
+  max-width: 100%;
+}
+img, video {
+  height: auto;
 }
 
 a {
@@ -84,6 +114,7 @@ button {
   cursor: pointer;
   background: none;
   border: none;
+  touch-action: manipulation;
 }
 
 /* Accessibility Focus States */
@@ -107,13 +138,38 @@ button {
   width: 100%;
   max-width: 1240px;
   margin: 0 auto;
-  padding: 0 1.5rem;
+  padding: 0 1rem;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 640px) {
+  .container {
+    padding: 0 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
   .container {
     padding: 0 2.5rem;
   }
+}
+
+/* Responsive Table & Scroll Containers */
+.responsive-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Safe word break utilities */
+.break-words-safe {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.truncate-safe {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Typography Helpers */
@@ -167,3 +223,98 @@ button {
   line-height: 1.5;
   color: var(--text-muted);
 }
+
+/* ==========================================================================
+   CROSS-DEVICE RESPONSIVE SYSTEM (MOBILE, IPHONE, FOLDABLE, TABLET PC, LAPTOP)
+   ========================================================================== */
+
+/* 1. iPhone & Mobile Safari Input Auto-Zoom Prevention */
+@media screen and (max-width: 768px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="date"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* 2. Touch-Friendly Target Scaling for Touchscreens (Tablet PC, Mobile, Foldable) */
+@media (pointer: coarse) {
+  button:not(.btn-icon-inline):not(.dot),
+  .workspace-nav-item,
+  .mobile-nav-link,
+  .mobile-signin-btn,
+  .dash-tab-btn,
+  .cal-segment-tab,
+  .files-view-btn {
+    min-height: 42px;
+  }
+
+  /* Increase tap target hit areas */
+  .nav-link,
+  .back-link,
+  .footer-col-list a {
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+    display: inline-block;
+  }
+}
+
+/* 3. Foldable Outer Cover Screen & Ultra-Compact Mobile (≤320px down to 280px) */
+@media (max-width: 320px) {
+  .container {
+    padding: 0 0.65rem !important;
+  }
+  .heading-display {
+    font-size: 1.85rem !important;
+    line-height: 1.15 !important;
+    letter-spacing: -0.02em !important;
+  }
+  .heading-section {
+    font-size: 1.4rem !important;
+    line-height: 1.2 !important;
+  }
+  .body-large {
+    font-size: 0.95rem !important;
+  }
+}
+
+/* 4. Foldable Unfolded Inner Screen (Square / 4:3 Aspect Ratios, 650px–900px) */
+@media (min-width: 650px) and (max-width: 900px) and (max-aspect-ratio: 4/3) {
+  .container {
+    padding: 0 1.5rem;
+  }
+  .hero-container {
+    grid-template-columns: 1fr !important;
+    gap: 2rem !important;
+  }
+  .features-full-grid,
+  .pricing-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 1.25rem !important;
+  }
+}
+
+/* 5. Dual-Screen Foldable Hinge Posture Awareness */
+@media (horizontal-viewport-segments: 2) {
+  .app-workspace-sidebar {
+    width: env(viewport-segment-width 0 0) !important;
+  }
+  .app-workspace-main {
+    width: env(viewport-segment-width 1 0) !important;
+  }
+}
+
+/* 6. Hide Brand Tagline on Mobile & Foldables for Compact Navigation */
+@media (max-width: 640px) {
+  .dboard-brand-tagline {
+    display: none !important;
+  }
+}
+

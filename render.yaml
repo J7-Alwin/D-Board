@@ -76,6 +76,7 @@ services:
     name: d-board-cache
     plan: free
     region: singapore
+    ipAllowList: []
 
   # ----------------------------------------------------------------------------
   # 3. D-Board Web Frontend SPA
@@ -91,7 +92,4 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        fromService:
-          type: web
-          name: d-board-api
-          property: url
+        sync: false # Set to https://<d-board-api>.onrender.com (API public URL)

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
+    "build": "prisma generate --schema=prisma/schema.prisma && tsc",
     "start": "node dist/server.js",
     "worker": "node dist/worker.js",
     "typecheck": "tsc --noEmit",

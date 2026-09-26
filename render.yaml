@@ -13,7 +13,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm ci && npm run build:api
+    buildCommand: npm ci --include=dev && npm run build:api
     startCommand: npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma && node apps/api/dist/server.js
     healthCheckPath: /api/health
     envVars:
@@ -84,7 +84,7 @@ services:
   - type: web
     name: d-board-web
     runtime: static
-    buildCommand: npm ci && npm run build:web
+    buildCommand: npm ci --include=dev && npm run build:web
     staticPublishPath: apps/web/dist
     routes:
       - type: rewrite

@@ -103,6 +103,19 @@ export const authApi = {
     });
   },
 
+  async checkUsername(username: string): Promise<ApiResponse<{ available: boolean; message?: string }>> {
+    return apiClient<ApiResponse<{ available: boolean; message?: string }>>(
+      `/auth/check-username?username=${encodeURIComponent(username)}`,
+      { method: 'GET' }
+    );
+  },
+
+  async getSuggestedUsernames(): Promise<ApiResponse<{ suggestions: string[] }>> {
+    return apiClient<ApiResponse<{ suggestions: string[] }>>('/auth/suggest-usernames', {
+      method: 'GET',
+    });
+  },
+
   getGoogleAuthUrl(): string {
     const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
     return `${base}/auth/google`;

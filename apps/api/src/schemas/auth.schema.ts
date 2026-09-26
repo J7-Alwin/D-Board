@@ -12,7 +12,7 @@ export const registerSchema = z.object({
     .trim()
     .min(3, 'Username must be at least 3 characters')
     .max(30, 'Username must not exceed 30 characters')
-    .regex(/^[a-zA-Z0-9_-]+$/, 'Username can only contain letters, numbers, underscores, and hyphens'),
+    .regex(/^[a-zA-Z0-9_.-]+$/, 'Username can only contain letters, numbers, underscores, hyphens, and periods'),
   email: z
     .string()
     .trim()
@@ -99,7 +99,7 @@ export const updateUsernameSchema = z.object({
     .trim()
     .min(3, 'Username must be at least 3 characters')
     .max(30, 'Username must not exceed 30 characters')
-    .regex(/^[a-zA-Z0-9_-]+$/, 'Username can only contain letters, numbers, underscores, and hyphens'),
+    .regex(/^[a-zA-Z0-9_.-]+$/, 'Username can only contain letters, numbers, underscores, hyphens, and periods'),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;

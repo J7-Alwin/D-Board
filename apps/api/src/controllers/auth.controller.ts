@@ -338,3 +338,27 @@ export async function updateUsername(req: AuthenticatedRequest, res: Response, n
     next(error);
   }
 }
+
+export async function checkUsername(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const username = String(req.query.username || '');
+    const userId = (req as any).user?.userId;
+    const result = await authService.isUsernameAvailable(username, userId);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function suggestUsernames(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: 'Unauthorized' });
+      return;
+    }
+    const suggestions = await authService.getSuggestedUsernames(req.user.userId);
+    res.status(200).json({ success: true, data: { suggestions } });
+  } catch (error) {
+    next(error);
+  }
+}

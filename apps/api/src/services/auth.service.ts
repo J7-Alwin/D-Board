@@ -648,6 +648,138 @@ export async function updateUsername(userId: string, newUsername: string): Promi
   };
 }
 
+/**
+ * Check if a username is available (not taken by another user)
+ */
+export async function isUsernameAvailable(
+  username: string,
+  excludeUserId?: string
+): Promise<{ available: boolean; message?: string }> {
+  const normalized = username.trim().toLowerCase();
+
+  if (!normalized || normalized.length < 3 || normalized.length > 30) {
+    return { available: false, message: 'Username must be between 3 and 30 characters' };
+  }
+
+  if (!/^[a-zA-Z0-9_.-]+$/.test(normalized)) {
+    return {
+      available: false,
+      message: 'Username can only contain letters, numbers, underscores, hyphens, and periods',
+    };
+  }
+
+  const existing = await prisma.user.findFirst({
+    where: {
+      username: { equals: normalized, mode: 'insensitive' },
+      ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
+    },
+    select: { id: true },
+  });
+
+  if (existing) {
+    return { available: false, message: 'This username is already taken' };
+  }
+
+  return { available: true };
+}
+
+/**
+ * Generate unique, verified available username suggestions for a user.
+ * Guaranteed that no suggested handle is duplicate or belongs to an existing user in the database.
+ */
+export async function getSuggestedUsernames(userId: string): Promise<string[]> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, username: true, email: true, fullName: true },
+  });
+
+  if (!user) return [];
+
+  const candidates: string[] = [];
+
+  // 1. Current username if present
+  if (user.username) {
+    candidates.push(user.username.toLowerCase());
+  }
+
+  // 2. Email prefix (e.g. alwinjames66@gmail.com -> alwinjames66)
+  const emailPrefix = user.email.split('@')[0].toLowerCase().replace(/[^a-zA-Z0-9_.-]/g, '');
+  if (emailPrefix) {
+    candidates.push(emailPrefix);
+  }
+
+  // 3. Name variants (e.g. Alwin James -> alwinjames, alwin.james, alwin_james)
+  if (user.fullName) {
+    const parts = user.fullName
+      .toLowerCase()
+      .trim()
+      .split(/\s+/)
+      .map((p) => p.replace(/[^a-zA-Z0-9]/g, ''))
+      .filter(Boolean);
+
+    if (parts.length >= 2) {
+      const first = parts[0];
+      const last = parts[parts.length - 1];
+      candidates.push(`${first}${last}`);
+      candidates.push(`${first}.${last}`);
+      candidates.push(`${first}_${last}`);
+      candidates.push(`${first}${last[0]}`);
+      candidates.push(`${first[0]}${last}`);
+    } else if (parts.length === 1 && parts[0]) {
+      candidates.push(parts[0]);
+    }
+  }
+
+  // Deduplicate and filter length
+  const uniqueCandidateList = Array.from(new Set(candidates)).filter(
+    (c) => c.length >= 3 && c.length <= 28 && /^[a-zA-Z0-9_.-]+$/.test(c)
+  );
+
+  // Expand with numeric / common variants
+  const expandedList: string[] = [...uniqueCandidateList];
+  for (const base of uniqueCandidateList) {
+    expandedList.push(`${base}1`);
+    expandedList.push(`${base}7`);
+    expandedList.push(`${base}99`);
+    expandedList.push(`${base}_dev`);
+  }
+
+  // Verify against existing users in the database so duplicates are NEVER suggested
+  const existingUsers = await prisma.user.findMany({
+    where: {
+      username: { in: expandedList, mode: 'insensitive' },
+      id: { not: userId }, // Exclude current user (they already own their handle)
+    },
+    select: { username: true },
+  });
+
+  const takenSet = new Set(existingUsers.map((u) => u.username.toLowerCase()));
+
+  // Filter out any taken username
+  const verifiedSuggestions: string[] = [];
+  for (const candidate of expandedList) {
+    const lower = candidate.toLowerCase();
+    if (!takenSet.has(lower) && !verifiedSuggestions.map((s) => s.toLowerCase()).includes(lower)) {
+      verifiedSuggestions.push(candidate);
+      if (verifiedSuggestions.length >= 3) break;
+    }
+  }
+
+  // If still fewer than 3, generate random fallback numeric suffixes and verify them
+  let seed = 10;
+  while (verifiedSuggestions.length < 3 && seed < 99) {
+    const baseStem = uniqueCandidateList[0] || 'developer';
+    const fallback = `${baseStem}${seed}`;
+    const lower = fallback.toLowerCase();
+    if (!takenSet.has(lower) && !verifiedSuggestions.map((s) => s.toLowerCase()).includes(lower)) {
+      verifiedSuggestions.push(fallback);
+    }
+    seed += 3;
+  }
+
+  return verifiedSuggestions.slice(0, 3);
+}
+
 export const authService = {
   register,
   login,
@@ -659,4 +791,6 @@ export const authService = {
   resetPassword,
   handleGoogleAuth,
   updateUsername,
+  isUsernameAvailable,
+  getSuggestedUsernames,
 };

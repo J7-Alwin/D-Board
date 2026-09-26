@@ -29,9 +29,12 @@ router.post('/resend-verification', passwordResetRateLimiter, validateBody(resen
 router.get('/google', authController.googleAuth);
 router.get('/google/callback', authController.googleCallback);
 
+router.get('/check-username', authController.checkUsername);
+
 // Authenticated session endpoints
 router.post('/logout', authController.logout);
 router.get('/me', authenticate, authController.getMe);
 router.patch('/username', authenticate, validateBody(updateUsernameSchema), authController.updateUsername);
+router.get('/suggest-usernames', authenticate, authController.suggestUsernames);
 
 export default router;

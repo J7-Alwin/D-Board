@@ -93,3 +93,5 @@ services:
     envVars:
       - key: VITE_API_URL
         sync: false # Set to https://<d-board-api>.onrender.com (API public URL)
+      - key: VITE_ENABLE_GOOGLE_AUTH
+        value: "false"

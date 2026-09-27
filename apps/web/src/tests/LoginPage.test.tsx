@@ -71,4 +71,11 @@ describe('LoginPage Component Tests', () => {
       });
     });
   });
+
+  it('should not render Google Sign-In button or OR divider when Google Auth is disabled', () => {
+    render(<LoginPage />);
+
+    expect(screen.queryByText(/continue with google/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^OR$/)).not.toBeInTheDocument();
+  });
 });

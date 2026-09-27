@@ -7,6 +7,7 @@ import {
   type NotificationPreferences,
 } from '../../api/user.api';
 import { authApi } from '../../api/auth.api';
+import { GOOGLE_AUTH_ENABLED } from '../../config/features';
 import {
   UserIcon,
   LockIcon,
@@ -678,13 +679,32 @@ export const AccountSettingsPage: React.FC = () => {
                     <div className="as-provider-text">
                       <span className="as-provider-name">Google Account</span>
                       <span className="as-provider-email">
-                        {profile?.googleId ? `Connected (${profile.email})` : 'Not connected'}
+                        {!GOOGLE_AUTH_ENABLED
+                          ? 'Temporarily unavailable'
+                          : profile?.googleId
+                          ? `Connected (${profile.email})`
+                          : 'Not connected'}
                       </span>
                     </div>
                   </div>
 
                   <div className="as-provider-actions">
-                    {profile?.googleId ? (
+                    {!GOOGLE_AUTH_ENABLED ? (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          borderRadius: '6px',
+                          background: '#F1F5F9',
+                          color: '#64748B',
+                        }}
+                      >
+                        Unavailable
+                      </span>
+                    ) : profile?.googleId ? (
                       <span className="as-connected-pill">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="#10B981" aria-hidden="true">
                           <circle cx="12" cy="12" r="10" fill="#10B981" />

@@ -7,6 +7,7 @@ import { Checkbox } from '../../components/ui/Checkbox';
 import { Button } from '../../components/ui/Button';
 import { GoogleIcon, ArrowRightIcon, UserIcon, LockIcon } from '../../components/ui/Icons';
 import { authApi } from '../../api/auth.api';
+import { GOOGLE_AUTH_ENABLED } from '../../config/features';
 import { useAuth } from '../../context/AuthContext';
 
 export const LoginPage: React.FC = () => {
@@ -80,20 +81,24 @@ export const LoginPage: React.FC = () => {
         </div>
 
         {/* Google Sign In Button */}
-        <button
-          type="button"
-          className="google-auth-btn"
-          onClick={handleGoogleLogin}
-          disabled={isLoading}
-        >
-          <GoogleIcon size={18} />
-          <span>Continue with Google</span>
-        </button>
+        {GOOGLE_AUTH_ENABLED && (
+          <>
+            <button
+              type="button"
+              className="google-auth-btn"
+              onClick={handleGoogleLogin}
+              disabled={isLoading}
+            >
+              <GoogleIcon size={18} />
+              <span>Continue with Google</span>
+            </button>
 
-        {/* Divider 1 */}
-        <div className="auth-divider">
-          <span className="divider-text">OR</span>
-        </div>
+            {/* Divider 1 */}
+            <div className="auth-divider">
+              <span className="divider-text">OR</span>
+            </div>
+          </>
+        )}
 
         {/* General Error Alert */}
         {errors.general && (

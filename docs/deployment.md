@@ -171,7 +171,7 @@ D-Board can be deployed 100% on modern free cloud infrastructure tiers without A
 | **Database** | Supabase PostgreSQL | `DATABASE_URL` (Supabase Session Pooler on port 5432) | 500MB storage, auto-pauses after 1 week inactivity without queries. |
 | **Redis & Queues**| Render Key Value / Valkey | `REDIS_URL=redis://...` | Low-latency in-region managed key-value store, internal connection URL. |
 | **Object Storage**| Cloudflare R2 | `STORAGE_DRIVER=s3`, `S3_ENDPOINT` | Bucket: `d-board-files`. 10GB storage, 10M Class B (read) & 1M Class A (write) ops/month. $0 egress. |
-| **Outbound Email**| Brevo SMTP | `smtp-relay.brevo.com:587` | 300 emails/day outbound limit. BullMQ retries transient errors. |
+| **Outbound Email**| Brevo HTTPS API | `POST https://api.brevo.com/v3/smtp/email` | 300 emails/day outbound limit. Standard HTTPS (port 443), bypasses Render Free SMTP port blocks. |
 
 ### Render Blueprint Deployment (`render.yaml`)
 1. Fork or push the repository to GitHub.
@@ -185,7 +185,8 @@ D-Board can be deployed 100% on modern free cloud infrastructure tiers without A
    - `S3_ENDPOINT`: `https://<account-id>.r2.cloudflarestorage.com`
    - `S3_BUCKET`: `d-board-files`
    - `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`: From Cloudflare R2 API token
-   - `SMTP_USER`, `SMTP_PASSWORD`: From Brevo SMTP credentials
+   - `BREVO_API_KEY`: Brevo API key (from Brevo Dashboard: SMTP & API -> API Keys)
+   - `EMAIL_FROM`: Configured verified sender address (e.g. `"D-Board" <verified@yourdomain.com>`)
    - `COOKIE_SAME_SITE`: `none` (required because Render Web Service and Static Site use separate `*.onrender.com` subdomains)
    - `CLIENT_URL`: `https://<d-board-web>.onrender.com` (Frontend public URL)
    - `APP_URL`: `https://<d-board-api>.onrender.com` (API public URL)

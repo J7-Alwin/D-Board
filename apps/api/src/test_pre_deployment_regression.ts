@@ -245,9 +245,7 @@ async function runRegressionSuite() {
         APP_URL: 'https://dboard.onrender.com',
         CLIENT_URL: 'https://dboard.onrender.com',
         JWT_SECRET: 'super_secret_jwt_key_at_least_32_characters_long_for_test',
-        SMTP_HOST: 'smtp.example.com',
-        SMTP_USER: 'test-user',
-        SMTP_PASSWORD: 'test-password',
+        BREVO_API_KEY: 'test-brevo-api-key',
       } as any);
     } catch (e: any) {
       if (e.message.includes('APP_URL and CLIENT_URL must not be identical in production')) {
@@ -255,6 +253,24 @@ async function runRegressionSuite() {
       }
     }
     assert(threwOnCollidingUrls, 'Production prohibits assigning CLIENT_URL into APP_URL');
+
+    // In production, missing BREVO_API_KEY throws error
+    let threwOnMissingBrevo = false;
+    try {
+      validateEnv({
+        NODE_ENV: 'production',
+        PORT: 5000,
+        DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+        APP_URL: 'https://api.dboard.com',
+        CLIENT_URL: 'https://dboard.com',
+        JWT_SECRET: 'super_secret_jwt_key_at_least_32_characters_long_for_test',
+      } as any);
+    } catch (e: any) {
+      if (e.message.includes('BREVO_API_KEY must be defined')) {
+        threwOnMissingBrevo = true;
+      }
+    }
+    assert(threwOnMissingBrevo, 'Production requires BREVO_API_KEY');
   }
 
   // ------------------------------------------------------------------

@@ -52,16 +52,10 @@ services:
         sync: false
       - key: S3_FORCE_PATH_STYLE
         value: "false"
-      - key: SMTP_HOST
-        value: smtp-relay.brevo.com
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASSWORD
-        sync: false
+      - key: BREVO_API_KEY
+        sync: false # Brevo Transactional Email API Key (POST https://api.brevo.com/v3/smtp/email)
       - key: EMAIL_FROM
-        sync: false
+        sync: false # Verified sender address, e.g. "D-Board <verified@yourdomain.com>"
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET

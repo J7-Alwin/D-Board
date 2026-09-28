@@ -20,6 +20,7 @@ export interface EnvConfig {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_CALLBACK_URL?: string;
+  BREVO_API_KEY?: string;
   SMTP_HOST?: string;
   SMTP_PORT?: number;
   SMTP_USER?: string;
@@ -81,8 +82,8 @@ export function validateEnv(envInput: NodeJS.ProcessEnv = process.env): EnvConfi
     if (appUrl === clientUrl) {
       throw new Error('[Config Error] Invalid production config: APP_URL and CLIENT_URL must not be identical in production.');
     }
-    if (!envInput.SMTP_HOST || !envInput.SMTP_USER || !envInput.SMTP_PASSWORD) {
-      throw new Error('[Config Error] Missing required production email config: SMTP_HOST, SMTP_USER, and SMTP_PASSWORD must be defined for transactional email dispatch.');
+    if (!envInput.BREVO_API_KEY) {
+      throw new Error('[Config Error] Missing required production email config: BREVO_API_KEY must be defined for HTTPS transactional email delivery.');
     }
     if (storageDriver === 's3') {
       if (!s3Bucket) {
@@ -111,6 +112,7 @@ export function validateEnv(envInput: NodeJS.ProcessEnv = process.env): EnvConfi
     GOOGLE_CLIENT_ID: envInput.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: envInput.GOOGLE_CLIENT_SECRET,
     GOOGLE_CALLBACK_URL: envInput.GOOGLE_CALLBACK_URL,
+    BREVO_API_KEY: envInput.BREVO_API_KEY,
     SMTP_HOST: envInput.SMTP_HOST,
     SMTP_PORT: envInput.SMTP_PORT ? parseInt(envInput.SMTP_PORT, 10) : undefined,
     SMTP_USER: envInput.SMTP_USER,

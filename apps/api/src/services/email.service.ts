@@ -65,6 +65,124 @@ export interface SendWorkItemAssignedOptions {
   link?: string;
 }
 
+export interface BrevoSender {
+  name: string;
+  email: string;
+}
+
+export interface BrevoRecipient {
+  email: string;
+  name?: string;
+}
+
+export interface BrevoSendEmailPayload {
+  sender: BrevoSender;
+  to: BrevoRecipient[];
+  subject: string;
+  htmlContent: string;
+  textContent?: string;
+}
+
+/**
+ * Parse an email string into a structured sender { name, email }.
+ * Supports formats like:
+ *   "D-Board <support@example.com>"
+ *   "support@example.com"
+ */
+export function parseSender(fromStr?: string): BrevoSender {
+  const fallback: BrevoSender = { name: 'D-Board', email: 'noreply@d-board.app' };
+  if (!fromStr || typeof fromStr !== 'string') {
+    return fallback;
+  }
+  const trimmed = fromStr.trim();
+  const match = trimmed.match(/^(?:["']?([^"']+)["']?\s*)?<([^>]+)>$/);
+  if (match) {
+    const name = match[1]?.trim() || 'D-Board';
+    const email = match[2]?.trim() || fallback.email;
+    return { name, email };
+  }
+  return { name: 'D-Board', email: trimmed || fallback.email };
+}
+
+/**
+ * Parse recipients from various formats (string, Address, array of either)
+ * into Brevo's expected Array<{ email: string; name?: string }>.
+ */
+export function parseRecipients(to: any): BrevoRecipient[] {
+  if (!to) {
+    return [];
+  }
+  if (Array.isArray(to)) {
+    return to.flatMap((item) => parseRecipients(item));
+  }
+  if (typeof to === 'object' && to.address) {
+    return [{ email: to.address.trim(), ...(to.name ? { name: to.name.trim() } : {}) }];
+  }
+  if (typeof to === 'string') {
+    return to.split(',').map((part) => {
+      const trimmed = part.trim();
+      const match = trimmed.match(/^(?:["']?([^"']+)["']?\s*)?<([^>]+)>$/);
+      if (match) {
+        const name = match[1]?.trim();
+        const email = match[2]?.trim();
+        return { email, ...(name ? { name } : {}) };
+      }
+      return { email: trimmed };
+    });
+  }
+  return [];
+}
+
+/**
+ * Send transactional email via Brevo HTTPS API.
+ * Endpoint: POST https://api.brevo.com/v3/smtp/email
+ * Authenticates using BREVO_API_KEY in the api-key header.
+ */
+export async function sendViaBrevoApi(
+  payload: BrevoSendEmailPayload,
+  apiKey: string
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'api-key': apiKey,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    let errorDetail = `HTTP ${res.status}`;
+    try {
+      const json = await res.json() as any;
+      if (json?.message) {
+        errorDetail = json.message;
+      } else if (json?.code) {
+        errorDetail = `${json.code}: ${JSON.stringify(json)}`;
+      }
+    } catch {
+      try {
+        const txt = await res.text();
+        if (txt) errorDetail = txt;
+      } catch {
+        // no readable body
+      }
+    }
+    return { success: false, error: errorDetail };
+  }
+
+  let messageId: string | undefined;
+  try {
+    const data = await res.json() as any;
+    messageId = data?.messageId || (Array.isArray(data?.messageIds) ? data.messageIds[0] : undefined);
+  } catch {
+    // 200/201 without json body
+  }
+
+  return { success: true, messageId };
+}
+
 function getTransporter() {
   if (process.env.NODE_ENV === 'test') {
     return null;
@@ -90,33 +208,77 @@ const getAppUrl = () => process.env.CLIENT_URL || process.env.APP_URL || 'http:/
 
 /**
  * Robust email delivery dispatcher:
- * - In production: throws if SMTP configuration is missing or if delivery fails (Item 13)
- * - In non-production: simulates via console log without printing secrets or OTPs
+ * - In production: uses Brevo HTTPS API (port 443). Throws if BREVO_API_KEY is missing or if delivery fails.
+ * - In non-production: uses Brevo HTTPS API if BREVO_API_KEY is present, legacy SMTP if credentials present,
+ *   or simulates via console log in development.
+ * - Never logs secrets, OTPs, or API keys.
  */
 async function deliverEmail(
   mailOptions: SendMailOptions,
   simulatorFn?: () => void
 ): Promise<boolean> {
   const isProduction = process.env.NODE_ENV === 'production';
-  const transporter = getTransporter();
+  const brevoApiKey = process.env.BREVO_API_KEY;
 
+  // 1. Primary Production & Preferred Transport: Brevo HTTPS Transactional Email API
+  if (brevoApiKey) {
+    const sender = parseSender(typeof mailOptions.from === 'string' ? mailOptions.from : getEmailFrom());
+    const recipients = parseRecipients(mailOptions.to);
+
+    const payload: BrevoSendEmailPayload = {
+      sender,
+      to: recipients,
+      subject: (mailOptions.subject as string) || 'D-Board Notification',
+      htmlContent: (mailOptions.html as string) || '',
+      ...(mailOptions.text ? { textContent: mailOptions.text as string } : {}),
+    };
+
+    try {
+      const result = await sendViaBrevoApi(payload, brevoApiKey);
+      if (result.success) {
+        if (result.messageId) {
+          console.log(`[Email Service] Delivered email "${payload.subject}" via Brevo API (messageId: ${result.messageId})`);
+        } else {
+          console.log(`[Email Service] Delivered email "${payload.subject}" via Brevo API`);
+        }
+        return true;
+      }
+
+      console.error(`[Email Service Error]: Brevo API error: ${result.error}`);
+      if (isProduction) {
+        throw new Error(`Failed to deliver transactional email via Brevo API: ${result.error}`);
+      }
+      return false;
+    } catch (err: any) {
+      if (err.message && err.message.startsWith('Failed to deliver transactional email')) {
+        throw err;
+      }
+      console.error('[Email Service Error]: Network error calling Brevo API:', err?.message || err);
+      if (isProduction) {
+        throw new Error(`Failed to deliver transactional email via Brevo API: ${err?.message || 'Network error'}`);
+      }
+      return false;
+    }
+  }
+
+  // 2. Production guard: BREVO_API_KEY is strictly required in production
+  if (isProduction) {
+    throw new Error('Production email delivery unavailable: BREVO_API_KEY must be defined for HTTPS transactional email delivery');
+  }
+
+  // 3. Local Development fallback: Legacy SMTP transport if credentials provided
+  const transporter = getTransporter();
   if (transporter) {
     try {
       await transporter.sendMail(mailOptions);
       return true;
     } catch (err: any) {
       console.error('[Email Service Error]: Failed to send email via SMTP transport:', err);
-      if (isProduction) {
-        throw new Error(`Failed to deliver transactional email: ${err?.message || 'SMTP error'}`);
-      }
       return false;
     }
   }
 
-  if (isProduction) {
-    throw new Error('Production SMTP transport unavailable: SMTP_HOST, SMTP_USER, and SMTP_PASSWORD are required');
-  }
-
+  // 4. Local Development fallback: Console simulation (does not log secrets or OTPs)
   if (process.env.NODE_ENV !== 'test' && simulatorFn) {
     simulatorFn();
   }

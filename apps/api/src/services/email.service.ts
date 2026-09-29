@@ -83,6 +83,24 @@ export interface BrevoSendEmailPayload {
   textContent?: string;
 }
 
+export interface BrevoApiSuccessResponse {
+  messageId?: string;
+  messageIds?: string[];
+}
+
+export interface BrevoApiErrorResponse {
+  code?: string;
+  message?: string;
+}
+
+export type EmailAddressInput =
+  | string
+  | { name?: string; address: string }
+  | Array<string | { name?: string; address: string } | unknown>
+  | null
+  | undefined
+  | unknown;
+
 /**
  * Parse an email string into a structured sender { name, email }.
  * Supports formats like:
@@ -108,18 +126,20 @@ export function parseSender(fromStr?: string): BrevoSender {
  * Parse recipients from various formats (string, Address, array of either)
  * into Brevo's expected Array<{ email: string; name?: string }>.
  */
-export function parseRecipients(to: any): BrevoRecipient[] {
+export function parseRecipients(to: EmailAddressInput): BrevoRecipient[] {
   if (!to) {
     return [];
   }
   if (Array.isArray(to)) {
-    return to.flatMap((item) => parseRecipients(item));
+    return to.flatMap((item: unknown) => parseRecipients(item as EmailAddressInput));
   }
-  if (typeof to === 'object' && to.address) {
-    return [{ email: to.address.trim(), ...(to.name ? { name: to.name.trim() } : {}) }];
+  if (typeof to === 'object' && to !== null && 'address' in to && typeof (to as { address: unknown }).address === 'string') {
+    const obj = to as { name?: unknown; address: string };
+    const name = typeof obj.name === 'string' ? obj.name.trim() : undefined;
+    return [{ email: obj.address.trim(), ...(name ? { name } : {}) }];
   }
   if (typeof to === 'string') {
-    return to.split(',').map((part) => {
+    return to.split(',').map((part: string) => {
       const trimmed = part.trim();
       const match = trimmed.match(/^(?:["']?([^"']+)["']?\s*)?<([^>]+)>$/);
       if (match) {
@@ -155,7 +175,7 @@ export async function sendViaBrevoApi(
   if (!res.ok) {
     let errorDetail = `HTTP ${res.status}`;
     try {
-      const json = await res.json() as any;
+      const json = (await res.json()) as BrevoApiErrorResponse;
       if (json?.message) {
         errorDetail = json.message;
       } else if (json?.code) {
@@ -174,7 +194,7 @@ export async function sendViaBrevoApi(
 
   let messageId: string | undefined;
   try {
-    const data = await res.json() as any;
+    const data = (await res.json()) as BrevoApiSuccessResponse;
     messageId = data?.messageId || (Array.isArray(data?.messageIds) ? data.messageIds[0] : undefined);
   } catch {
     // 200/201 without json body
@@ -249,13 +269,14 @@ async function deliverEmail(
         throw new Error(`Failed to deliver transactional email via Brevo API: ${result.error}`);
       }
       return false;
-    } catch (err: any) {
-      if (err.message && err.message.startsWith('Failed to deliver transactional email')) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.startsWith('Failed to deliver transactional email')) {
         throw err;
       }
-      console.error('[Email Service Error]: Network error calling Brevo API:', err?.message || err);
+      console.error('[Email Service Error]: Network error calling Brevo API:', errMsg);
       if (isProduction) {
-        throw new Error(`Failed to deliver transactional email via Brevo API: ${err?.message || 'Network error'}`);
+        throw new Error(`Failed to deliver transactional email via Brevo API: ${errMsg || 'Network error'}`);
       }
       return false;
     }
@@ -272,8 +293,8 @@ async function deliverEmail(
     try {
       await transporter.sendMail(mailOptions);
       return true;
-    } catch (err: any) {
-      console.error('[Email Service Error]: Failed to send email via SMTP transport:', err);
+    } catch (err: unknown) {
+      console.error('[Email Service Error]: Failed to send email via SMTP transport:', err instanceof Error ? err.message : err);
       return false;
     }
   }

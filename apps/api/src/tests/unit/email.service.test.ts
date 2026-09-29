@@ -106,7 +106,7 @@ describe('Brevo HTTPS Transactional Email Service Unit Tests', () => {
       const result = await sendViaBrevoApi(payload, 'test-brevo-api-key');
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
-      const [calledUrl, calledOptions] = mockFetch.mock.calls[0];
+      const [calledUrl, calledOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(calledUrl).toBe('https://api.brevo.com/v3/smtp/email');
       expect(calledOptions.method).toBe('POST');
       expect(calledOptions.headers).toEqual({
@@ -114,7 +114,7 @@ describe('Brevo HTTPS Transactional Email Service Unit Tests', () => {
         'api-key': 'test-brevo-api-key',
         'content-type': 'application/json',
       });
-      expect(JSON.parse(calledOptions.body)).toEqual(payload);
+      expect(JSON.parse((calledOptions.body as string) || '{}')).toEqual(payload);
       expect(result.success).toBe(true);
       expect(result.messageId).toBe('<brevo-msg-12345@smtp-relay.mailin.fr>');
     });
@@ -180,13 +180,13 @@ describe('Brevo HTTPS Transactional Email Service Unit Tests', () => {
       process.env.EMAIL_FROM = '"D-Board Verified" <verified@dboard.app>';
 
       let capturedPayload: BrevoSendEmailPayload | null = null;
-      global.fetch = vi.fn().mockImplementation(async (url, init) => {
-        capturedPayload = JSON.parse(init.body);
+      global.fetch = vi.fn().mockImplementation(async (_url: string | URL | Request, init?: RequestInit) => {
+        capturedPayload = JSON.parse((init?.body as string) || '{}');
         return {
           ok: true,
           status: 201,
           json: async () => ({ messageId: '<welcome-msg-id>' }),
-        };
+        } as Response;
       });
 
       const success = await sendWelcomeEmail({
@@ -213,13 +213,13 @@ describe('Brevo HTTPS Transactional Email Service Unit Tests', () => {
       process.env.EMAIL_FROM = 'D-Board <security@dboard.app>';
 
       let capturedPayload: BrevoSendEmailPayload | null = null;
-      global.fetch = vi.fn().mockImplementation(async (url, init) => {
-        capturedPayload = JSON.parse(init.body);
+      global.fetch = vi.fn().mockImplementation(async (_url: string | URL | Request, init?: RequestInit) => {
+        capturedPayload = JSON.parse((init?.body as string) || '{}');
         return {
           ok: true,
           status: 201,
           json: async () => ({ messageId: '<otp-msg-id>' }),
-        };
+        } as Response;
       });
 
       const success = await sendPasswordResetOtpEmail({

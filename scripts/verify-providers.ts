@@ -182,12 +182,18 @@ async function runVerification() {
       }
 
       // Prisma Migration Status
-      const migrations = await prisma.$queryRawUnsafe<{ migration_name: string; finished_at: Date; rolled_back_at: Date | null }[]>(
+      interface PrismaMigrationRecord {
+        migration_name: string;
+        finished_at: Date;
+        rolled_back_at: Date | null;
+      }
+
+      const migrations = await prisma.$queryRawUnsafe<PrismaMigrationRecord[]>(
         `SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations" ORDER BY started_at ASC;`
       );
 
-      const rolledBack = migrations.filter(m => m.rolled_back_at !== null);
-      if (migrations.length > 0 && rolledBack.length === 0) {
+      const rolledBack = (migrations || []).filter((m: PrismaMigrationRecord) => m.rolled_back_at !== null);
+      if (migrations && migrations.length > 0 && rolledBack.length === 0) {
         record('Supabase', 'migration', 'PASS', `${migrations.length} migrations applied`);
       } else if (rolledBack.length > 0) {
         record('Supabase', 'migration', 'FAIL', `${rolledBack.length} rolled back migrations found`);

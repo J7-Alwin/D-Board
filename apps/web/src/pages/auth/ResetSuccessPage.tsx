@@ -1,10 +1,21 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { AuthLayout } from '../../components/layout/AuthLayout';
 import { useRouter } from '../../router/Router';
-import { ArrowRightIcon } from '../../components/ui/Icons';
+import { ArrowRightIcon, ShieldCheckIcon } from '../../components/ui/Icons';
 
 export const ResetSuccessPage: React.FC = () => {
   const { navigate } = useRouter();
+
+  // Keyboard shortcut: Press Enter to quickly proceed to login
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        navigate('/login');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [navigate]);
 
   return (
     <AuthLayout
@@ -19,152 +30,118 @@ export const ResetSuccessPage: React.FC = () => {
       rightSubtitle="Your credentials are secure. Log in to your workspace and collaborate with your team."
     >
       <div className="reset-success-wrapper">
-        {/* Celebration Illustration */}
-        <div className="reset-success-art-wrap" aria-hidden="true">
-          <svg
-            width="180"
-            height="130"
-            viewBox="0 0 180 130"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            className="reset-success-illustration"
-          >
-            {/* Soft Organic Background Blobs */}
-            <path
-              d="M74 16C108 8 138 20 145 50C151 76 131 106 101 112C68 118 42 100 36 74C31 48 44 23 74 16Z"
-              fill="#F0FDF4"
-            />
-            <path
-              d="M87 22C114 16 138 26 143 52C148 74 131 99 105 104C76 109 54 94 49 72C45 49 56 28 87 22Z"
-              fill="#DCFCE7"
-              opacity="0.7"
-            />
+        {/* Animated Celebration & Security Emblem */}
+        <div className="reset-success-hero" aria-hidden="true">
+          <div className="reset-success-glow-halo" />
 
-            {/* Festive Radiating Sparks / Ticks */}
-            {/* Top-left tick 1 */}
-            <line
-              x1="43"
-              y1="49"
-              x2="34"
-              y2="45"
-              stroke="#15803D"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            />
-            {/* Top-left tick 2 */}
-            <line
-              x1="51"
-              y1="37"
-              x2="45"
-              y2="28"
-              stroke="#15803D"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            />
-            {/* Top-right tick 1 */}
-            <line
-              x1="127"
-              y1="33"
-              x2="134"
-              y2="25"
-              stroke="#15803D"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            />
-            {/* Top-right tick 2 */}
-            <line
-              x1="137"
-              y1="45"
-              x2="147"
-              y2="41"
-              stroke="#15803D"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            />
-            {/* Top-right tick 3 */}
-            <line
-              x1="138"
-              y1="59"
-              x2="149"
-              y2="59"
-              stroke="#15803D"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-            />
+          {/* Micro-sparkles */}
+          <span className="reset-success-sparkle sparkle-1">✦</span>
+          <span className="reset-success-sparkle sparkle-2">✧</span>
+          <span className="reset-success-sparkle sparkle-3">✦</span>
+          <span className="reset-success-sparkle sparkle-4">✧</span>
 
-            {/* Badge Glow / Halos */}
-            <circle cx="90" cy="65" r="33" fill="#FFFFFF" fillOpacity="0.85" />
-            <circle cx="90" cy="65" r="28" fill="#F0FDF4" />
+          {/* Orbital Ring */}
+          <div className="reset-success-orbit-ring" />
 
-            {/* Circular Green Badge */}
-            <circle
-              cx="90"
-              cy="65"
-              r="24"
-              stroke="#22C55E"
-              strokeWidth="3.2"
-              fill="#FFFFFF"
-            />
-
-            {/* Checkmark */}
-            <path
-              d="M79.5 65.5L86.5 72.5L100.5 58.5"
-              stroke="#16A34A"
-              strokeWidth="3.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          {/* Central Medallion */}
+          <div className="reset-success-medallion">
+            <div className="reset-success-medallion-inner">
+              <svg
+                width="34"
+                height="34"
+                viewBox="0 0 34 34"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                className="reset-success-check-svg"
+              >
+                <circle cx="17" cy="17" r="17" fill="#16A34A" />
+                <path
+                  d="M10.5 17.5L15 22L23.5 13.5"
+                  stroke="#FFFFFF"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="reset-success-check-path"
+                />
+              </svg>
+            </div>
+          </div>
         </div>
 
-        {/* Heading & Subtitle */}
+        {/* Status Pill & Header */}
         <div className="reset-success-header">
+          <div className="reset-success-status-pill">
+            <span className="reset-success-status-dot" />
+            <span className="reset-success-status-text">Security Verified</span>
+          </div>
+
           <h1 className="reset-success-title">Password reset successful!</h1>
           <p className="reset-success-sub">
             Your password has been changed. You can now use your new password to sign in.
           </p>
         </div>
 
-        {/* Security Checklist Card */}
+        {/* High-Trust Security Audit Card */}
         <div className="reset-success-card">
-          <div className="reset-success-item">
-            <div className="reset-success-item-icon">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="10" cy="10" r="10" fill="#22C55E" />
-                <path
-                  d="M6 10.2L8.7 12.9L14.2 7.4"
-                  stroke="#FFFFFF"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+          <div className="reset-success-card-top">
+            <div className="reset-success-card-badge">
+              <ShieldCheckIcon size={14} className="reset-success-shield-icon" />
+              <span>SECURITY CONFIRMATION</span>
             </div>
-            <span className="reset-success-item-text">
-              Your D-Board account password was updated successfully.
-            </span>
+            <span className="reset-success-card-tag">Instant Update</span>
           </div>
 
-          <div className="reset-success-item">
-            <div className="reset-success-item-icon">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="10" cy="10" r="10" fill="#22C55E" />
-                <path
-                  d="M6 10.2L8.7 12.9L14.2 7.4"
-                  stroke="#FFFFFF"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+          <div className="reset-success-card-list">
+            <div className="reset-success-item">
+              <div className="reset-success-item-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="10" cy="10" r="10" fill="#22C55E" />
+                  <path
+                    d="M6 10.2L8.7 12.9L14.2 7.4"
+                    stroke="#FFFFFF"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+              <div className="reset-success-item-content">
+                <div className="reset-success-item-heading">Credentials Updated</div>
+                <span className="reset-success-item-text">
+                  Your D-Board account password was updated successfully.
+                </span>
+              </div>
             </div>
-            <span className="reset-success-item-text">
-              Old reset links are now invalidated for security.
-            </span>
+
+            <div className="reset-success-item">
+              <div className="reset-success-item-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="10" cy="10" r="10" fill="#22C55E" />
+                  <path
+                    d="M6 10.2L8.7 12.9L14.2 7.4"
+                    stroke="#FFFFFF"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+              <div className="reset-success-item-content">
+                <div className="reset-success-item-heading">Tokens Invalidated</div>
+                <span className="reset-success-item-text">
+                  Old reset links are now invalidated for security.
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="reset-success-card-footer">
+            <span className="reset-success-footer-icon" aria-hidden="true">🔒</span>
+            <span>Account access is protected with 256-bit encryption</span>
           </div>
         </div>
 
-        {/* Action Button */}
+        {/* Action Button & Keyboard Hint */}
         <div className="reset-success-action-wrap">
           <button
             type="button"
@@ -172,8 +149,14 @@ export const ResetSuccessPage: React.FC = () => {
             onClick={() => navigate('/login')}
           >
             <span>Sign in to your account</span>
-            <ArrowRightIcon size={16} />
+            <ArrowRightIcon size={18} className="reset-success-btn-icon" />
           </button>
+        </div>
+
+        <div className="reset-success-hint-row">
+          <span className="reset-success-hint-text">
+            Press <kbd className="reset-success-kbd">↵ Enter</kbd> to proceed
+          </span>
         </div>
       </div>
     </AuthLayout>

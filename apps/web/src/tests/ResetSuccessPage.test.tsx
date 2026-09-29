@@ -46,4 +46,10 @@ describe('ResetSuccessPage Component Tests', () => {
     fireEvent.click(signInBtn);
     expect(mockNavigate).toHaveBeenCalledWith('/login');
   });
+
+  it('should navigate to /login when pressing the Enter key', () => {
+    render(<ResetSuccessPage />);
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(mockNavigate).toHaveBeenCalledWith('/login');
+  });
 });

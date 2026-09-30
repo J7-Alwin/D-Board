@@ -913,7 +913,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
 
           {/* MAIN FILES CONTENT AREA (Only shown when inside a folder, or searching, or filtering) */}
           {(currentFolderId || searchQuery || categoryFilter !== 'ALL') && (
-            <div className="files-content-body-area">
+            <div className="files-content-body-wrap files-content-body-area">
               {loading ? (
                 <div className="files-loading-state">
                   <div className="files-loading-spinner" />
@@ -928,9 +928,9 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                 </div>
               ) : visibleFiles.length === 0 ? (
                 /* EMPTY STATE INSIDE SELECTED FOLDER */
-                <div className="files-empty-state-box">
-                  <div className="files-empty-illustration">
-                    <div className="files-empty-circle">
+                <div className="files-empty-state-card files-empty-state-box">
+                  <div className="files-empty-illustration-wrap files-empty-illustration">
+                    <div className="files-empty-folder-svg-box files-empty-circle">
                       <svg width="68" height="68" viewBox="0 0 96 96" fill="none">
                         {/* Cloud background */}
                         <path

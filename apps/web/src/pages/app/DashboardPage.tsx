@@ -34,6 +34,93 @@ import {
   MessageSquareIcon,
 } from '../../components/ui/Icons';
 
+const DashboardInviteIllustration: React.FC = () => {
+  return (
+    <svg
+      className="dashboard-invite-svg"
+      viewBox="0 0 220 120"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <defs>
+        <filter id="invCardShadow" x="-10%" y="-10%" width="125%" height="130%" filterUnits="userSpaceOnUse">
+          <feDropShadow dx="0" dy="4" stdDeviation="5" floodColor="#18181B" floodOpacity="0.06" />
+        </filter>
+      </defs>
+
+      {/* Background Soft Organic Circular Aura */}
+      <circle cx="85" cy="70" r="50" fill="#EEF2E6" />
+      <circle cx="65" cy="65" r="42" fill="#F4F6EE" opacity="0.7" />
+
+      {/* Speed / burst tick marks on left */}
+      <g stroke="#8E9480" strokeWidth="1.5" strokeLinecap="round">
+        <line x1="48" y1="58" x2="43" y2="54" />
+        <line x1="47" y1="67" x2="40" y2="67" />
+        <line x1="49" y1="76" x2="44" y2="79" />
+      </g>
+
+      {/* Sweeping Dashed Arc Flight Path towards top-right paper airplane */}
+      <path
+        d="M 125 75 C 135 60, 150 48, 172 32"
+        stroke="#88907E"
+        strokeWidth="1.2"
+        strokeDasharray="3 3"
+        strokeLinecap="round"
+        fill="none"
+      />
+
+      {/* Paper Airplane at Upper Right (flying ↗) */}
+      <g transform="translate(170, 18) rotate(18)">
+        <polygon points="0,16 20,0 14,18 8,11" fill="#FFFFFF" stroke="#18181B" strokeWidth="1.1" strokeLinejoin="round" />
+        <polygon points="20,0 8,11 14,18" fill="#EAEFE2" />
+        <line x1="20" y1="0" x2="8" y2="11" stroke="#18181B" strokeWidth="1.1" strokeLinejoin="round" />
+        <polygon points="8,11 8,16 11,14" fill="#D6DCD0" stroke="#18181B" strokeWidth="1.1" strokeLinejoin="round" />
+      </g>
+
+      {/* Open Envelope Back Flap behind card */}
+      <polygon
+        points="48,80 95,46 142,80"
+        fill="#E7ECE0"
+        stroke="#DBE1D2"
+        strokeWidth="1"
+      />
+
+      {/* Interior Shadow */}
+      <polygon points="48,80 142,80 142,112 48,112" fill="#DEE4D6" />
+
+      {/* Sliding Letter Card */}
+      <g transform="translate(62, 50) rotate(-6)" filter="url(#invCardShadow)">
+        <rect width="66" height="52" rx="8" fill="#FFFFFF" stroke="#E1E6D8" strokeWidth="1" />
+        {/* D-Board Squircle Logo Badge */}
+        <g transform="translate(23, 7)">
+          <rect width="20" height="20" rx="5" fill="#18181B" />
+          <g transform="translate(1, 1) scale(0.18)">
+            <polygon points="22.44,43.11 43.11,57.95 22.44,75.97" fill="#D2F843" />
+            <path
+              d="M 29.33 21.38 A 6.89 6.89 0 0 0 29.33 35.16 L 54.24 35.16 C 55.3 35.16 66.43 40.46 66.43 49.47 C 66.43 58.48 53.18 63.25 47.88 59.54 L 33.57 71.73 C 31.45 74.91 31.98 77.56 36.22 77.56 L 55.3 77.56 C 72.26 77.56 80.74 65.9 80.74 49.47 C 80.74 33.04 72.26 21.38 55.3 21.38 Z"
+              fill="#FFFFFF"
+            />
+          </g>
+        </g>
+        {/* Placeholder Lines */}
+        <rect x="13" y="32" width="40" height="3" rx="1.5" fill="#D0D6C6" />
+        <rect x="17" y="38" width="32" height="3" rx="1.5" fill="#DEE4D6" />
+      </g>
+
+      {/* Envelope Front Pocket */}
+      <polygon points="48,80 95,108 48,112" fill="#F4F6EC" stroke="#DBE1D2" strokeWidth="1" />
+      <polygon points="142,80 95,108 142,112" fill="#F4F6EC" stroke="#DBE1D2" strokeWidth="1" />
+      <path
+        d="M 48 112 L 142 112 L 110 88 C 102 82, 88 82, 80 88 Z"
+        fill="#FAFBF6"
+        stroke="#DBE1D2"
+        strokeWidth="1"
+      />
+    </svg>
+  );
+};
+
 const truncateDescription = (text?: string | null, maxLength = 80): string => {
   if (!text || !text.trim()) return 'No description provided.';
   const trimmed = text.trim();
@@ -302,60 +389,92 @@ export const DashboardPage: React.FC = () => {
       {pendingInvitations.length > 0 && !isLoading && (
         <div className="dashboard-invitations-banner">
           <div className="invitations-banner-header">
-            <div className="inv-header-left">
-              <div className="inv-header-icon">
-                <FolderPlusIcon size={16} />
-              </div>
-              <h3 className="inv-header-title">
-                Project Invitations ({pendingInvitations.length})
-              </h3>
+            <div className="inv-header-icon-box">
+              <FolderPlusIcon size={16} />
             </div>
-            <span className="inv-header-hint">
+            <h3 className="inv-header-title">
+              Project Invitations ({pendingInvitations.length})
+            </h3>
+            <p className="inv-header-subtitle">
               Accept to collaborate in the workspace
-            </span>
+            </p>
           </div>
 
           <div className="invitations-banner-list">
             {pendingInvitations.map((invite) => {
-              const isAdmin = invite.role === 'PROJECT_ADMIN';
+              const inviterName = invite.invitedBy?.fullName || invite.invitedBy?.username || 'Team Admin';
+              const formattedDate = invite.createdAt
+                ? new Date(invite.createdAt).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })
+                : 'Sep 29, 2026';
+
               return (
-                <div key={invite.id} className="invitation-banner-item">
-                  <div className="inv-item-left">
-                    <ProjectAvatar project={invite.project} size="md" />
-                    <div>
-                      <div className="inv-item-title-row">
-                        <span className="inv-project-title">
-                          {invite.project?.name || 'Development Workspace'}
+                <div key={invite.id} className="invitation-banner-card">
+                  {/* Left: Project Avatar + Info */}
+                  <div className="inv-card-left">
+                    <div className="inv-card-avatar-box">
+                      {invite.project?.avatarUrl ? (
+                        <img
+                          src={invite.project.avatarUrl}
+                          alt={invite.project?.name || 'Project'}
+                          className="inv-card-avatar-img"
+                        />
+                      ) : (
+                        <div className="inv-card-avatar-fallback">
+                          {(invite.project?.name || 'PR').slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="inv-card-info">
+                      <h4 className="inv-card-project-name">
+                        {invite.project?.name || 'Development Workspace'}
+                      </h4>
+                      <p className="inv-card-invited-by">
+                        Invited by <strong className="inv-card-inviter-name">{inviterName}</strong>
+                      </p>
+
+                      <div className="inv-card-meta-row">
+                        <span className="inv-card-pill-tag">
+                          <UsersIcon size={13} />
+                          <span>Project invitation</span>
                         </span>
-                        <span className={`inv-role-tag ${isAdmin ? 'admin' : 'member'}`}>
-                          {isAdmin ? 'Admin' : 'Member'}
+                        <span className="inv-card-date-tag">
+                          <CalendarIcon size={13} />
+                          <span>Invited on {formattedDate}</span>
                         </span>
                       </div>
-                      <p className="inv-item-subtitle">
-                        Invited by <strong>{invite.invitedBy?.fullName || invite.invitedBy?.username || 'Team Admin'}</strong>
-                        {invite.message ? ` — "${invite.message}"` : ''}
-                      </p>
                     </div>
                   </div>
 
-                  <div className="inv-item-actions">
-                    <Button
-                      variant="primary"
-                      size="sm"
+                  {/* Center: Envelope / Paper Airplane Illustration */}
+                  <div className="inv-card-illustration-wrap" aria-hidden="true">
+                    <DashboardInviteIllustration />
+                  </div>
+
+                  {/* Right: Actions Stack */}
+                  <div className="inv-card-actions">
+                    <button
+                      type="button"
+                      className="inv-btn-accept"
                       disabled={processingInviteId === invite.id}
-                      isLoading={processingInviteId === invite.id}
                       onClick={() => handleAcceptInvite(invite.id)}
                     >
-                      Accept Invitation
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
+                      <span>{processingInviteId === invite.id ? 'Accepting...' : 'Accept Invitation'}</span>
+                      <ArrowRightIcon size={15} />
+                    </button>
+
+                    <button
+                      type="button"
+                      className="inv-btn-decline"
                       disabled={processingInviteId === invite.id}
                       onClick={() => handleDeclineInvite(invite.id)}
                     >
                       Decline
-                    </Button>
+                    </button>
                   </div>
                 </div>
               );

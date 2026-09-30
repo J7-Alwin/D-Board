@@ -416,11 +416,15 @@ export async function sendEmailVerificationEmail(options: SendEmailVerificationO
         Hello <strong>${options.username}</strong>,<br/>
         Thank you for joining D-Board. Please click the button below to verify your email address and activate project collaboration features:
       </p>
-      <div style="margin-bottom: 28px;">
+      <div style="margin-bottom: 24px;">
         <a href="${verifyUrl}" style="display: inline-block; background-color: #1F1F1F; color: #FFFFFF; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 8px; text-decoration: none;">
           Verify Email Address &rarr;
         </a>
       </div>
+      <p style="font-size: 12px; color: #737373; line-height: 1.5; word-break: break-all; margin-bottom: 20px;">
+        Button not working? Copy and paste this URL into your browser:<br/>
+        <a href="${verifyUrl}" style="color: #2563EB; text-decoration: underline;">${verifyUrl}</a>
+      </p>
       <p style="font-size: 13px; color: #8E8E8E; line-height: 1.5; border-top: 1px solid #ECECE6; padding-top: 16px;">
         This verification link will expire in 24 hours. If you did not create a D-Board account, please disregard this email.
       </p>

@@ -11,6 +11,7 @@ import {
 import { RegisterInput, LoginInput } from '../schemas/auth.schema.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { sendWelcomeEmail, sendPasswordResetOtpEmail, sendEmailVerificationEmail } from './email.service.js';
+import { enqueueEmailJob } from '../jobs/queues.js';
 import { invitationService } from './invitation.service.js';
 import { sessionService } from './session.service.js';
 
@@ -48,7 +49,7 @@ function sanitizeUser(user: any): PublicUser {
 export async function register(
   input: RegisterInput,
   meta?: AuthSessionMeta
-): Promise<{ user: PublicUser; token: string; verificationToken?: string }> {
+): Promise<{ user: PublicUser; token: string }> {
   const normalizedUsername = input.username.trim().toLowerCase();
   const normalizedEmail = input.email.toLowerCase().trim();
 
@@ -106,12 +107,17 @@ export async function register(
     fullName: newUser.fullName,
   }).catch((err) => console.error('[AuthService] Welcome email dispatch failed:', err));
 
-  // Send Email Verification token link
-  sendEmailVerificationEmail({
-    toEmail: newUser.email,
-    username: newUser.username,
-    token: verificationToken,
-  }).catch((err) => console.error('[AuthService] Verification email dispatch failed:', err));
+  // Queue Email Verification job through BullMQ (with automatic fallback)
+  try {
+    await enqueueEmailJob({
+      type: 'EMAIL_VERIFICATION',
+      toEmail: newUser.email,
+      username: newUser.username,
+      token: verificationToken,
+    });
+  } catch (err) {
+    console.error('[AuthService] Verification email queueing failed:', err);
+  }
 
   // Create authoritative session
   const { session } = await sessionService.createSession(newUser.id, {
@@ -132,7 +138,6 @@ export async function register(
   return {
     user: sanitizeUser(newUser),
     token,
-    verificationToken,
   };
 }
 
@@ -216,14 +221,15 @@ export async function verifyEmail(token: string): Promise<boolean> {
   const user = await prisma.user.findFirst({
     where: {
       emailVerificationTokenHash: hashedToken,
-      emailVerificationExpiresAt: { gt: new Date() },
     },
   });
 
   if (!user) {
-    const error: AppError = new Error('Invalid or expired email verification token. Please request a new one.');
-    error.statusCode = 400;
-    throw error;
+    throw new AppError('Invalid or already used verification link.', 400, undefined, 'TOKEN_INVALID');
+  }
+
+  if (user.emailVerificationExpiresAt && user.emailVerificationExpiresAt < new Date()) {
+    throw new AppError('Verification link has expired. Please request a new one.', 400, undefined, 'TOKEN_EXPIRED');
   }
 
   await prisma.user.update({
@@ -260,11 +266,16 @@ export async function resendVerificationEmail(email: string): Promise<boolean> {
       },
     });
 
-    sendEmailVerificationEmail({
-      toEmail: user.email,
-      username: user.username,
-      token,
-    }).catch((err) => console.error('[AuthService] Resend verification email failed:', err));
+    try {
+      await enqueueEmailJob({
+        type: 'EMAIL_VERIFICATION',
+        toEmail: user.email,
+        username: user.username,
+        token,
+      });
+    } catch (err) {
+      console.error('[AuthService] Resend verification email queueing failed:', err);
+    }
   }
 
   return true;

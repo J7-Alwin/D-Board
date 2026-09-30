@@ -1,7 +1,7 @@
 import { Worker, type Job } from 'bullmq';
 import { getRedisConfig } from '../../redis/redis.client.js';
 import { QUEUE_NAMES, type EmailJobData } from '../job.types.js';
-import { sendPasswordResetEmail, sendInvitationEmail } from '../../services/email.service.js';
+import { sendPasswordResetEmail, sendInvitationEmail, sendEmailVerificationEmail } from '../../services/email.service.js';
 
 export function createEmailWorker(): Worker<EmailJobData> {
   const worker = new Worker<EmailJobData>(
@@ -33,6 +33,16 @@ export function createEmailWorker(): Worker<EmailJobData> {
 
         if (!success) {
           throw new Error(`Failed to deliver invitation email to ${data.toEmail}`);
+        }
+      } else if (data.type === 'EMAIL_VERIFICATION') {
+        const success = await sendEmailVerificationEmail({
+          toEmail: data.toEmail,
+          username: data.username,
+          token: data.token,
+        });
+
+        if (!success) {
+          throw new Error(`Failed to deliver email verification to ${data.toEmail}`);
         }
       } else {
         throw new Error(`Unknown email job type: ${(data as any).type}`);

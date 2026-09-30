@@ -29,11 +29,12 @@ All configuration variables are defined and validated on startup using Zod schem
 | `S3_ACCESS_KEY_ID` | Conditional | - | API Access Key ID for S3 or Cloudflare R2. |
 | `S3_SECRET_ACCESS_KEY` | Conditional | - | API Secret Access Key for S3 or Cloudflare R2. |
 | `S3_FORCE_PATH_STYLE` | No | `false` | Force path-style addressing if required by MinIO / local S3 emulator. |
-| `SMTP_HOST` | No | - | Outbound SMTP relay hostname (e.g. `smtp-relay.brevo.com`). |
+| `BREVO_API_KEY` | Yes (in prod) | - | Brevo HTTPS Transactional Email API key (`xkeysib-...`) for port-443 delivery. |
+| `EMAIL_FROM` | Yes | `D-Board <notifications@d-board.local>` | Display sender name and verified sender email address. |
+| `SMTP_HOST` | No | - | Outbound SMTP relay hostname (Local development fallback only). |
 | `SMTP_PORT` | No | `587` | Outbound SMTP relay port. |
 | `SMTP_USER` | No | - | SMTP authentication username. |
 | `SMTP_PASSWORD` | No | - | SMTP authentication password. |
-| `EMAIL_FROM` | No | `D-Board <notifications@d-board.local>` | Display sender name and email address. |
 
 ---
 
@@ -212,4 +213,14 @@ D-Board can be deployed 100% on modern free cloud infrastructure tiers without A
 ### Error Monitoring & Alerting
 - **Application Status**: Structured logging and request correlation (`X-Request-Id`) are implemented in the API server.
 - **Infrastructure Requirement**: External error monitoring/alerting (e.g. Sentry, Datadog, PagerDuty) remains a deployment requirement.
+
+---
+
+## 8. Transactional Email & Email Verification Flow
+
+- **Transport**: Production utilizes Brevo's HTTPS Transactional Email API (`https://api.brevo.com/v3/smtp/email`) over port 443 authenticated via `BREVO_API_KEY` header. Outbound SMTP ports (25, 465, 587) are not used in production to comply with cloud host firewall policies.
+- **Queuing**: Verification emails are queued asynchronously via BullMQ (`EMAIL` queue, job type `EMAIL_VERIFICATION`) with automatic retry, exponential backoff, and direct HTTPS fallback if Redis is offline.
+- **Security**: Verification tokens are generated using cryptographically secure random bytes (`crypto.randomBytes(32)`). Only the SHA-256 hash of the token is persisted in PostgreSQL (`emailVerificationTokenHash`). Raw tokens expire in 24 hours and are never stored, logged, or returned in HTTP responses.
+- **Anti-Enumeration & Rate Limiting**: The resend verification endpoint (`/api/auth/resend-verification`) is rate limited (`emailVerificationRateLimiter`) and returns a generic success response regardless of whether an account exists or is already verified.
+
 

@@ -385,10 +385,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               navigate('/app/invitations');
             }}
           >
-            <span>Invitations</span>
-            {pendingInviteCount > 0 && (
-              <span className="sidebar-invites-badge">{pendingInviteCount}</span>
-            )}
+            <span className="sidebar-invitations-btn-label">
+              <span>Invitations</span>
+              {pendingInviteCount > 0 && (
+                <span className="sidebar-invites-badge">{pendingInviteCount}</span>
+              )}
+            </span>
           </Button>
         </div>
 

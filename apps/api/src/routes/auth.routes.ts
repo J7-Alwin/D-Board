@@ -2,7 +2,7 @@ import { Router } from 'express';
 import * as authController from '../controllers/auth.controller.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
 import { validateBody } from '../middlewares/validate.middleware.js';
-import { passwordResetRateLimiter } from '../middlewares/rateLimit.middleware.js';
+import { passwordResetRateLimiter, emailVerificationRateLimiter } from '../middlewares/rateLimit.middleware.js';
 import {
   registerSchema,
   loginSchema,
@@ -23,7 +23,7 @@ router.post('/forgot-password', passwordResetRateLimiter, validateBody(forgotPas
 router.post('/verify-otp', passwordResetRateLimiter, validateBody(verifyOtpSchema), authController.verifyOtp);
 router.post('/reset-password', passwordResetRateLimiter, validateBody(resetPasswordSchema), authController.resetPassword);
 router.post('/verify-email', validateBody(verifyEmailSchema), authController.verifyEmail);
-router.post('/resend-verification', passwordResetRateLimiter, validateBody(resendVerificationSchema), authController.resendVerification);
+router.post('/resend-verification', emailVerificationRateLimiter, validateBody(resendVerificationSchema), authController.resendVerification);
 
 // Google OAuth endpoints
 router.get('/google', authController.googleAuth);

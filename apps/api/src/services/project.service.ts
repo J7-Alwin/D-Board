@@ -149,7 +149,7 @@ export class ProjectService {
       });
 
       return created;
-    });
+    }, { timeout: 20000, maxWait: 10000 });
 
     // POST-COMMIT: Enqueue invitation emails via BullMQ outside the DB transaction
     if (fullProject && pendingEmailDispatches.length > 0) {

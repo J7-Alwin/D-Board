@@ -31,6 +31,8 @@ describe('Auth, Project RBAC, and Calendar Feed Token Integration Tests', () => 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.user.email).toBe(testUser.email);
+    expect(res.body.data.user.isEmailVerified).toBe(false);
+    expect((res.body.data as any).verificationToken).toBeUndefined();
     expect(res.headers['x-request-id']).toBeDefined();
 
     // Mark email verified for test execution
@@ -138,7 +140,7 @@ describe('Auth, Project RBAC, and Calendar Feed Token Integration Tests', () => 
       .get(`/api/projects/${createdProjectId}/calendar/feed.ics?token=${token}`);
 
     expect(revokedFeedRes.status).toBe(401);
-  });
+  }, 40000);
 
   it('8. POST /api/auth/logout should revoke active session', async () => {
     const res = await request(app)

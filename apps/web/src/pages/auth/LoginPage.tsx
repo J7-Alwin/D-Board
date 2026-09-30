@@ -154,7 +154,7 @@ export const LoginPage: React.FC = () => {
             rightIcon={<ArrowRightIcon size={18} />}
             isLoading={isLoading}
           >
-            Log in &rarr;
+            Log in
           </Button>
         </form>
 

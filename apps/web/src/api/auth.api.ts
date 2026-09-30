@@ -110,6 +110,20 @@ export const authApi = {
     );
   },
 
+  async verifyEmail(token: string): Promise<ApiResponse> {
+    return apiClient<ApiResponse>('/auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  async resendVerification(email: string): Promise<ApiResponse> {
+    return apiClient<ApiResponse>('/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
   async getSuggestedUsernames(): Promise<ApiResponse<{ suggestions: string[] }>> {
     return apiClient<ApiResponse<{ suggestions: string[] }>>('/auth/suggest-usernames', {
       method: 'GET',

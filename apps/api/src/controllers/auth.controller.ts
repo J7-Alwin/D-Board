@@ -37,7 +37,7 @@ export async function register(req: Request, res: Response, next: NextFunction):
       userAgent: req.headers['user-agent'],
       ipAddress: req.ip || req.socket.remoteAddress,
     };
-    const { user, token, verificationToken } = await authService.register(req.body, meta);
+    const { user, token } = await authService.register(req.body, meta);
     setAuthCookie(res, token, true);
 
     res.status(201).json({
@@ -45,7 +45,6 @@ export async function register(req: Request, res: Response, next: NextFunction):
       message: 'Account created successfully. A verification link has been sent to your email.',
       data: {
         user,
-        ...(process.env.NODE_ENV !== 'production' ? { verificationToken } : {}),
       },
     });
   } catch (error) {

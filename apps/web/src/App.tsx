@@ -14,6 +14,7 @@ import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { CheckEmailPage } from './pages/auth/CheckEmailPage';
 import { ResetPasswordPage } from './pages/auth/ResetPasswordPage';
 import { ResetSuccessPage } from './pages/auth/ResetSuccessPage';
+import { VerifyEmailPage } from './pages/auth/VerifyEmailPage';
 import { AppLayout } from './components/layout/AppLayout';
 import { DashboardPage } from './pages/app/DashboardPage';
 import { CreateProjectPage } from './pages/app/CreateProjectPage';
@@ -57,6 +58,10 @@ const AppRoutes: React.FC = () => {
 
   if (path === '/reset-success') {
     return <ResetSuccessPage />;
+  }
+
+  if (path === '/verify-email' || path.startsWith('/verify-email?')) {
+    return <VerifyEmailPage />;
   }
 
   // Authenticated App Routes

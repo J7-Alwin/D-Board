@@ -792,7 +792,6 @@ export const MyWorkPage: React.FC = () => {
                   <tr>
                     <th>Work Item</th>
                     <th>Project</th>
-                    <th>Assignee</th>
                     <th>Status</th>
                     <th>Priority</th>
                     <th>Due Date</th>
@@ -830,28 +829,6 @@ export const MyWorkPage: React.FC = () => {
                             <span className="mywork-project-name">
                               {item.project?.name || 'Project'}
                             </span>
-                          </div>
-                        </td>
-
-                        {/* Assignee */}
-                        <td>
-                          <div className="mywork-assignee-cell">
-                            {item.assignedTo ? (
-                              <div className="mywork-user-pill" title={`Assigned to ${item.assignedTo.fullName || item.assignedTo.username}`}>
-                                {item.assignedTo.avatarUrl ? (
-                                  <img src={item.assignedTo.avatarUrl} alt="" className="mywork-user-avatar" />
-                                ) : (
-                                  <span className="mywork-user-avatar-initials">
-                                    {(item.assignedTo.fullName || item.assignedTo.username || 'U')[0].toUpperCase()}
-                                  </span>
-                                )}
-                                <span className="mywork-user-name">
-                                  {item.assignedTo.fullName || item.assignedTo.username}
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="mywork-unassigned-tag">Unassigned</span>
-                            )}
                           </div>
                         </td>
 

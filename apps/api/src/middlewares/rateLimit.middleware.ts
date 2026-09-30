@@ -120,6 +120,14 @@ export const passwordResetRateLimiter = createRateLimiter({
   message: 'Too many password reset requests. Please wait 15 minutes before trying again.',
 });
 
+// Email verification resend rate limiter
+export const emailVerificationRateLimiter = createRateLimiter({
+  prefix: 'email_verify',
+  windowSeconds: 15 * 60,
+  maxRequests: isProd ? 5 : 50,
+  message: 'Too many verification email requests. Please wait 15 minutes before requesting another email.',
+});
+
 // Invitation rate limiter
 export const invitationRateLimiter = createRateLimiter({
   prefix: 'invitation',

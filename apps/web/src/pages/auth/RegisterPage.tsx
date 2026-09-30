@@ -5,11 +5,200 @@ import { Input } from '../../components/ui/Input';
 import { PasswordInput } from '../../components/ui/PasswordInput';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Button } from '../../components/ui/Button';
-import { GoogleIcon, ArrowRightIcon, UserIcon, LockIcon, MailIcon } from '../../components/ui/Icons';
+import { GoogleIcon, ArrowRightIcon, ArrowLeftIcon, UserIcon, LockIcon, MailIcon } from '../../components/ui/Icons';
 import { authApi } from '../../api/auth.api';
 import { GOOGLE_AUTH_ENABLED } from '../../config/features';
 import { useAuth } from '../../context/AuthContext';
 import { LegalModal } from '../../components/modals/LegalModal';
+
+function getEmailProviderUrl(email: string): string {
+  const domain = email.split('@')[1]?.toLowerCase();
+  if (!domain) return 'mailto:';
+  if (domain === 'gmail.com' || domain === 'googlemail.com') {
+    return 'https://mail.google.com';
+  }
+  if (domain === 'outlook.com' || domain === 'hotmail.com' || domain === 'live.com') {
+    return 'https://outlook.live.com';
+  }
+  if (domain === 'yahoo.com' || domain === 'ymail.com') {
+    return 'https://mail.yahoo.com';
+  }
+  if (domain === 'icloud.com') {
+    return 'https://www.icloud.com/mail';
+  }
+  return `mailto:${email}`;
+}
+
+const EmailEnvelopeIllustration: React.FC = () => {
+  return (
+    <svg
+      className="account-created-svg"
+      viewBox="0 0 320 330"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <defs>
+        {/* Soft shadow for the sliding letter card */}
+        <filter id="cardShadow" x="-15%" y="-15%" width="130%" height="135%" filterUnits="userSpaceOnUse">
+          <feDropShadow dx="0" dy="8" stdDeviation="10" floodColor="#18181B" floodOpacity="0.08" />
+        </filter>
+        {/* Shadow for the floating dark circular badge */}
+        <filter id="darkBadgeShadow" x="-25%" y="-25%" width="150%" height="150%" filterUnits="userSpaceOnUse">
+          <feDropShadow dx="0" dy="4" stdDeviation="5" floodColor="#18181B" floodOpacity="0.16" />
+        </filter>
+        {/* Soft base shadow */}
+        <filter id="envelopeBaseGlow" x="-10%" y="-10%" width="120%" height="120%" filterUnits="userSpaceOnUse">
+          <feDropShadow dx="0" dy="10" stdDeviation="14" floodColor="#18181B" floodOpacity="0.06" />
+        </filter>
+      </defs>
+
+      {/* Background Soft Organic Circular Aura */}
+      <circle cx="150" cy="180" r="115" fill="#EFF3E8" />
+      <circle cx="180" cy="150" r="135" fill="#F4F6EE" opacity="0.65" />
+      <circle cx="145" cy="180" r="150" stroke="#E2E7D8" strokeWidth="1" fill="none" opacity="0.55" />
+
+      {/* Subtle Dot Matrix in Top-Left Background */}
+      <g opacity="0.45" fill="#A8B29C">
+        <circle cx="65" cy="52" r="1.75" />
+        <circle cx="78" cy="52" r="1.75" />
+        <circle cx="91" cy="52" r="1.75" />
+        <circle cx="104" cy="52" r="1.75" />
+        <circle cx="117" cy="52" r="1.75" />
+
+        <circle cx="65" cy="65" r="1.75" />
+        <circle cx="78" cy="65" r="1.75" />
+        <circle cx="91" cy="65" r="1.75" />
+        <circle cx="104" cy="65" r="1.75" />
+        <circle cx="117" cy="65" r="1.75" />
+
+        <circle cx="65" cy="78" r="1.75" />
+        <circle cx="78" cy="78" r="1.75" />
+        <circle cx="91" cy="78" r="1.75" />
+        <circle cx="104" cy="78" r="1.75" />
+        <circle cx="117" cy="78" r="1.75" />
+
+        <circle cx="65" cy="91" r="1.75" />
+        <circle cx="78" cy="91" r="1.75" />
+        <circle cx="91" cy="91" r="1.75" />
+        <circle cx="104" cy="91" r="1.75" />
+        <circle cx="117" cy="91" r="1.75" />
+      </g>
+
+      {/* Sweeping Dashed Arc Flight Path from lower-left to top-right airplane */}
+      <path
+        d="M 52 245 C 50 165, 120 95, 252 75"
+        stroke="#88907E"
+        strokeWidth="1.4"
+        strokeDasharray="4 4"
+        strokeLinecap="round"
+        fill="none"
+      />
+
+      {/* Paper Airplane at Upper Right (flying ↗) */}
+      <g transform="translate(258, 54) rotate(24)">
+        <polygon points="0,22 26,0 17,25 10,14" fill="#FFFFFF" stroke="#18181B" strokeWidth="1.3" strokeLinejoin="round" />
+        <polygon points="26,0 10,14 17,25" fill="#EAEFE2" />
+        <line x1="26" y1="0" x2="10" y2="14" stroke="#18181B" strokeWidth="1.3" strokeLinejoin="round" />
+        <polygon points="10,14 10,21 14,18" fill="#D6DCD0" stroke="#18181B" strokeWidth="1.3" strokeLinejoin="round" />
+      </g>
+
+      {/* Envelope Group with Soft Base Shadow */}
+      <g filter="url(#envelopeBaseGlow)">
+        {/* Open Envelope Back Flap (pointing upward behind the letter card) */}
+        <polygon
+          points="68,185 160,118 252,185"
+          fill="#E7ECE0"
+          stroke="#DBE1D2"
+          strokeWidth="1.2"
+        />
+
+        {/* Interior Pocket Cavity Shadow behind the letter card */}
+        <polygon
+          points="68,185 252,185 252,260 68,260"
+          fill="#DEE4D6"
+        />
+
+        {/* Sliding Letter Card (tilted ~ -6 deg) */}
+        <g transform="translate(94, 126) rotate(-6)" filter="url(#cardShadow)">
+          {/* Card Body */}
+          <rect
+            width="140"
+            height="112"
+            rx="16"
+            fill="#FFFFFF"
+            stroke="#E1E6D8"
+            strokeWidth="1.4"
+          />
+
+          {/* D-Board Squircle Logo Badge on the Letter */}
+          <g transform="translate(53, 16)">
+            <rect width="34" height="34" rx="9" fill="#18181B" />
+            <g transform="translate(1, 1) scale(0.32)">
+              {/* Brand Lime Neon Chevron Arrow */}
+              <polygon points="22.44,43.11 43.11,57.95 22.44,75.97" fill="#D2F843" />
+              {/* White Developer 'D' shape */}
+              <path
+                d="M 29.33 21.38 A 6.89 6.89 0 0 0 29.33 35.16 L 54.24 35.16 C 55.3 35.16 66.43 40.46 66.43 49.47 C 66.43 58.48 53.18 63.25 47.88 59.54 L 33.57 71.73 C 31.45 74.91 31.98 77.56 36.22 77.56 L 55.3 77.56 C 72.26 77.56 80.74 65.9 80.74 49.47 C 80.74 33.04 72.26 21.38 55.3 21.38 Z"
+                fill="#FFFFFF"
+              />
+            </g>
+          </g>
+
+          {/* Rounded Placeholder Text Lines on the Card */}
+          <rect x="30" y="60" width="80" height="7" rx="3.5" fill="#D0D6C6" />
+          <rect x="32" y="73" width="66" height="7" rx="3.5" fill="#DEE4D6" />
+
+          {/* Floating Dark Circular Badge on Top-Right Corner of Card (Image 2) */}
+          <g transform="translate(130, 10)">
+            {/* 3 Radiating Burst Tick Marks */}
+            <g stroke="#8E9480" strokeWidth="2.2" strokeLinecap="round">
+              {/* Top-left tick */}
+              <line x1="-10" y1="-23" x2="-15" y2="-32" />
+              {/* Top-right tick */}
+              <line x1="8" y1="-22" x2="16" y2="-30" />
+              {/* Right tick */}
+              <line x1="22" y1="-6" x2="31" y2="-5" />
+            </g>
+
+            {/* Dark Circle */}
+            <circle cx="0" cy="0" r="19" fill="#18181B" filter="url(#darkBadgeShadow)" />
+
+            {/* Small White Paper Airplane inside Dark Circle */}
+            <g transform="translate(-7.5, -8) scale(0.85)">
+              <polygon points="0,17 19,0 13,19 7,11" fill="#FFFFFF" stroke="#18181B" strokeWidth="0.8" strokeLinejoin="round" />
+              <polygon points="19,0 7,11 13,19" fill="#E4E7DF" />
+            </g>
+          </g>
+        </g>
+
+        {/* Envelope Front Pocket - Left Side Flap */}
+        <polygon
+          points="68,185 146,242 68,285"
+          fill="#F4F6EC"
+          stroke="#DBE1D2"
+          strokeWidth="1.2"
+        />
+
+        {/* Envelope Front Pocket - Right Side Flap */}
+        <polygon
+          points="252,185 174,242 252,285"
+          fill="#F4F6EC"
+          stroke="#DBE1D2"
+          strokeWidth="1.2"
+        />
+
+        {/* Envelope Front Pocket - Bottom Center Flap with Rounded Crest (Matching Image 2) */}
+        <path
+          d="M 68 285 L 252 285 L 188 234 C 172 222, 148 222, 132 234 Z"
+          fill="#FAFBF6"
+          stroke="#DBE1D2"
+          strokeWidth="1.2"
+        />
+      </g>
+    </svg>
+  );
+};
 
 export const RegisterPage: React.FC = () => {
   const { navigate } = useRouter();
@@ -23,6 +212,11 @@ export const RegisterPage: React.FC = () => {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState('');
   const [legalModalType, setLegalModalType] = useState<'terms' | 'privacy' | null>(null);
+
+  const [isRegistered, setIsRegistered] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [isResending, setIsResending] = useState(false);
+  const [resendStatus, setResendStatus] = useState<string | null>(null);
 
   const [errors, setErrors] = useState<{
     fullName?: string;
@@ -49,6 +243,20 @@ export const RegisterPage: React.FC = () => {
     }
     return '';
   }, [fullName, username]);
+
+  const handleResendVerification = async () => {
+    if (!registeredEmail) return;
+    setIsResending(true);
+    setResendStatus(null);
+    try {
+      await authApi.resendVerification(registeredEmail);
+      setResendStatus('A new verification email has been dispatched. Please check your inbox.');
+    } catch {
+      setResendStatus('A new verification email has been dispatched. Please check your inbox.');
+    } finally {
+      setIsResending(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,7 +319,8 @@ export const RegisterPage: React.FC = () => {
         termsAccepted: true,
       });
 
-      navigate('/app/dashboard');
+      setRegisteredEmail(email.trim());
+      setIsRegistered(true);
     } catch (err: any) {
       setErrors({
         general: err.message || 'Registration failed. Please try again.',
@@ -120,6 +329,98 @@ export const RegisterPage: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  if (isRegistered) {
+    return (
+      <AuthLayout
+        headerAction={
+          <div className="auth-header-nav-link">
+            <span className="auth-header-nav-text">Already verified?</span>{' '}
+            <Link to="/login" className="auth-header-link-highlight">
+              Log in
+            </Link>
+          </div>
+        }
+      >
+        <div className="account-created-wrapper">
+          <Link to="/login" className="back-link" style={{ alignSelf: 'flex-start', marginBottom: '1.25rem' }}>
+            <ArrowLeftIcon size={16} />
+            <span>Back to sign in</span>
+          </Link>
+
+          <div className="account-created-hero-row">
+            <div className="account-created-text-col">
+              <h1 className="account-created-heading">Account created</h1>
+              <h2 className="account-created-subheading">Check your inbox</h2>
+              <p className="account-created-body">
+                We sent a verification link to{' '}
+                <strong className="account-created-email-highlight">{registeredEmail}</strong>.{' '}
+                Click the button in your email to verify your address and unlock project collaboration.
+              </p>
+            </div>
+
+            <div className="account-created-illustration-col" aria-hidden="true">
+              <EmailEnvelopeIllustration />
+            </div>
+          </div>
+
+          {resendStatus && (
+            <div
+              className="auth-alert success-alert"
+              role="alert"
+              style={{
+                width: '100%',
+                backgroundColor: '#E7F6EC',
+                color: '#166534',
+                border: '1px solid #BBF7D0',
+                marginBottom: '1.25rem',
+                borderRadius: '8px',
+                padding: '0.75rem 1rem',
+                fontSize: '0.875rem',
+              }}
+            >
+              {resendStatus}
+            </div>
+          )}
+
+          <div className="account-created-actions-stack">
+            <button
+              type="button"
+              className="account-created-primary-btn"
+              onClick={() => {
+                const mailUrl = getEmailProviderUrl(registeredEmail);
+                if (mailUrl.startsWith('http')) {
+                  window.open(mailUrl, '_blank', 'noopener,noreferrer');
+                } else {
+                  window.location.href = mailUrl;
+                }
+              }}
+            >
+              <span>Open email / Check inbox</span>
+              <ArrowRightIcon size={18} />
+            </button>
+
+            <button
+              type="button"
+              className="account-created-secondary-btn"
+              onClick={handleResendVerification}
+              disabled={isResending}
+            >
+              {isResending ? 'Resending...' : 'Resend verification email'}
+            </button>
+
+            <button
+              type="button"
+              className="account-created-text-link"
+              onClick={() => navigate('/login')}
+            >
+              Continue to Login
+            </button>
+          </div>
+        </div>
+      </AuthLayout>
+    );
+  }
 
   const handleGoogleLogin = () => {
     window.location.href = authApi.getGoogleAuthUrl();

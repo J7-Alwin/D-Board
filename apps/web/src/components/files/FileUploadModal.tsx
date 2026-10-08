@@ -1,13 +1,13 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import type { Project } from '../../api/projects.api';
-import { filesApi } from '../../api/files.api';
+import { filesApi, type AttachmentDTO } from '../../api/files.api';
 import type { FolderItem } from './CreateFolderModal';
 import { CustomSelect } from '../ui/CustomSelect';
 
 interface FileUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onUploadSuccess: (createdFiles?: any[], destinationFolderId?: string | null) => void;
+  onUploadSuccess: (createdFiles?: AttachmentDTO[], destinationFolderId?: string | null) => void;
   projects?: Project[];
   activeProjectId?: string;
   folders?: FolderItem[];
@@ -149,7 +149,10 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
       const res = await filesApi.uploadFiles(
         targetProjectId,
         filesToUpload,
-        workItemId || null,
+        {
+          workItemId: workItemId || null,
+          folderId: resolvedFolderId || null,
+        },
         (progress) => setUploadProgress(progress)
       );
 

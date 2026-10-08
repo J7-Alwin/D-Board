@@ -410,12 +410,18 @@ export const FilesPage: React.FC<FilesPageProps> = ({
       }
       try {
         const droppedFiles = Array.from(e.dataTransfer.files);
-        const res = await filesApi.uploadFiles(targetProjId, droppedFiles);
+        const res = await filesApi.uploadFiles(targetProjId, droppedFiles, {
+          folderId: currentFolderId || null,
+        });
         if (res.success) {
-          // Associate newly uploaded files with current active folder if open
-          if (currentFolderId && res.data.files) {
+          // Associate newly uploaded files with current active folder if open and not already assigned
+          if (currentFolderId && res.data?.files) {
             await Promise.all(
-              res.data.files.map((f) => filesApi.moveFile(targetProjId, f.id, currentFolderId).catch(() => {}))
+              res.data.files.map((f) =>
+                f.folderId !== currentFolderId
+                  ? filesApi.moveFile(targetProjId, f.id, currentFolderId).catch(() => {})
+                  : Promise.resolve()
+              )
             );
           }
 
@@ -1417,8 +1423,8 @@ export const FilesPage: React.FC<FilesPageProps> = ({
             setIsUploadModalOpen(false);
             if (destFolderId && createdFiles && createdFiles.length > 0) {
               await Promise.all(
-                createdFiles.map((f: any) =>
-                  f.id && f.projectId
+                createdFiles.map((f) =>
+                  f.id && f.projectId && f.folderId !== destFolderId
                     ? filesApi.moveFile(f.projectId, f.id, destFolderId).catch(() => {})
                     : Promise.resolve()
                 )

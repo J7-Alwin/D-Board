@@ -113,6 +113,20 @@ export interface StorageStatsDTO {
   categoryBreakdown: StorageCategoryStat[];
 }
 
+export interface FileUploadResponse {
+  success: boolean;
+  message?: string;
+  data: {
+    files: AttachmentDTO[];
+  };
+}
+
+export interface UploadFilesOptions {
+  workItemId?: string | null;
+  noteId?: string | null;
+  folderId?: string | null;
+}
+
 export const filesApi = {
   /**
    * Get storage statistics and 200 MB quota breakdown for the current user.
@@ -171,22 +185,27 @@ export const filesApi = {
   async uploadFiles(
     projectId: string,
     files: File[],
-    options?: { workItemId?: string | null; noteId?: string | null } | string | null,
+    options?: UploadFilesOptions | string | null,
     onProgress?: (percent: number) => void
-  ): Promise<{ success: boolean; data: { files: AttachmentDTO[] } }> {
+  ): Promise<FileUploadResponse> {
     const formData = new FormData();
     files.forEach((f) => formData.append('files', f));
 
     const workItemId = typeof options === 'string' ? options : options?.workItemId || null;
     const noteId = typeof options === 'object' ? options?.noteId || null : null;
+    const folderId = typeof options === 'object' ? options?.folderId || null : null;
 
     if (workItemId) formData.append('workItemId', workItemId);
     if (noteId) formData.append('noteId', noteId);
+    if (folderId) formData.append('folderId', folderId);
+
+    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    const uploadUrl = `${base}/projects/${encodeURIComponent(projectId)}/files`;
 
     const xhr = new XMLHttpRequest();
 
     return new Promise((resolve, reject) => {
-      xhr.open('POST', `/api/projects/${projectId}/files`);
+      xhr.open('POST', uploadUrl);
       xhr.withCredentials = true;
 
       xhr.upload.onprogress = (e) => {
@@ -197,19 +216,101 @@ export const filesApi = {
       };
 
       xhr.onload = () => {
-        try {
-          const res = JSON.parse(xhr.responseText);
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(res);
+        const isSuccess = xhr.status >= 200 && xhr.status < 300;
+        const responseText = xhr.responseText ? xhr.responseText.trim() : '';
+
+        // 1. Distinguish empty response body
+        if (!responseText) {
+          if (isSuccess) {
+            reject(new Error('Server returned an empty response for file upload'));
           } else {
-            reject(new Error(res.message || 'Upload failed'));
+            reject(new Error(`Upload failed with HTTP status ${xhr.status}`));
           }
-        } catch {
-          reject(new Error('Failed to parse upload response'));
+          return;
         }
+
+        // 2. Parse JSON response
+        let parsed: any = null;
+        let isJson = false;
+        try {
+          parsed = JSON.parse(responseText);
+          isJson = typeof parsed === 'object' && parsed !== null;
+        } catch {
+          isJson = false;
+        }
+
+        // 3. Handle non-JSON responses (e.g. HTML from SPA redirect/proxy or plain text error)
+        if (!isJson) {
+          if (import.meta.env.DEV) {
+            console.warn('[FileUpload] Expected JSON response but received non-JSON:', {
+              status: xhr.status,
+              statusText: xhr.statusText,
+              preview: responseText.slice(0, 150),
+            });
+          }
+
+          if (isSuccess) {
+            const isHtml = responseText.startsWith('<') || (xhr.getResponseHeader('content-type') || '').includes('text/html');
+            if (isHtml) {
+              reject(
+                new Error(
+                  `Upload endpoint returned HTML instead of JSON (HTTP ${xhr.status}). Check VITE_API_URL / API routing.`
+                )
+              );
+            } else {
+              reject(new Error(`Server returned invalid response format (HTTP ${xhr.status})`));
+            }
+          } else {
+            if (xhr.status === 413) {
+              reject(new Error('Total upload size exceeds maximum allowed limit (HTTP 413)'));
+            } else if (xhr.status === 429) {
+              reject(new Error('Too many requests. Please wait a moment before trying again (HTTP 429)'));
+            } else if (xhr.status >= 500) {
+              reject(new Error(`Server error occurred during upload (HTTP ${xhr.status})`));
+            } else {
+              reject(new Error(`Upload failed (HTTP ${xhr.status}: ${xhr.statusText || 'Error'})`));
+            }
+          }
+          return;
+        }
+
+        // 4. Handle JSON error responses (non-2xx HTTP status or success === false)
+        if (!isSuccess || parsed.success === false) {
+          const apiMessage = parsed.message || parsed.error || `Upload failed with status ${xhr.status}`;
+          reject(new Error(apiMessage));
+          return;
+        }
+
+        // 5. Handle successful JSON response (HTTP 200/201)
+        // Normalize response shape to standard { success: boolean, message?: string, data: { files: AttachmentDTO[] } }
+        let filesList: AttachmentDTO[] = [];
+        if (Array.isArray(parsed.data?.files)) {
+          filesList = parsed.data.files;
+        } else if (Array.isArray(parsed.data)) {
+          filesList = parsed.data;
+        } else if (Array.isArray(parsed.files)) {
+          filesList = parsed.files;
+        } else if (parsed.data?.file && typeof parsed.data.file === 'object') {
+          filesList = [parsed.data.file];
+        } else if (parsed.file && typeof parsed.file === 'object') {
+          filesList = [parsed.file];
+        }
+
+        const normalized: FileUploadResponse = {
+          success: typeof parsed.success === 'boolean' ? parsed.success : true,
+          message: parsed.message,
+          data: {
+            files: filesList,
+          },
+        };
+
+        resolve(normalized);
       };
 
       xhr.onerror = () => reject(new Error('Network error during file upload'));
+      xhr.onabort = () => reject(new Error('File upload was aborted'));
+      xhr.ontimeout = () => reject(new Error('File upload request timed out'));
+
       xhr.send(formData);
     });
   },

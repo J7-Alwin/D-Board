@@ -108,6 +108,55 @@ describe('Auth, Project RBAC, and Calendar Feed Token Integration Tests', () => 
     expect(res.body.data.project.status).toBe('ACTIVE');
   });
 
+  it('6a. POST /api/projects/:id/files should reject unauthorized upload without cookie with 401', async () => {
+    const res = await request(app)
+      .post(`/api/projects/${createdProjectId}/files`)
+      .attach('files', Buffer.from('unauthorized test'), 'unauth.txt');
+
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('6b. POST /api/projects/:id/files should successfully upload file and return documented JSON contract', async () => {
+    const filePayload = Buffer.from('hello contract verification payload');
+    const res = await request(app)
+      .post(`/api/projects/${createdProjectId}/files`)
+      .set('Cookie', sessionCookie)
+      .attach('files', filePayload, 'upload_contract_test.txt');
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(typeof res.body.message).toBe('string');
+    expect(res.body.data).toBeDefined();
+    expect(Array.isArray(res.body.data.files)).toBe(true);
+    expect(res.body.data.files.length).toBe(1);
+
+    const uploaded = res.body.data.files[0];
+    expect(uploaded.id).toBeDefined();
+    expect(uploaded.projectId).toBe(createdProjectId);
+    expect(uploaded.originalName).toBe('upload_contract_test.txt');
+    expect(uploaded.sizeBytes).toBe(filePayload.length);
+    expect(uploaded.mimeType).toBe('text/plain');
+    expect(uploaded.category).toBe('TEXT');
+    expect(uploaded.createdAt).toBeDefined();
+
+    // Security check: storageKey/objectKey must never be leaked in API response
+    expect(uploaded.storageKey).toBeUndefined();
+    if (uploaded.storedObject) {
+      expect(uploaded.storedObject.storageKey).toBeUndefined();
+    }
+  });
+
+  it('6c. POST /api/projects/:id/files should reject upload when no files are attached with 400', async () => {
+    const res = await request(app)
+      .post(`/api/projects/${createdProjectId}/files`)
+      .set('Cookie', sessionCookie);
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/No files were uploaded|No files were provided/i);
+  });
+
   it('7. POST /api/projects/:id/calendar/feed/token should generate revocable feed token', async () => {
     const res = await request(app)
       .post(`/api/projects/${createdProjectId}/calendar/feed/token`)

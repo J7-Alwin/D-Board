@@ -8,9 +8,8 @@ import { WorkItemDetailsModal } from '../../components/workspace/WorkItemDetails
 import { InviteMemberModal } from '../../components/workspace/InviteMemberModal';
 import { ProjectSettingsModal } from '../../components/workspace/ProjectSettingsModal';
 import { LearnMoreModal } from '../../components/modals/LearnMoreModal';
-import { ProjectOverviewHeaderAtmosphere } from '../../components/common/HeaderAtmosphereArt';
+import { ProjectWorkspaceHeader } from '../../components/workspace/ProjectWorkspaceHeader';
 import { ApplicationCategoryIcon } from '../../components/common/ApplicationCategoryIcon';
-import { isLikelyImageUrl } from '../../components/ui/ProjectAvatar';
 import {
   LayersIcon,
   CheckSquareIcon,
@@ -24,8 +23,6 @@ import {
   CalendarIcon,
   FileTextIcon,
   SettingsIcon,
-  FolderIcon,
-  ListIcon,
 } from '../../components/ui/Icons';
 import { Button } from '../../components/ui/Button';
 
@@ -34,12 +31,15 @@ interface ProjectOverviewPageProps {
   hideHeader?: boolean;
   onOpenSettingsModal?: () => void;
   onOpenCreateWorkModal?: () => void;
+  refreshTrigger?: any;
 }
 
 export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
   project: propProject,
+  hideHeader,
   onOpenSettingsModal,
   onOpenCreateWorkModal,
+  refreshTrigger,
 }) => {
   const { path, navigate } = useRouter();
 
@@ -58,10 +58,8 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [learnMoreOpen, setLearnMoreOpen] = useState(false);
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [tipDismissed, setTipDismissed] = useState(false);
   const [selectedWorkItemId, setSelectedWorkItemId] = useState<string | null>(null);
-  const [heroImgError, setHeroImgError] = useState(false);
 
   const handleOpenSettings = () => {
     if (onOpenSettingsModal) {
@@ -188,7 +186,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [loadData, refreshTrigger]);
 
   const handleWorkItemCreated = (newItem: WorkItem) => {
     setWorkItems((prev) => [newItem, ...prev]);
@@ -226,147 +224,30 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
     );
   }
 
-  // Visual Monogram / Avatar logic
-  const monogram = project.name ? project.name.trim()[0].toUpperCase() : 'T';
-  const roleLabel = project.userRole === 'PROJECT_ADMIN' ? 'Admin' : 'Member';
-  const memberCount = project.memberCount || (project.members ? project.members.length : 2);
-  const avatarUrl = (project.avatarUrl || '').trim();
-  const isImg = !heroImgError && Boolean(avatarUrl && isLikelyImageUrl(avatarUrl));
-  const isEmojiOrPreset = !heroImgError && !isImg && avatarUrl.length > 0 && avatarUrl.length <= 8;
-
   const displayItems = workItems;
   const displayActivities = recentActivities;
 
   return (
-    <div className="project-workspace-page po-overview-wrapper">
-      {/* Top Back to Projects Navigation Link */}
-      <div className="po-top-nav-bar">
-        <Link to="/app/dashboard" className="po-back-to-projects-link">
-          <span className="po-back-arrow">←</span>
-          <span>Back to Projects</span>
-        </Link>
-      </div>
+    <div className={hideHeader ? 'po-overview-embedded' : 'project-workspace-page po-overview-wrapper'}>
+      {/* If standalone (not embedded in ProjectWorkspaceShell), render unified header matching Image 2 */}
+      {!hideHeader && project && (
+        <ProjectWorkspaceHeader
+          project={project}
+          currentTab="overview"
+          showHeroCard={true}
+          onOpenCreateWorkModal={handleOpenCreateModal}
+          onOpenSettingsModal={handleOpenSettings}
+          onOpenInviteModal={() => setInviteModalOpen(true)}
+        />
+      )}
 
       {/* Main 2-Column Overview Content Grid matching reference */}
       <div className="project-overview-content-grid">
         {/* ============================================================ */}
-        {/* LEFT COLUMN: Hero Card, Tabs Bar, Metrics, Recent Work, Split Row, Tip */}
+        {/* LEFT COLUMN: Metrics, Recent Work, Split Row, Tip */}
         {/* ============================================================ */}
         <div className="project-overview-main-col">
-          {/* 1. Main Hero Banner Card */}
-          <div className="project-hero-card po-hero-left-col">
-            <div className="project-hero-left">
-              <div className="project-hero-logo-box">
-                {isImg ? (
-                  <img
-                    src={avatarUrl}
-                    alt={project.name}
-                    className="project-hero-img"
-                    onError={() => setHeroImgError(true)}
-                  />
-                ) : isEmojiOrPreset ? (
-                  <span className="project-hero-emoji">{avatarUrl}</span>
-                ) : (
-                  <span className="project-hero-monogram">{monogram}</span>
-                )}
-              </div>
-
-              <div className="project-hero-info">
-                <div className="project-hero-title-row">
-                  <h1 className="project-hero-title">{project.name}</h1>
-                  <span className={`project-hero-status-pill status-${project.status?.toLowerCase() || 'active'}`}>
-                    {project.status || 'ACTIVE'}
-                  </span>
-                  <span className="project-hero-role-pill">{roleLabel}</span>
-                </div>
-
-                {project.description && (
-                  <p className="project-hero-desc">{project.description}</p>
-                )}
-
-                {project.category && (
-                  <div className="project-hero-category-badge">
-                    <ApplicationCategoryIcon category={project.category} size={13} className="project-cat-icon" />
-                    <span>{project.category}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Center: Serene Landscape Atmosphere Art with Quote */}
-            <div className="project-hero-center">
-              <ProjectOverviewHeaderAtmosphere />
-            </div>
-          </div>
-
-          {/* 2. Navigation Tabs Bar */}
-          <div className="project-workspace-tabs-bar po-tabs-bar" role="tablist">
-            <Link
-              to={`/app/projects/${project.id}`}
-              className="project-tab-btn active"
-              role="tab"
-              aria-selected="true"
-            >
-              <LayersIcon size={15} />
-              <span>Overview</span>
-            </Link>
-
-            <Link
-              to={`/app/projects/${project.id}/board`}
-              className="project-tab-btn"
-              role="tab"
-            >
-              <CheckSquareIcon size={15} />
-              <span>Board</span>
-            </Link>
-
-            <Link
-              to={`/app/projects/${project.id}/activity`}
-              className="project-tab-btn"
-              role="tab"
-            >
-              <ListIcon size={15} />
-              <span>List</span>
-            </Link>
-
-            <Link
-              to={`/app/projects/${project.id}/members`}
-              className="project-tab-btn"
-              role="tab"
-            >
-              <UsersIcon size={15} />
-              <span>Team ({memberCount})</span>
-            </Link>
-
-            <Link
-              to={`/app/projects/${project.id}/calendar`}
-              className="project-tab-btn"
-              role="tab"
-            >
-              <CalendarIcon size={15} />
-              <span>Calendar</span>
-            </Link>
-
-            <Link
-              to={`/app/projects/${project.id}/notes`}
-              className="project-tab-btn"
-              role="tab"
-            >
-              <FileTextIcon size={15} />
-              <span>Notes</span>
-            </Link>
-
-            <Link
-              to={`/app/projects/${project.id}/files`}
-              className="project-tab-btn"
-              role="tab"
-            >
-              <FolderIcon size={15} />
-              <span>Files</span>
-            </Link>
-          </div>
-
-          {/* 3. 4 Metric Cards Row */}
+          {/* 1. 4 Metric Cards Row */}
           <div className="po-metrics-row-grid">
             {/* Total Work Items */}
             <div className="po-metric-card">
@@ -642,71 +523,10 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
         </div>
 
         {/* ============================================================ */}
-        {/* RIGHT COLUMN: Actions, Timeline, Team Members, Activity Feed */}
+        {/* RIGHT COLUMN: Timeline, Team Members, Activity Feed */}
         {/* ============================================================ */}
         <div className="project-overview-sidebar-col">
-          {/* 1. Top Actions Row aligned horizontally with Hero Card */}
-          <div className="po-top-actions-row">
-            <div className="po-more-menu-container">
-              <button
-                type="button"
-                className="po-more-btn"
-                onClick={() => setMoreMenuOpen((prev) => !prev)}
-              >
-                <span>••• More</span>
-                <span className="po-caret-down">▾</span>
-              </button>
-
-              {moreMenuOpen && (
-                <div className="po-more-dropdown-menu">
-                  <button
-                    type="button"
-                    className="po-more-dropdown-item"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      handleOpenSettings();
-                    }}
-                  >
-                    <SettingsIcon size={14} />
-                    <span>Project Settings</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="po-more-dropdown-item"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      setInviteModalOpen(true);
-                    }}
-                  >
-                    <UsersIcon size={14} />
-                    <span>Invite Members</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="po-more-dropdown-item"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      navigate(`/app/projects/${project.id}/board`);
-                    }}
-                  >
-                    <CheckSquareIcon size={14} />
-                    <span>Project Board</span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <button
-              type="button"
-              className="po-create-work-btn"
-              onClick={handleOpenCreateModal}
-            >
-              <PlusIcon size={15} />
-              <span>Create Work Item</span>
-            </button>
-          </div>
-
-          {/* 2. Project Timeline Card */}
+          {/* 1. Project Timeline Card */}
           <div className="po-clean-card po-timeline-sidebar-card">
             <div className="po-card-head-row">
               <div className="po-card-title-flex">

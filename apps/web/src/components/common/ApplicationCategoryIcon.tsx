@@ -220,3 +220,5 @@ export const ApplicationCategoryIcon: React.FC<CategoryIconProps> = ({
     </svg>
   );
 };
+
+export default ApplicationCategoryIcon;

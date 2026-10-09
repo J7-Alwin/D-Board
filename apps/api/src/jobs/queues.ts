@@ -36,6 +36,9 @@ export function getEmailQueue(): Queue<any> {
       connection: getRedisConnection(),
       defaultJobOptions,
     });
+    emailQueue.on('error', () => {
+      // Absorb connection errors when Redis is unavailable or in offline fallback mode
+    });
   }
   return emailQueue;
 }
@@ -46,6 +49,9 @@ export function getDeadlineQueue(): Queue<any> {
       connection: getRedisConnection(),
       defaultJobOptions,
     });
+    deadlineQueue.on('error', () => {
+      // Absorb connection errors when Redis is unavailable or in offline fallback mode
+    });
   }
   return deadlineQueue;
 }
@@ -55,6 +61,9 @@ export function getCleanupQueue(): Queue<any> {
     cleanupQueue = new Queue(QUEUE_NAMES.CLEANUP, {
       connection: getRedisConnection(),
       defaultJobOptions,
+    });
+    cleanupQueue.on('error', () => {
+      // Absorb connection errors when Redis is unavailable or in offline fallback mode
     });
   }
   return cleanupQueue;

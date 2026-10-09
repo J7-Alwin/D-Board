@@ -11,6 +11,7 @@ import { NotesPage } from './NotesPage';
 import { FilesPage } from './FilesPage';
 import { CreateWorkItemModal } from '../../components/workspace/CreateWorkItemModal';
 import { ProjectSettingsModal } from '../../components/workspace/ProjectSettingsModal';
+import { InviteMemberModal } from '../../components/workspace/InviteMemberModal';
 import { AlertCircleIcon } from '../../components/ui/Icons';
 import { Button } from '../../components/ui/Button';
 
@@ -26,6 +27,8 @@ export const ProjectWorkspaceShell: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [createWorkModalOpen, setCreateWorkModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Determine current active tab from the URL path
   const currentTab = useMemo(() => {
@@ -85,18 +88,17 @@ export const ProjectWorkspaceShell: React.FC = () => {
   return (
     <div className="project-workspace-page">
       {/* 
-        PERSISTENT TOP SECTION (shown for tabs other than overview):
-        For board, list, members, calendar, notes, files tabs.
+        PERSISTENT TOP SECTION (shown across all workspace tabs):
+        Full-width hero header card + navigation tabs bar matching Image 2
       */}
-      {currentTab !== 'overview' && (
-        <ProjectWorkspaceHeader
-          project={project}
-          currentTab={currentTab}
-          showHeroCard={true}
-          onOpenCreateWorkModal={() => setCreateWorkModalOpen(true)}
-          onOpenSettingsModal={() => setSettingsModalOpen(true)}
-        />
-      )}
+      <ProjectWorkspaceHeader
+        project={project}
+        currentTab={currentTab}
+        showHeroCard={true}
+        onOpenCreateWorkModal={() => setCreateWorkModalOpen(true)}
+        onOpenSettingsModal={() => setSettingsModalOpen(true)}
+        onOpenInviteModal={() => setInviteModalOpen(true)}
+      />
 
       {/* 
         CONTENT PANE:
@@ -107,9 +109,10 @@ export const ProjectWorkspaceShell: React.FC = () => {
         {currentTab === 'overview' && (
           <ProjectOverviewPage
             project={project}
-            hideHeader={false}
+            hideHeader={true}
             onOpenSettingsModal={() => setSettingsModalOpen(true)}
             onOpenCreateWorkModal={() => setCreateWorkModalOpen(true)}
+            refreshTrigger={refreshKey}
           />
         )}
         {currentTab === 'board' && (
@@ -140,6 +143,7 @@ export const ProjectWorkspaceShell: React.FC = () => {
           onClose={() => setCreateWorkModalOpen(false)}
           onCreated={() => {
             setCreateWorkModalOpen(false);
+            setRefreshKey((k) => k + 1);
           }}
         />
       )}
@@ -152,9 +156,24 @@ export const ProjectWorkspaceShell: React.FC = () => {
           onClose={() => setSettingsModalOpen(false)}
           onUpdated={(updated) => {
             setProject(updated);
+            setRefreshKey((k) => k + 1);
           }}
           onDeleted={() => {
             navigate('/app/dashboard');
+          }}
+        />
+      )}
+
+      {/* Global Workspace Invite Member Modal */}
+      {inviteModalOpen && (
+        <InviteMemberModal
+          project={project}
+          isOpen={inviteModalOpen}
+          onClose={() => setInviteModalOpen(false)}
+          onInvited={() => {
+            setInviteModalOpen(false);
+            loadProject();
+            setRefreshKey((k) => k + 1);
           }}
         />
       )}

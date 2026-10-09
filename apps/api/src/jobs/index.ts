@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq';
-import { isRedisReady } from '../redis/redis.client.js';
+import { isRedisReady, onRedisReady } from '../redis/redis.client.js';
 import { createEmailWorker } from './workers/email.worker.js';
 import { createDeadlineWorker } from './workers/deadline.worker.js';
 import { createCleanupWorker } from './workers/cleanup.worker.js';
@@ -8,11 +8,25 @@ import { closeQueues } from './queues.js';
 let emailWorker: Worker | null = null;
 let deadlineWorker: Worker | null = null;
 let cleanupWorker: Worker | null = null;
+let isWaitingForRedis = false;
 
 /**
  * Initialize all BullMQ workers if Redis is available
  */
 export function initWorkers(): void {
+  if (!isRedisReady()) {
+    if (!isWaitingForRedis) {
+      isWaitingForRedis = true;
+      console.log('[Workers] Redis is offline; BullMQ workers standing by until Redis connects');
+      onRedisReady(() => {
+        isWaitingForRedis = false;
+        console.log('[Workers] Redis connected; initializing BullMQ workers...');
+        initWorkers();
+      });
+    }
+    return;
+  }
+
   try {
     if (!emailWorker) {
       emailWorker = createEmailWorker();

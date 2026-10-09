@@ -77,5 +77,12 @@ export function createDeadlineWorker(): Worker<DeadlineReminderJobData> {
     console.error(`[DeadlineWorker] Failed job ${job?.id}:`, err?.message || err);
   });
 
+  worker.on('error', (err: any) => {
+    // Gracefully absorb connection errors when Redis is unavailable or drops
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn('[DeadlineWorker] Redis connection error or offline:', err?.message || err);
+    }
+  });
+
   return worker;
 }

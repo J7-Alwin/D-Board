@@ -112,6 +112,18 @@ export function isRedisReady(): boolean {
 }
 
 /**
+ * Register a callback to be notified once Redis reaches the 'ready' state
+ */
+export function onRedisReady(callback: () => void): void {
+  if (isRedisReady()) {
+    callback();
+    return;
+  }
+  const client = getRedisClient();
+  client.once('ready', callback);
+}
+
+/**
  * Gracefully close Redis client during application shutdown
  */
 export async function closeRedis(): Promise<void> {

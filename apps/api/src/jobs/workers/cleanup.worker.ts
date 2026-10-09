@@ -84,5 +84,12 @@ export function createCleanupWorker(): Worker<CleanupJobData> {
     console.error(`[CleanupWorker] Failed job ${job?.id}:`, err?.message || err);
   });
 
+  worker.on('error', (err: any) => {
+    // Gracefully absorb connection errors when Redis is unavailable or drops
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn('[CleanupWorker] Redis connection error or offline:', err?.message || err);
+    }
+  });
+
   return worker;
 }

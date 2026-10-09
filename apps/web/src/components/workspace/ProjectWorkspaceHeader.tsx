@@ -21,6 +21,7 @@ interface ProjectWorkspaceHeaderProps {
   currentTab: 'overview' | 'board' | 'activity' | 'files' | 'notes' | 'members' | 'settings' | 'calendar' | 'list';
   onOpenCreateWorkModal?: () => void;
   onOpenSettingsModal?: () => void;
+  onOpenInviteModal?: () => void;
   showHeroCard?: boolean;
 }
 
@@ -29,6 +30,7 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
   currentTab,
   onOpenCreateWorkModal,
   onOpenSettingsModal,
+  onOpenInviteModal,
   showHeroCard,
 }) => {
   const monogram = project.name ? project.name.trim()[0].toUpperCase() : 'P';
@@ -126,14 +128,28 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
                     <span>Project Settings</span>
                   </button>
                 )}
-                <Link
-                  to={`/app/projects/${project.id}/members`}
-                  className="po-more-dropdown-item"
-                  onClick={() => setMoreMenuOpen(false)}
-                >
-                  <UsersIcon size={14} />
-                  <span>Team Members</span>
-                </Link>
+                {onOpenInviteModal ? (
+                  <button
+                    type="button"
+                    className="po-more-dropdown-item"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      onOpenInviteModal();
+                    }}
+                  >
+                    <UsersIcon size={14} />
+                    <span>Invite Members</span>
+                  </button>
+                ) : (
+                  <Link
+                    to={`/app/projects/${project.id}/members`}
+                    className="po-more-dropdown-item"
+                    onClick={() => setMoreMenuOpen(false)}
+                  >
+                    <UsersIcon size={14} />
+                    <span>Team Members</span>
+                  </Link>
+                )}
                 <Link
                   to={`/app/projects/${project.id}/board`}
                   className="po-more-dropdown-item"

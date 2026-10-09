@@ -64,5 +64,12 @@ export function createEmailWorker(): Worker<EmailJobData> {
     console.error(`[EmailWorker] Failed job ${job?.id} (${job?.data?.type}):`, err?.message || err);
   });
 
+  worker.on('error', (err: any) => {
+    // Gracefully absorb connection errors when Redis is unavailable or drops
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn('[EmailWorker] Redis connection error or offline:', err?.message || err);
+    }
+  });
+
   return worker;
 }

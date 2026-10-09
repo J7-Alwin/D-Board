@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import type { Project } from '../../api/projects.api';
-import { filesApi, type AttachmentDTO } from '../../api/files.api';
+import { projectsApi, type Project } from '../../api/projects.api';
+import { filesApi, type AttachmentDTO, type FolderDTO } from '../../api/files.api';
 import type { FolderItem } from './CreateFolderModal';
 import { CustomSelect } from '../ui/CustomSelect';
 import { LockIcon, GlobeIcon } from '../ui/Icons';
@@ -10,7 +10,10 @@ interface FileUploadModalProps {
   onClose: () => void;
   onUploadSuccess: (createdFiles?: AttachmentDTO[], destinationFolderId?: string | null) => void;
   projects?: Project[];
+  project?: Project | null;
+  projectName?: string;
   activeProjectId?: string;
+  isProjectScope?: boolean;
   folders?: FolderItem[];
   currentFolderId?: string | null;
   workItemId?: string;
@@ -21,18 +24,158 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
   onClose,
   onUploadSuccess,
   projects = [],
+  project,
+  projectName,
   activeProjectId,
+  isProjectScope,
   folders = [],
   currentFolderId = null,
   workItemId,
 }) => {
-  const defaultTarget = currentFolderId
-    ? `folder-${currentFolderId}`
-    : activeProjectId
-    ? `proj-${activeProjectId}`
-    : projects[0]
-    ? `proj-${projects[0].id}`
-    : 'root';
+  // Determine if this modal is being used inside a project context
+  const isProjectMode = isProjectScope ?? Boolean(activeProjectId && (!projects || projects.length <= 1));
+  const currentProjId = activeProjectId || project?.id || (projects.length === 1 ? projects[0].id : '');
+
+  const [resolvedProjectName, setResolvedProjectName] = useState<string>(
+    projectName || project?.name || (projects.find((p) => p.id === currentProjId)?.name) || ''
+  );
+  const [fetchedFolders, setFetchedFolders] = useState<FolderDTO[]>([]);
+
+  // Keep project name updated or fetch if missing in project mode
+  useEffect(() => {
+    if (!isOpen) return;
+    const directName = projectName || project?.name || (projects.find((p) => p.id === currentProjId)?.name);
+    if (directName) {
+      setResolvedProjectName(directName);
+    } else if (isProjectMode && currentProjId) {
+      projectsApi
+        .getProjectById(currentProjId)
+        .then((res) => {
+          if (res.success && res.data?.project) {
+            setResolvedProjectName(res.data.project.name);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isOpen, projectName, project, projects, currentProjId, isProjectMode]);
+
+  // Fetch project folders inside project mode
+  useEffect(() => {
+    if (!isOpen || !isProjectMode || !currentProjId) return;
+    filesApi
+      .getProjectFolders(currentProjId)
+      .then((res) => {
+        if (res.success && res.data?.folders) {
+          setFetchedFolders(res.data.folders);
+        }
+      })
+      .catch(() => {});
+  }, [isOpen, isProjectMode, currentProjId]);
+
+  // List of project folders
+  const projectFolderList = useMemo(() => {
+    if (fetchedFolders.length > 0) {
+      return fetchedFolders.map((f) => ({
+        id: f.id,
+        name: f.name,
+        parentId: f.parentId,
+        color: '#8B5CF6',
+      }));
+    }
+    return folders
+      .filter((f) => !currentProjId || f.projectId === currentProjId || f.projectId === 'all')
+      .map((f) => ({
+        id: f.id,
+        name: f.name,
+        parentId: f.parentId || null,
+        color: f.color || '#8B5CF6',
+      }));
+  }, [fetchedFolders, folders, currentProjId]);
+
+  // Build options for "Destination Folder"
+  const folderOptions = useMemo(() => {
+    if (isProjectMode && currentProjId) {
+      const pName = resolvedProjectName || project?.name || 'Project';
+
+      // Map folder ID to folder
+      const folderMap = new Map<string, { id: string; name: string; parentId: string | null; color?: string }>();
+      projectFolderList.forEach((f) => folderMap.set(f.id, f));
+
+      // Build hierarchical folder path e.g. "Project / Folder / Subfolder"
+      const getFullPath = (f: { id: string; name: string; parentId: string | null }): string => {
+        const parts: string[] = [f.name];
+        let curr = f;
+        const visited = new Set<string>([f.id]);
+        while (curr.parentId && folderMap.has(curr.parentId) && !visited.has(curr.parentId)) {
+          visited.add(curr.parentId);
+          curr = folderMap.get(curr.parentId)!;
+          parts.unshift(curr.name);
+        }
+        return `${pName} / ${parts.join(' / ')}`;
+      };
+
+      // Option 1: Root directory
+      const rootOption = {
+        value: `proj-${currentProjId}`,
+        label: `${pName} /`,
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#10B981">
+            <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+          </svg>
+        ),
+      };
+
+      // Option 2+: Subfolders
+      const subFolderOptions = projectFolderList
+        .map((f) => ({
+          value: `folder-${f.id}`,
+          label: getFullPath(f),
+          icon: (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill={f.color || '#8B5CF6'}>
+              <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+            </svg>
+          ),
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+
+      return [rootOption, ...subFolderOptions];
+    }
+
+    // Default: Files page (cross-project destination folders)
+    return [
+      ...projects.map((p) => ({
+        value: `proj-${p.id}`,
+        label: `Project: ${p.name}`,
+        initials: (p.key || p.name.trim().slice(0, 3)).toUpperCase(),
+        badgeType: 'default' as const,
+      })),
+      ...folders.map((f) => ({
+        value: `folder-${f.id}`,
+        label: f.projectName ? `${f.name} (${f.projectName})` : f.name,
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill={f.color || '#3B82F6'}>
+            <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+          </svg>
+        ),
+      })),
+    ];
+  }, [isProjectMode, currentProjId, resolvedProjectName, project, projectFolderList, projects, folders]);
+
+  const defaultTarget = useMemo(() => {
+    if (isProjectMode && currentProjId) {
+      if (currentFolderId) {
+        return `folder-${currentFolderId}`;
+      }
+      return `proj-${currentProjId}`;
+    }
+    return currentFolderId
+      ? `folder-${currentFolderId}`
+      : activeProjectId
+      ? `proj-${activeProjectId}`
+      : projects[0]
+      ? `proj-${projects[0].id}`
+      : 'root';
+  }, [isProjectMode, currentProjId, currentFolderId, activeProjectId, projects]);
 
   const [selectedFolderTarget, setSelectedFolderTarget] = useState<string>(defaultTarget);
   const [filesToUpload, setFilesToUpload] = useState<File[]>([]);
@@ -46,23 +189,16 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      const initial = currentFolderId
-        ? `folder-${currentFolderId}`
-        : activeProjectId
-        ? `proj-${activeProjectId}`
-        : projects[0]
-        ? `proj-${projects[0].id}`
-        : 'root';
-      setSelectedFolderTarget(initial);
+      setSelectedFolderTarget(defaultTarget);
       setFilesToUpload([]);
       setError(null);
       setUploadProgress(0);
       setIsPrivate(false);
     }
-  }, [isOpen, currentFolderId, activeProjectId, projects]);
+  }, [isOpen, defaultTarget]);
 
   // Resolve target Project ID and target Folder ID
-  let targetProjectId = activeProjectId || (projects[0] ? projects[0].id : '');
+  let targetProjectId = currentProjId || activeProjectId || (projects[0] ? projects[0].id : '');
   let resolvedFolderId: string | null = null;
 
   if (selectedFolderTarget.startsWith('proj-')) {
@@ -70,9 +206,11 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
     resolvedFolderId = null;
   } else if (selectedFolderTarget.startsWith('folder-')) {
     resolvedFolderId = selectedFolderTarget.replace('folder-', '');
-    const foundFolder = folders.find((f) => f.id === resolvedFolderId);
-    if (foundFolder && foundFolder.projectId !== 'all' && foundFolder.projectId !== 'personal') {
-      targetProjectId = foundFolder.projectId;
+    if (!isProjectMode) {
+      const foundFolder = folders.find((f) => f.id === resolvedFolderId);
+      if (foundFolder && foundFolder.projectId !== 'all' && foundFolder.projectId !== 'personal') {
+        targetProjectId = foundFolder.projectId;
+      }
     }
   }
 
@@ -169,25 +307,6 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
       setUploading(false);
     }
   };
-
-  // Build options for "Destination Folder"
-  const folderOptions = [
-    ...projects.map((p) => ({
-      value: `proj-${p.id}`,
-      label: `Project: ${p.name}`,
-      initials: (p.key || p.name.trim().slice(0, 3)).toUpperCase(),
-      badgeType: 'default' as const,
-    })),
-    ...folders.map((f) => ({
-      value: `folder-${f.id}`,
-      label: f.name,
-      icon: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill={f.color || '#3B82F6'}>
-          <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
-        </svg>
-      ),
-    })),
-  ];
 
   if (!isOpen) return null;
 

@@ -10,6 +10,7 @@ import {
 } from '../../api/work.api';
 import { commentsApi } from '../../api/comments.api';
 import { filesApi, type AttachmentDTO } from '../../api/files.api';
+import { membersApi, type ProjectMemberDetail } from '../../api/members.api';
 import { useAuth } from '../../context/AuthContext';
 import { useProjectSocket } from '../../context/SocketContext';
 import {
@@ -97,18 +98,41 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeletingWorkItem, setIsDeletingWorkItem] = useState(false);
+  const [loadedMembers, setLoadedMembers] = useState<ProjectMemberDetail[]>([]);
+
+  // Always load live project members so assignable options are never missing
+  useEffect(() => {
+    if (!project?.id) return;
+    let isMounted = true;
+    membersApi
+      .getProjectMembers(project.id)
+      .then((res) => {
+        if (isMounted && res.success && res.data?.members) {
+          setLoadedMembers(res.data.members);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [project?.id]);
 
   const assignableUsers = useMemo(() => {
-    const list: {
-      id: string;
-      name: string;
-      role: 'Owner' | 'Admin' | 'Member';
-      badgeType: 'owner' | 'admin' | 'member';
-      avatarUrl?: string | null;
-      initials?: string;
-    }[] = [];
+    const map = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        role: 'Owner' | 'Admin' | 'Member';
+        badgeType: 'owner' | 'admin' | 'member';
+        avatarUrl?: string | null;
+        initials?: string;
+      }
+    >();
+
+    // 1. Owner from prop project
     if (project.createdBy) {
-      list.push({
+      map.set(project.createdById, {
         id: project.createdById,
         name: `${project.createdBy.fullName || project.createdBy.username} (Owner)`,
         role: 'Owner',
@@ -117,10 +141,12 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
         initials: (project.createdBy.fullName || project.createdBy.username).charAt(0).toUpperCase(),
       });
     }
+
+    // 2. Members from prop project
     if (project.members) {
       project.members.forEach((m) => {
-        if (m.userId !== project.createdById) {
-          list.push({
+        if (!map.has(m.userId)) {
+          map.set(m.userId, {
             id: m.userId,
             name: m.user.fullName || m.user.username,
             role: m.role === 'PROJECT_ADMIN' ? 'Admin' : 'Member',
@@ -131,8 +157,37 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
         }
       });
     }
-    return list;
-  }, [project]);
+
+    // 3. Members loaded live from members API
+    loadedMembers.forEach((m) => {
+      if (!map.has(m.userId)) {
+        map.set(m.userId, {
+          id: m.userId,
+          name: m.isCreator
+            ? `${m.user.fullName || m.user.username} (Owner)`
+            : m.user.fullName || m.user.username,
+          role: m.isCreator ? 'Owner' : m.role === 'PROJECT_ADMIN' ? 'Admin' : 'Member',
+          badgeType: m.isCreator ? 'owner' : m.role === 'PROJECT_ADMIN' ? 'admin' : 'member',
+          avatarUrl: m.user.avatarUrl,
+          initials: (m.user.fullName || m.user.username).charAt(0).toUpperCase(),
+        });
+      }
+    });
+
+    // 4. Guarantee current workItem.assignedTo is always present
+    if (workItem?.assignedTo && workItem.assignedToId && !map.has(workItem.assignedToId)) {
+      map.set(workItem.assignedToId, {
+        id: workItem.assignedToId,
+        name: workItem.assignedTo.fullName || workItem.assignedTo.username,
+        role: 'Member',
+        badgeType: 'member',
+        avatarUrl: workItem.assignedTo.avatarUrl,
+        initials: (workItem.assignedTo.fullName || workItem.assignedTo.username).charAt(0).toUpperCase(),
+      });
+    }
+
+    return Array.from(map.values());
+  }, [project, loadedMembers, workItem?.assignedTo, workItem?.assignedToId]);
 
   // Load attachments helper
   const loadAttachments = useCallback(async () => {
@@ -330,7 +385,7 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
           : statusVal === 'IN_PROGRESS'
           ? 'In Progress'
           : statusVal === 'BLOCKED'
-          ? 'Blocked'
+          ? 'Canceled'
           : statusVal === 'IN_REVIEW'
           ? 'In Review'
           : statusVal === 'COMPLETED'
@@ -827,7 +882,7 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
         return (
           <span className="widm-header-badge badge-status-blocked">
             <BanIcon size={13} />
-            <span>Blocked</span>
+            <span>Canceled</span>
           </span>
         );
       case 'IN_REVIEW':
@@ -1023,15 +1078,6 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
 
                     <button
                       type="button"
-                      className={`widm-move-pill ${workItem.status === 'BLOCKED' ? 'active' : ''}`}
-                      onClick={() => handleStatusChange('BLOCKED')}
-                    >
-                      <ClockIcon size={13} />
-                      <span>Blocked</span>
-                    </button>
-
-                    <button
-                      type="button"
                       className={`widm-move-pill ${workItem.status === 'IN_REVIEW' ? 'active' : ''}`}
                       onClick={() => handleStatusChange('IN_REVIEW')}
                     >
@@ -1046,6 +1092,15 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
                     >
                       <CheckIcon size={13} />
                       <span>Completed</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`widm-move-pill ${workItem.status === 'BLOCKED' ? 'active' : ''}`}
+                      onClick={() => handleStatusChange('BLOCKED')}
+                    >
+                      <BanIcon size={13} />
+                      <span>Canceled</span>
                     </button>
                   </div>
                 </div>
@@ -1665,6 +1720,9 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
           isOpen={isUploadModalOpen}
           onClose={() => setIsUploadModalOpen(false)}
           onUploadSuccess={loadAttachments}
+          project={project}
+          projectName={project.name}
+          isProjectScope={true}
           activeProjectId={project.id}
           workItemId={workItem.id}
         />

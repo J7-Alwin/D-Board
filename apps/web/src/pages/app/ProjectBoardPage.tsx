@@ -68,14 +68,6 @@ const KANBAN_COLUMNS: ColumnDef[] = [
     themeClass: 'col-theme-progress',
   },
   {
-    id: 'BLOCKED',
-    title: 'Blocked',
-    dotColor: '#EF4444',
-    emptyIcon: <AlertCircleIcon size={22} />,
-    emptySubtitle: 'Blocked items will appear here.',
-    themeClass: 'col-theme-blocked',
-  },
-  {
     id: 'IN_REVIEW',
     title: 'In Review',
     dotColor: '#8B5CF6',
@@ -91,6 +83,14 @@ const KANBAN_COLUMNS: ColumnDef[] = [
     emptySubtitle: 'Completed tasks will appear here.',
     themeClass: 'col-theme-completed',
     isCompleted: true,
+  },
+  {
+    id: 'BLOCKED',
+    title: 'Canceled',
+    dotColor: '#EF4444',
+    emptyIcon: <AlertCircleIcon size={22} />,
+    emptySubtitle: 'Canceled items will appear here.',
+    themeClass: 'col-theme-blocked',
   },
 ];
 
@@ -783,13 +783,7 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
                                   iconBg: '#EFF6FF',
                                   iconColor: '#2563EB',
                                 },
-                                {
-                                  value: 'BLOCKED',
-                                  label: 'Blocked',
-                                  icon: <AlertCircleIcon size={13} />,
-                                  iconBg: '#FEF2F2',
-                                  iconColor: '#EF4444',
-                                },
+
                                 {
                                   value: 'IN_REVIEW',
                                   label: 'In Review',
@@ -803,6 +797,13 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
                                   icon: <CheckCircleIcon size={13} />,
                                   iconBg: '#ECFDF5',
                                   iconColor: '#10B981',
+                                },
+                                {
+                                  value: 'BLOCKED',
+                                  label: 'Canceled',
+                                  icon: <AlertCircleIcon size={13} />,
+                                  iconBg: '#FEF2F2',
+                                  iconColor: '#EF4444',
                                 },
                               ]}
                             />

@@ -110,7 +110,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
         return (
           <span className="po-status-badge blocked">
             <AlertCircleIcon size={12} />
-            <span>Blocked</span>
+            <span>Canceled</span>
           </span>
         );
       case 'IN_PROGRESS':

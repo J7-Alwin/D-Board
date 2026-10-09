@@ -68,7 +68,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
   // Date States: default to current live date
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [viewMode, setViewMode] = useState<'month' | 'week' | 'list'>('month');
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month' | 'list'>('month');
 
   // Month Picker Dropdown State
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
@@ -187,6 +187,42 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
   }, [items, selectedType, selectedStatus]);
 
   // Date Navigation Handlers
+  const handlePrev = () => {
+    if (viewMode === 'day') {
+      const nextDate = new Date(selectedDate);
+      nextDate.setDate(nextDate.getDate() - 1);
+      setSelectedDate(nextDate);
+      setCurrentDate(nextDate);
+      setMiniCalendarDate(nextDate);
+    } else if (viewMode === 'week') {
+      const nextDate = new Date(selectedDate);
+      nextDate.setDate(nextDate.getDate() - 7);
+      setSelectedDate(nextDate);
+      setCurrentDate(nextDate);
+      setMiniCalendarDate(nextDate);
+    } else {
+      handlePrevMonth();
+    }
+  };
+
+  const handleNext = () => {
+    if (viewMode === 'day') {
+      const nextDate = new Date(selectedDate);
+      nextDate.setDate(nextDate.getDate() + 1);
+      setSelectedDate(nextDate);
+      setCurrentDate(nextDate);
+      setMiniCalendarDate(nextDate);
+    } else if (viewMode === 'week') {
+      const nextDate = new Date(selectedDate);
+      nextDate.setDate(nextDate.getDate() + 7);
+      setSelectedDate(nextDate);
+      setCurrentDate(nextDate);
+      setMiniCalendarDate(nextDate);
+    } else {
+      handleNextMonth();
+    }
+  };
+
   const handlePrevMonth = () => {
     const nextDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
     setCurrentDate(nextDate);
@@ -371,6 +407,25 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     year: 'numeric',
   });
 
+  const dynamicDateTitle = useMemo(() => {
+    if (viewMode === 'day') {
+      return selectedDate.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    }
+    if (viewMode === 'week') {
+      const startWeek = new Date(selectedDate);
+      startWeek.setDate(startWeek.getDate() - startWeek.getDay());
+      const endWeek = new Date(startWeek);
+      endWeek.setDate(endWeek.getDate() + 6);
+      return `${startWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${endWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    }
+    return monthYearLabel;
+  }, [viewMode, selectedDate, monthYearLabel]);
+
   const miniMonthYearLabel = miniCalendarDate.toLocaleDateString('en-US', {
     month: 'long',
     year: 'numeric',
@@ -441,16 +496,16 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                 <button
                   type="button"
                   className="cal-nav-btn"
-                  onClick={handlePrevMonth}
-                  aria-label="Previous month"
+                  onClick={handlePrev}
+                  aria-label="Previous period"
                 >
                   <ChevronLeftIcon size={16} />
                 </button>
                 <button
                   type="button"
                   className="cal-nav-btn"
-                  onClick={handleNextMonth}
-                  aria-label="Next month"
+                  onClick={handleNext}
+                  aria-label="Next period"
                 >
                   <ChevronRightIcon size={16} />
                 </button>
@@ -472,7 +527,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                   aria-expanded={monthPickerOpen}
                   aria-label="Select month and year"
                 >
-                  <h2>{monthYearLabel}</h2>
+                  <h2>{dynamicDateTitle}</h2>
                   <ChevronDownIcon size={16} className={`cal-title-chevron ${monthPickerOpen ? 'open' : ''}`} />
                 </button>
 
@@ -533,34 +588,63 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
               </div>
             </div>
 
-            <div className="cal-view-segmented-tabs" role="tablist">
-              <button
-                type="button"
-                className={`cal-segment-tab ${viewMode === 'month' ? 'active' : ''}`}
-                onClick={() => setViewMode('month')}
-                role="tab"
-                aria-selected={viewMode === 'month'}
-              >
-                Month
-              </button>
-              <button
-                type="button"
-                className={`cal-segment-tab ${viewMode === 'week' ? 'active' : ''}`}
-                onClick={() => setViewMode('week')}
-                role="tab"
-                aria-selected={viewMode === 'week'}
-              >
-                Week
-              </button>
+            {/* View Switchers: Independent List button + Day/Week/Month segmented filter on the same line */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
                 type="button"
                 className={`cal-segment-tab ${viewMode === 'list' ? 'active' : ''}`}
                 onClick={() => setViewMode('list')}
                 role="tab"
                 aria-selected={viewMode === 'list'}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 14px',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  fontSize: '0.8125rem',
+                  border: '1px solid rgba(0,0,0,0.08)',
+                  background: viewMode === 'list' ? '#0F172A' : '#FFFFFF',
+                  color: viewMode === 'list' ? '#FFFFFF' : '#475569',
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                  transition: 'all 0.15s ease',
+                }}
               >
-                List
+                <ListIcon size={14} />
+                <span>List</span>
               </button>
+
+              <div className="cal-view-segmented-tabs" role="tablist">
+                <button
+                  type="button"
+                  className={`cal-segment-tab ${viewMode === 'day' ? 'active' : ''}`}
+                  onClick={() => setViewMode('day')}
+                  role="tab"
+                  aria-selected={viewMode === 'day'}
+                >
+                  Day
+                </button>
+                <button
+                  type="button"
+                  className={`cal-segment-tab ${viewMode === 'week' ? 'active' : ''}`}
+                  onClick={() => setViewMode('week')}
+                  role="tab"
+                  aria-selected={viewMode === 'week'}
+                >
+                  Week
+                </button>
+                <button
+                  type="button"
+                  className={`cal-segment-tab ${viewMode === 'month' ? 'active' : ''}`}
+                  onClick={() => setViewMode('month')}
+                  role="tab"
+                  aria-selected={viewMode === 'month'}
+                >
+                  Month
+                </button>
+              </div>
             </div>
           </div>
 
@@ -622,9 +706,9 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                   { value: '', label: 'All Statuses', icon: <CircleDotIcon size={14} />, iconBg: '#F3F4F6', iconColor: '#374151' },
                   { value: 'TODO', label: 'To Do', icon: <CircleDotIcon size={14} />, iconBg: '#F3F4F6', iconColor: '#374151' },
                   { value: 'IN_PROGRESS', label: 'In Progress', icon: <PlayIcon size={14} />, iconBg: '#DBEAFE', iconColor: '#2563EB' },
-                  { value: 'BLOCKED', label: 'Blocked', icon: <AlertCircleIcon size={14} />, iconBg: '#FEE2E2', iconColor: '#DC2626' },
                   { value: 'IN_REVIEW', label: 'In Review', icon: <ClockIcon size={14} />, iconBg: '#FEF3C7', iconColor: '#D97706' },
                   { value: 'COMPLETED', label: 'Completed', icon: <CheckCircleIcon size={14} />, iconBg: '#DCFCE7', iconColor: '#16A34A' },
+                  { value: 'BLOCKED', label: 'Canceled', icon: <AlertCircleIcon size={14} />, iconBg: '#FEE2E2', iconColor: '#DC2626' },
                 ]}
               />
             </div>
@@ -749,6 +833,89 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* VIEW: DAY VIEW */}
+          {!loading && viewMode === 'day' && (
+            <div className="cal-day-view" style={{ padding: '1.25rem', background: '#FAFAFA', borderRadius: '14px', border: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', paddingBottom: '0.75rem', borderBottom: '1px solid #E2E8F0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <span style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0F172A' }}>
+                    {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                  </span>
+                  {toLocalDateString(selectedDate) === toLocalDateString(new Date()) && (
+                    <span style={{ background: '#0F172A', color: '#fff', fontSize: '0.7rem', fontWeight: 600, padding: '2px 8px', borderRadius: '9999px' }}>
+                      Today
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="cal-btn-new-event"
+                  onClick={() => handleOpenCreateEvent(selectedDate)}
+                  style={{ padding: '5px 12px', fontSize: '0.8rem' }}
+                >
+                  <PlusIcon size={14} />
+                  <span>Add Event</span>
+                </button>
+              </div>
+
+              {(() => {
+                const dayKey = toLocalDateString(selectedDate);
+                const dayItems = itemsByDateMap.get(dayKey) || [];
+                if (dayItems.length === 0) {
+                  return (
+                    <div className="cal-empty-state" style={{ padding: '3rem 1rem' }}>
+                      <CalendarIcon size={32} />
+                      <h4 style={{ margin: '0.5rem 0 0.25rem 0', fontWeight: 600 }}>No events scheduled for this day</h4>
+                      <p style={{ color: '#64748B', fontSize: '0.85rem' }}>Click below to create a project milestone, deadline, or task.</p>
+                      <button
+                        type="button"
+                        className="cal-btn-new-event"
+                        onClick={() => handleOpenCreateEvent(selectedDate)}
+                        style={{ marginTop: '0.75rem' }}
+                      >
+                        <PlusIcon size={14} />
+                        <span>Create Event for {selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {dayItems.map((item) => {
+                      const theme = getEventStyle(item);
+                      const startTime = item.allDay
+                        ? 'All day'
+                        : new Date(item.startAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                      return (
+                        <div
+                          key={item.id}
+                          className={`cal-event-card ${theme.className}`}
+                          onClick={(e) => handleOpenEditEvent(item, e)}
+                          style={{ padding: '0.85rem 1rem', borderRadius: '10px', cursor: 'pointer' }}
+                        >
+                          <div className="event-top-line" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className="event-dot" style={{ backgroundColor: theme.dotColor, width: '10px', height: '10px', borderRadius: '50%' }} />
+                            <span className="event-title" style={{ fontSize: '0.95rem', fontWeight: 600 }}>{item.title}</span>
+                            {item.isPrivate && (
+                              <span title="Private Event" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '3px', color: '#DC2626', fontSize: '0.75rem', fontWeight: 600 }}>
+                                <LockIcon size={12} />
+                                Private
+                              </span>
+                            )}
+                          </div>
+                          <div className="event-subtext" style={{ marginTop: '0.35rem', color: '#64748B', fontSize: '0.8rem' }}>
+                            {startTime} · {item.project?.name || 'D-Board'}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           )}
 

@@ -250,7 +250,7 @@ export const MyWorkPage: React.FC = () => {
         return (
           <span className="mywork-status-pill status-blocked">
             <span className="mywork-status-dot dot-blocked" />
-            <span>Blocked</span>
+            <span>Canceled</span>
           </span>
         );
       case 'IN_PROGRESS':
@@ -605,13 +605,6 @@ export const MyWorkPage: React.FC = () => {
                     iconColor: '#2563EB',
                   },
                   {
-                    value: 'BLOCKED',
-                    label: 'Blocked',
-                    icon: <AlertCircleIcon size={14} />,
-                    iconBg: '#FEE2E2',
-                    iconColor: '#DC2626',
-                  },
-                  {
                     value: 'IN_REVIEW',
                     label: 'In Review',
                     icon: <ClockIcon size={14} />,
@@ -624,6 +617,13 @@ export const MyWorkPage: React.FC = () => {
                     icon: <CheckCircleIcon size={15} />,
                     iconBg: '#DCFCE7',
                     iconColor: '#16A34A',
+                  },
+                  {
+                    value: 'BLOCKED',
+                    label: 'Canceled',
+                    icon: <AlertCircleIcon size={14} />,
+                    iconBg: '#FEE2E2',
+                    iconColor: '#DC2626',
                   },
                 ]}
               />

@@ -33525,6 +33525,7 @@ a.footer-contact-row:hover .footer-contact-value {
 .ufm-modal-window {
   max-width: 680px;
   width: 100%;
+  max-height: min(90vh, 760px);
   border-radius: 20px;
   background: #FFFFFF;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
@@ -33536,11 +33537,12 @@ a.footer-contact-row:hover .footer-contact-value {
 }
 
 .ufm-header-container {
-  padding: 1.5rem 1.75rem 0.85rem 1.75rem;
+  padding: 1.25rem 1.75rem 0.85rem 1.75rem;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   position: relative;
+  flex-shrink: 0;
 }
 
 .ufm-header-left-col {
@@ -33594,7 +33596,7 @@ a.footer-contact-row:hover .footer-contact-value {
     max-width: calc(100vw - 1.5rem) !important;
     width: calc(100vw - 1.5rem) !important;
     max-height: 94vh !important;
-    overflow-y: auto !important;
+    overflow: hidden !important;
     border-radius: 16px !important;
   }
   .ufm-header-container {
@@ -33608,6 +33610,9 @@ a.footer-contact-row:hover .footer-contact-value {
   }
   .ufm-modal-body {
     padding: 0.5rem 1rem 1rem 1rem !important;
+  }
+  .ufm-footer-bar {
+    padding: 0.85rem 1rem !important;
   }
 }
 
@@ -33718,6 +33723,9 @@ a.footer-contact-row:hover .footer-contact-value {
 .ufm-form-container {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .ufm-modal-body {
@@ -33725,6 +33733,27 @@ a.footer-contact-row:hover .footer-contact-value {
   display: flex;
   flex-direction: column;
   gap: 1.15rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.ufm-modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ufm-modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ufm-modal-body::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+
+.ufm-modal-body::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
 }
 
 .ufm-error-banner {
@@ -33996,12 +34025,14 @@ a.footer-contact-row:hover .footer-contact-value {
 
 /* Footer matching reference design */
 .ufm-footer-bar {
-  padding: 1.15rem 1.75rem;
+  padding: 1rem 1.75rem;
   border-top: 1px solid #F1F5F9;
   background: #FFFFFF;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
+  z-index: 10;
 }
 
 .ufm-footer-security-note {

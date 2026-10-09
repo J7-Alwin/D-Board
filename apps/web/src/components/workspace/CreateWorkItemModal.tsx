@@ -90,13 +90,6 @@ const STATUS_OPTIONS: {
     color: '#2563EB',
   },
   {
-    value: 'BLOCKED',
-    label: 'Blocked',
-    icon: <AlertCircleIcon size={14} />,
-    bg: '#FEE2E2',
-    color: '#DC2626',
-  },
-  {
     value: 'IN_REVIEW',
     label: 'In Review',
     icon: <ClockIcon size={14} />,
@@ -109,6 +102,13 @@ const STATUS_OPTIONS: {
     icon: <CheckCircleIcon size={15} />,
     bg: '#DCFCE7',
     color: '#16A34A',
+  },
+  {
+    value: 'BLOCKED',
+    label: 'Canceled',
+    icon: <AlertCircleIcon size={14} />,
+    bg: '#FEE2E2',
+    color: '#DC2626',
   },
 ];
 

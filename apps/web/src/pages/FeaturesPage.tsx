@@ -36,7 +36,7 @@ export const FeaturesPage: React.FC = () => {
       description: 'Categorize development work into clear, unambiguous types and lifecycle states.',
       details: [
         'Structured types: Task, Bug, Feature, Improvement, Research, Documentation',
-        'Lifecycle states: To Do, In Progress, Blocked, In Review, Completed',
+        'Lifecycle states: To Do, In Progress, In Review, Completed, Canceled',
         'Instant assignee filters and personal "My Work" dashboard',
       ],
     },

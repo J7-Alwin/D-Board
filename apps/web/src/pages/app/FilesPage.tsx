@@ -1520,7 +1520,10 @@ export const FilesPage: React.FC<FilesPageProps> = ({
             loadFiles();
           }}
           projects={accessibleProjects}
-          activeProjectId={activeProjectId}
+          project={project}
+          projectName={project?.name}
+          isProjectScope={isProjectScope}
+          activeProjectId={projectId || activeProjectId}
           folders={folders}
           currentFolderId={currentFolderId}
         />

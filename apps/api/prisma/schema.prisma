@@ -348,6 +348,7 @@ model CalendarEvent {
   title             String
   description       String?
   type              CalendarEventType @default(MEETING)
+  isPrivate         Boolean           @default(false)
   startAt           DateTime
   endAt             DateTime
   allDay            Boolean           @default(false)
@@ -366,6 +367,7 @@ model CalendarEvent {
 
   @@index([projectId, startAt])
   @@index([projectId, type])
+  @@index([projectId, isPrivate])
   @@index([createdById])
   @@index([startAt, endAt])
 }
@@ -422,6 +424,7 @@ model Attachment {
   category       FileCategory  @default(OTHER)
   checksum       String?
   deletedAt      DateTime?
+  isPrivate      Boolean       @default(false)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -434,6 +437,7 @@ model Attachment {
   @@index([noteId])
   @@index([folderId])
   @@index([storedObjectId])
+  @@index([projectId, isPrivate])
 }
 
 model Activity {

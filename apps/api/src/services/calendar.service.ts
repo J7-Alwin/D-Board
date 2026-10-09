@@ -3,7 +3,7 @@ import { prisma } from '../prisma.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { activityService } from './activity.service.js';
 import { notificationService } from './notification.service.js';
-import { publishToProject } from '../realtime/realtime.service.js';
+import { publishToProject, publishToUsers } from '../realtime/realtime.service.js';
 import type {
   CreateCalendarEventInput,
   UpdateCalendarEventInput,
@@ -174,22 +174,29 @@ export class CalendarService {
         endAt: { gte: rangeStart },
       };
 
-      if (
-        filterType !== 'ALL' &&
-        filterType !== 'EVENT' &&
-        ['MEETING', 'MILESTONE', 'RELEASE', 'DEADLINE', 'OTHER'].includes(filterType)
-      ) {
-        eventWhere.type = filterType;
-      }
+      // Strict privacy: private events are only visible to their creator and invited attendees
+      const privacyClause = {
+        OR: [
+          { isPrivate: false },
+          { createdById: userId },
+          { attendees: { some: { userId } } },
+        ],
+      };
+
+      const eventConditions: any[] = [privacyClause];
 
       if (params.search && params.search.trim()) {
         const search = params.search.trim();
-        eventWhere.OR = [
-          { title: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } },
-          { location: { contains: search, mode: 'insensitive' } },
-        ];
+        eventConditions.push({
+          OR: [
+            { title: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } },
+            { location: { contains: search, mode: 'insensitive' } },
+          ],
+        });
       }
+
+      eventWhere.AND = eventConditions;
 
       eventsPromise = prisma.calendarEvent.findMany({
         where: eventWhere,
@@ -368,6 +375,15 @@ export class CalendarService {
       throw new AppError('Calendar event not found', 404);
     }
 
+    // Privacy rule: Private events are restricted to creator and invited attendees only
+    if (event.isPrivate) {
+      const isCreator = event.createdById === userId;
+      const isAttendee = event.attendees?.some((a: any) => a.userId === userId);
+      if (!isCreator && !isAttendee) {
+        throw new AppError('You do not have permission to view this private calendar event', 403);
+      }
+    }
+
     return {
       ...event,
       attendees: event.attendees ? event.attendees.map((a: any) => a.user) : [],
@@ -403,6 +419,8 @@ export class CalendarService {
     // Validate that all attendees exist, are active, and belong to this project
     await this.validateAttendees(projectId, attendeeIds);
 
+    const isPrivate = data.isPrivate === true || data.visibility === 'PRIVATE';
+
     const event = await prisma.$transaction(async (tx) => {
       const created = await tx.calendarEvent.create({
         data: {
@@ -410,6 +428,7 @@ export class CalendarService {
           title: data.title,
           description: data.description,
           type: data.type || 'MEETING',
+          isPrivate,
           startAt: new Date(data.startAt),
           endAt: new Date(data.endAt),
           allDay: data.allDay ?? false,
@@ -481,17 +500,34 @@ export class CalendarService {
       return created;
     });
 
-    publishToProject(projectId, 'CALENDAR_EVENT_CREATED', {
-      projectId,
-      eventId: event.id,
-      title: event.title,
-      type: event.type,
-      startAt: event.startAt.toISOString(),
-      endAt: event.endAt.toISOString(),
-      actorId: userId,
-      actorName: event.createdBy?.fullName || event.createdBy?.username || null,
-      attendeeIds,
-    });
+    if (event.isPrivate) {
+      const recipientIds = Array.from(new Set([userId, ...attendeeIds]));
+      publishToUsers(recipientIds, 'CALENDAR_EVENT_CREATED', {
+        projectId,
+        eventId: event.id,
+        title: event.title,
+        type: event.type,
+        isPrivate: true,
+        startAt: event.startAt.toISOString(),
+        endAt: event.endAt.toISOString(),
+        actorId: userId,
+        actorName: event.createdBy?.fullName || event.createdBy?.username || null,
+        attendeeIds,
+      });
+    } else {
+      publishToProject(projectId, 'CALENDAR_EVENT_CREATED', {
+        projectId,
+        eventId: event.id,
+        title: event.title,
+        type: event.type,
+        isPrivate: false,
+        startAt: event.startAt.toISOString(),
+        endAt: event.endAt.toISOString(),
+        actorId: userId,
+        actorName: event.createdBy?.fullName || event.createdBy?.username || null,
+        attendeeIds,
+      });
+    }
 
     return {
       ...event,
@@ -523,8 +559,14 @@ export class CalendarService {
     }
 
     const isAuthor = existing.createdById === userId;
-    if (!isAdmin && !isAuthor) {
-      throw new AppError('You do not have permission to edit this event', 403);
+    if (existing.isPrivate) {
+      if (!isAuthor) {
+        throw new AppError('You do not have permission to edit this private calendar event', 403);
+      }
+    } else {
+      if (!isAdmin && !isAuthor) {
+        throw new AppError('You do not have permission to edit this event', 403);
+      }
     }
 
     if (data.relatedWorkItemId) {
@@ -557,12 +599,20 @@ export class CalendarService {
         }
       }
 
+      const nextIsPrivate =
+        data.isPrivate !== undefined
+          ? data.isPrivate
+          : data.visibility !== undefined
+            ? data.visibility === 'PRIVATE'
+            : undefined;
+
       const res = await tx.calendarEvent.update({
         where: { id: eventId },
         data: {
           title: data.title,
           description: data.description,
           type: data.type,
+          isPrivate: nextIsPrivate,
           startAt: data.startAt ? new Date(data.startAt) : undefined,
           endAt: data.endAt ? new Date(data.endAt) : undefined,
           allDay: data.allDay,
@@ -632,17 +682,35 @@ export class CalendarService {
       return res;
     });
 
-    publishToProject(projectId, 'CALENDAR_EVENT_UPDATED', {
-      projectId,
-      eventId: updated.id,
-      title: updated.title,
-      type: updated.type,
-      startAt: updated.startAt.toISOString(),
-      endAt: updated.endAt.toISOString(),
-      actorId: userId,
-      actorName: updated.updatedBy?.fullName || updated.updatedBy?.username || null,
-      attendeeIds: attendeeIds || [],
-    });
+    if (updated.isPrivate) {
+      const attendeeUserIds = updated.attendees ? updated.attendees.map((a: any) => a.userId || a.user?.id || a.id) : [];
+      const recipientIds = Array.from(new Set([userId, existing.createdById, ...attendeeUserIds]));
+      publishToUsers(recipientIds, 'CALENDAR_EVENT_UPDATED', {
+        projectId,
+        eventId: updated.id,
+        title: updated.title,
+        type: updated.type,
+        isPrivate: true,
+        startAt: updated.startAt.toISOString(),
+        endAt: updated.endAt.toISOString(),
+        actorId: userId,
+        actorName: updated.updatedBy?.fullName || updated.updatedBy?.username || null,
+        attendeeIds: attendeeIds || [],
+      });
+    } else {
+      publishToProject(projectId, 'CALENDAR_EVENT_UPDATED', {
+        projectId,
+        eventId: updated.id,
+        title: updated.title,
+        type: updated.type,
+        isPrivate: false,
+        startAt: updated.startAt.toISOString(),
+        endAt: updated.endAt.toISOString(),
+        actorId: userId,
+        actorName: updated.updatedBy?.fullName || updated.updatedBy?.username || null,
+        attendeeIds: attendeeIds || [],
+      });
+    }
 
     return {
       ...updated,
@@ -669,8 +737,14 @@ export class CalendarService {
     }
 
     const isAuthor = existing.createdById === userId;
-    if (!isAdmin && !isAuthor) {
-      throw new AppError('You do not have permission to delete this event', 403);
+    if (existing.isPrivate) {
+      if (!isAuthor) {
+        throw new AppError('You do not have permission to delete this private calendar event', 403);
+      }
+    } else {
+      if (!isAdmin && !isAuthor) {
+        throw new AppError('You do not have permission to delete this event', 403);
+      }
     }
 
     await prisma.$transaction(async (tx) => {
@@ -692,12 +766,26 @@ export class CalendarService {
       );
     });
 
-    publishToProject(projectId, 'CALENDAR_EVENT_DELETED', {
-      projectId,
-      eventId,
-      title: existing.title,
-      actorId: userId,
-    });
+    if (existing.isPrivate) {
+      const existingAttendees = await prisma.calendarEventAttendee.findMany({
+        where: { calendarEventId: eventId },
+        select: { userId: true },
+      });
+      const recipientIds = Array.from(new Set([userId, existing.createdById, ...existingAttendees.map((a) => a.userId)]));
+      publishToUsers(recipientIds, 'CALENDAR_EVENT_DELETED', {
+        projectId,
+        eventId,
+        title: existing.title,
+        actorId: userId,
+      });
+    } else {
+      publishToProject(projectId, 'CALENDAR_EVENT_DELETED', {
+        projectId,
+        eventId,
+        title: existing.title,
+        actorId: userId,
+      });
+    }
 
     return { success: true, message: 'Calendar event deleted successfully' };
   }

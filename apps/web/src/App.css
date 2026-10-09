@@ -44425,7 +44425,7 @@ a.footer-contact-row:hover .footer-contact-value {
   border-radius: 16px;
   border: 1px solid #E5E7EB;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-  overflow: hidden;
+  overflow: visible;
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
@@ -44853,6 +44853,17 @@ a.footer-contact-row:hover .footer-contact-value {
   background: #EA580C;
 }
 
+.wap-badge-updated,
+.wap-badge-default {
+  background: #F1F5F9;
+  color: #475569;
+}
+
+.wap-badge-updated .wap-badge-dot,
+.wap-badge-default .wap-badge-dot {
+  background: #64748B;
+}
+
 .wap-badge-dot {
   width: 6px;
   height: 6px;
@@ -44863,6 +44874,16 @@ a.footer-contact-row:hover .footer-contact-value {
 /* Options dropdown menu */
 .wap-action-menu-wrap {
   position: relative;
+}
+
+.wap-action-menu-wrap.is-open {
+  z-index: 70;
+}
+
+.wap-timeline-row.has-open-menu,
+.wap-timeline-row:has(.wap-dropdown-menu),
+.wap-timeline-row:has(.wap-action-menu-dropdown) {
+  z-index: 60;
 }
 
 .wap-more-btn {
@@ -44884,18 +44905,18 @@ a.footer-contact-row:hover .footer-contact-value {
   color: #111827;
 }
 
-.wap-dropdown-menu {
+.wap-dropdown-menu,
+.wap-action-menu-dropdown {
   position: absolute;
   right: 0;
-  top: 100%;
-  margin-top: 4px;
+  top: calc(100% + 4px);
   background: #FFFFFF;
   border: 1px solid #E5E7EB;
   border-radius: 10px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
   padding: 4px;
   min-width: 170px;
-  z-index: 50;
+  z-index: 100;
   animation: wapMenuPop 0.12s ease-out;
 }
 
@@ -45111,6 +45132,33 @@ a.footer-contact-row:hover .footer-contact-value {
 
 .is-night .wap-timeline-row:hover {
   background-color: #0F172A;
+}
+
+.is-night .wap-badge-updated,
+.is-night .wap-badge-default {
+  background: #334155;
+  color: #94A3B8;
+}
+
+.is-night .wap-badge-updated .wap-badge-dot,
+.is-night .wap-badge-default .wap-badge-dot {
+  background: #64748B;
+}
+
+.is-night .wap-dropdown-menu,
+.is-night .wap-action-menu-dropdown {
+  background: #1E293B;
+  border-color: #334155;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+}
+
+.is-night .wap-dropdown-item {
+  color: #E2E8F0;
+}
+
+.is-night .wap-dropdown-item:hover {
+  background: #334155;
+  color: #FFFFFF;
 }
 
 /* --- Responsive Adjustments --- */

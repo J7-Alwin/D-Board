@@ -9,7 +9,7 @@ import {
   UsersIcon,
   LayersIcon,
   CalendarIcon,
-  ListIcon,
+  ActivityIcon,
   SettingsIcon,
 } from '../ui/Icons';
 import { ProjectOverviewHeaderAtmosphere } from '../common/HeaderAtmosphereArt';
@@ -197,16 +197,6 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
         </Link>
 
         <Link
-          to={`/app/projects/${project.id}/activity`}
-          className={`project-tab-btn ${currentTab === 'activity' || currentTab === 'list' ? 'active' : ''}`}
-          role="tab"
-          aria-selected={currentTab === 'activity' || currentTab === 'list'}
-        >
-          <ListIcon size={15} />
-          <span>List</span>
-        </Link>
-
-        <Link
           to={`/app/projects/${project.id}/members`}
           className={`project-tab-btn ${currentTab === 'members' ? 'active' : ''}`}
           role="tab"
@@ -244,6 +234,16 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
         >
           <FolderIcon size={15} />
           <span>Files</span>
+        </Link>
+
+        <Link
+          to={`/app/projects/${project.id}/activity`}
+          className={`project-tab-btn ${currentTab === 'activity' || currentTab === 'list' ? 'active' : ''}`}
+          role="tab"
+          aria-selected={currentTab === 'activity' || currentTab === 'list'}
+        >
+          <ActivityIcon size={15} />
+          <span>Activity</span>
         </Link>
       </div>
     </div>

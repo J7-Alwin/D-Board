@@ -22,6 +22,9 @@ fileRoutes.get('/:fileId/download', fileController.downloadFile);
 // Rename file
 fileRoutes.patch('/:fileId/rename', fileController.renameFile);
 
+// Update file visibility (PUBLIC vs PRIVATE)
+fileRoutes.patch('/:fileId/visibility', fileController.updateFileVisibility);
+
 // Delete file
 fileRoutes.delete('/:fileId', fileController.deleteFile);
 

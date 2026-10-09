@@ -48,6 +48,8 @@ import {
   CheckIcon,
   AlertCircleIcon,
   ArrowLeftIcon,
+  LockIcon,
+  GlobeIcon,
 } from '../../components/ui/Icons';
 import { CustomSelect } from '../../components/ui/CustomSelect';
 
@@ -386,6 +388,18 @@ export const FilesPage: React.FC<FilesPageProps> = ({
       loadFiles();
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message || 'Failed to move file' });
+    }
+  };
+
+  // Toggle file visibility (Public vs Private)
+  const handleToggleFilePrivacy = async (file: AttachmentDTO) => {
+    try {
+      const nextPrivacy = !file.isPrivate;
+      await filesApi.updateFileVisibility(file.projectId, file.id, nextPrivacy);
+      setFiles((prev) => prev.map((f) => (f.id === file.id ? { ...f, isPrivate: nextPrivacy } : f)));
+      setFeedback({ type: 'success', message: `File marked as ${nextPrivacy ? 'private' : 'public'}` });
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to update file privacy' });
     }
   };
 
@@ -1015,9 +1029,31 @@ export const FilesPage: React.FC<FilesPageProps> = ({
 
                       <div className="file-grid-details">
                         <div className="file-grid-header-row">
-                          <h4 className="file-grid-name" title={file.originalName}>
-                            {file.originalName}
-                          </h4>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+                            <h4 className="file-grid-name" title={file.originalName} style={{ margin: 0 }}>
+                              {file.originalName}
+                            </h4>
+                            {file.isPrivate && (
+                              <span
+                                title="Private File"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '2px',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.65rem',
+                                  fontWeight: 600,
+                                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                  color: '#ef4444',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                <LockIcon size={10} />
+                                Private
+                              </span>
+                            )}
+                          </div>
                           <button
                             type="button"
                             className="file-card-menu-btn"
@@ -1064,7 +1100,20 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                               >
                                 <DownloadIcon size={14} /> Download
                               </a>
-                              {(file.uploadedById === user?.id || project?.userRole === 'PROJECT_ADMIN') && (
+                              {((file.isPrivate ? file.uploadedById === user?.id : (file.uploadedById === user?.id || project?.userRole === 'PROJECT_ADMIN')) && (!file.note || file.note.visibility !== 'USERS')) && (
+                                <button
+                                  type="button"
+                                  className="dropdown-item"
+                                  onClick={() => {
+                                    setActiveMenuFileId(null);
+                                    handleToggleFilePrivacy(file);
+                                  }}
+                                >
+                                  {file.isPrivate ? <GlobeIcon size={14} /> : <LockIcon size={14} />}
+                                  {file.isPrivate ? 'Make Public' : 'Make Private'}
+                                </button>
+                              )}
+                              {(file.isPrivate ? file.uploadedById === user?.id : (file.uploadedById === user?.id || project?.userRole === 'PROJECT_ADMIN')) && (
                                 <button
                                   type="button"
                                   className="dropdown-item text-danger"
@@ -1160,6 +1209,27 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                               <span className="files-list-file-name" title={file.originalName}>
                                 {file.originalName}
                               </span>
+                              {file.isPrivate && (
+                                <span
+                                  title="Private File"
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '2px',
+                                    padding: '1px 5px',
+                                    borderRadius: '4px',
+                                    fontSize: '0.65rem',
+                                    fontWeight: 600,
+                                    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                    color: '#ef4444',
+                                    flexShrink: 0,
+                                    marginLeft: '6px',
+                                  }}
+                                >
+                                  <LockIcon size={10} />
+                                  Private
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td className="files-list-cell-project">
@@ -1213,14 +1283,26 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                               >
                                 <FolderIcon size={14} />
                               </button>
-                              <button
-                                type="button"
-                                className="files-list-btn-action btn-action-delete"
-                                title="Delete"
-                                onClick={() => setFileToDelete(file)}
-                              >
-                                <TrashIcon size={14} />
-                              </button>
+                              {((file.isPrivate ? file.uploadedById === user?.id : (file.uploadedById === user?.id || project?.userRole === 'PROJECT_ADMIN')) && (!file.note || file.note.visibility !== 'USERS')) && (
+                                <button
+                                  type="button"
+                                  className="files-list-btn-action"
+                                  title={file.isPrivate ? 'Make Public' : 'Make Private'}
+                                  onClick={() => handleToggleFilePrivacy(file)}
+                                >
+                                  {file.isPrivate ? <GlobeIcon size={14} /> : <LockIcon size={14} />}
+                                </button>
+                              )}
+                              {(file.isPrivate ? file.uploadedById === user?.id : (file.uploadedById === user?.id || project?.userRole === 'PROJECT_ADMIN')) && (
+                                <button
+                                  type="button"
+                                  className="files-list-btn-action btn-action-delete"
+                                  title="Delete"
+                                  onClick={() => setFileToDelete(file)}
+                                >
+                                  <TrashIcon size={14} />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1409,7 +1491,11 @@ export const FilesPage: React.FC<FilesPageProps> = ({
             loadFiles();
           }}
           onFileUpdated={() => loadFiles()}
-          canDelete={selectedFileForViewer.uploadedById === user?.id || project?.userRole === 'PROJECT_ADMIN'}
+          canDelete={
+            selectedFileForViewer.isPrivate
+              ? selectedFileForViewer.uploadedById === user?.id
+              : selectedFileForViewer.uploadedById === user?.id || project?.userRole === 'PROJECT_ADMIN'
+          }
           onOpenWorkItem={(id) => handleOpenWorkItem(id)}
         />
       )}

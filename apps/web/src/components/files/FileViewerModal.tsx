@@ -10,6 +10,8 @@ import {
   CheckSquareIcon,
   FileTextIcon,
   CheckIcon,
+  LockIcon,
+  GlobeIcon,
 } from '../ui/Icons';
 
 interface FileViewerModalProps {
@@ -144,6 +146,25 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
                   </h2>
                   <span className="fvm-badge-category">{categoryLabel}</span>
                   <span className="fvm-badge-project">{projectName}</span>
+                  {file.isPrivate && (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                        color: '#ef4444',
+                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                      }}
+                    >
+                      <LockIcon size={11} />
+                      Private
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -244,6 +265,18 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
                 </div>
 
                 <div className="fvm-drawer-content">
+                  <div className="fvm-prop-row">
+                    <label>
+                      {file.isPrivate ? <LockIcon size={13} /> : <GlobeIcon size={13} />} Visibility
+                    </label>
+                    <span
+                      className="fvm-prop-val"
+                      style={{ color: file.isPrivate ? '#ef4444' : '#10b981', fontWeight: 600 }}
+                    >
+                      {file.isPrivate ? 'Private' : 'Public'}
+                    </span>
+                  </div>
+
                   <div className="fvm-prop-row">
                     <label>
                       <LayersIcon size={13} /> Category

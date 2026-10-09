@@ -16,6 +16,8 @@ import {
   CheckIcon,
   ChevronDownIcon,
   LinkIcon,
+  LockIcon,
+  GlobeIcon,
 } from '../ui/Icons';
 import { Checkbox } from '../ui/Checkbox';
 
@@ -126,6 +128,7 @@ export const CalendarEventModal: React.FC<CalendarEventModalProps> = ({
   const [projectWorkItems, setProjectWorkItems] = useState<WorkItem[]>([]);
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>([]);
+  const [isPrivate, setIsPrivate] = useState<boolean>(false);
   const [createAnother, setCreateAnother] = useState(false);
 
   // Dropdown menus control
@@ -155,6 +158,7 @@ export const CalendarEventModal: React.FC<CalendarEventModalProps> = ({
       setLocation(eventToEdit.location || '');
       setRelatedWorkItemId(eventToEdit.relatedWorkItemId || '');
       setSelectedAttendeeIds(eventToEdit.attendees ? eventToEdit.attendees.map((a) => a.id) : []);
+      setIsPrivate(eventToEdit.isPrivate ?? false);
 
       const start = new Date(eventToEdit.startAt);
       const end = new Date(eventToEdit.endAt);
@@ -182,6 +186,7 @@ export const CalendarEventModal: React.FC<CalendarEventModalProps> = ({
       setLocation('');
       setRelatedWorkItemId('');
       setSelectedAttendeeIds([]);
+      setIsPrivate(false);
     }
   }, [isOpen, eventToEdit, initialDate, activeProjectId, projects, isEditing]);
 
@@ -295,6 +300,7 @@ export const CalendarEventModal: React.FC<CalendarEventModalProps> = ({
           title: title.trim(),
           description: description.trim() || undefined,
           type,
+          isPrivate,
           startAt: startIso,
           endAt: endIso,
           allDay,
@@ -307,6 +313,7 @@ export const CalendarEventModal: React.FC<CalendarEventModalProps> = ({
           title: title.trim(),
           description: description.trim() || undefined,
           type,
+          isPrivate,
           startAt: startIso,
           endAt: endIso,
           allDay,
@@ -978,6 +985,70 @@ export const CalendarEventModal: React.FC<CalendarEventModalProps> = ({
                     })}
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Event Visibility & Privacy */}
+            <div className="cem-field-group">
+              <label className="cem-field-label">Visibility & Privacy</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsPrivate(false)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.625rem',
+                    padding: '0.625rem 0.875rem',
+                    borderRadius: '8px',
+                    border: !isPrivate ? '1.5px solid #2563EB' : '1px solid #E2E8F0',
+                    backgroundColor: !isPrivate ? 'rgba(37, 99, 235, 0.06)' : '#FFFFFF',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span style={{ color: !isPrivate ? '#2563EB' : '#64748B', display: 'flex' }}>
+                    <GlobeIcon size={18} />
+                  </span>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: !isPrivate ? '#1E293B' : '#475569' }}>
+                      Public
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '1px' }}>
+                      Visible to all project members
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsPrivate(true)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.625rem',
+                    padding: '0.625rem 0.875rem',
+                    borderRadius: '8px',
+                    border: isPrivate ? '1.5px solid #DC2626' : '1px solid #E2E8F0',
+                    backgroundColor: isPrivate ? 'rgba(220, 38, 38, 0.06)' : '#FFFFFF',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span style={{ color: isPrivate ? '#DC2626' : '#64748B', display: 'flex' }}>
+                    <LockIcon size={18} />
+                  </span>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isPrivate ? '#1E293B' : '#475569' }}>
+                      Private
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '1px' }}>
+                      Only creator and invited attendees
+                    </div>
+                  </div>
+                </button>
               </div>
             </div>
 

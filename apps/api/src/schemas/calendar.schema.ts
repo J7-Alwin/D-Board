@@ -31,6 +31,8 @@ export const createCalendarEventSchema = z
       .nullable(),
     relatedWorkItemId: z.string().uuid().optional().nullable(),
     attendeeIds: z.array(z.string().uuid()).optional().default([]),
+    isPrivate: z.boolean().optional().default(false),
+    visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
   })
   .refine(
     (data) => {
@@ -64,6 +66,8 @@ export const updateCalendarEventSchema = z
     location: z.string().max(200).optional().nullable(),
     relatedWorkItemId: z.string().uuid().optional().nullable(),
     attendeeIds: z.array(z.string().uuid()).optional(),
+    isPrivate: z.boolean().optional(),
+    visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
   })
   .refine(
     (data) => {
@@ -110,6 +114,8 @@ export interface CreateCalendarEventInput {
   location?: string | null;
   relatedWorkItemId?: string | null;
   attendeeIds?: string[];
+  isPrivate?: boolean;
+  visibility?: 'PUBLIC' | 'PRIVATE';
 }
 
 export interface UpdateCalendarEventInput {
@@ -122,6 +128,8 @@ export interface UpdateCalendarEventInput {
   location?: string | null;
   relatedWorkItemId?: string | null;
   attendeeIds?: string[];
+  isPrivate?: boolean;
+  visibility?: 'PUBLIC' | 'PRIVATE';
 }
 
 export interface CalendarQueryParams {

@@ -122,51 +122,105 @@ export class ActivityService {
       }
     }
 
-    // 3. Security: Filter out private note activities for non-admins and non-recipients
-    if (!isAdmin) {
-      // Find IDs of notes where user is mentioned or is author
-      const accessiblePrivateNotes = await prisma.note.findMany({
-        where: {
-          projectId,
-          visibility: 'USERS',
-          OR: [
-            { createdById: userId },
-            { mentions: { some: { userId } } },
-          ],
-        },
-        select: { id: true },
-      });
-      const accessibleNoteIdSet = new Set(accessiblePrivateNotes.map((n) => n.id));
+    // 3. Security: Filter out private note activities for ALL users (no admin bypass)
+    const accessiblePrivateNotes = await prisma.note.findMany({
+      where: {
+        projectId,
+        visibility: 'USERS',
+        OR: [
+          { createdById: userId },
+          { mentions: { some: { userId } } },
+        ],
+      },
+      select: { id: true },
+    });
+    const accessibleNoteIdSet = new Set(accessiblePrivateNotes.map((n) => n.id));
 
-      const noteTypes: ActivityType[] = [
-        'NOTE_CREATED',
-        'NOTE_UPDATED',
-        'NOTE_PINNED',
-        'NOTE_UNPINNED',
-        'NOTE_DELETED',
-        'NOTE_VISIBILITY_CHANGED',
-      ];
+    const noteTypes: ActivityType[] = [
+      'NOTE_CREATED',
+      'NOTE_UPDATED',
+      'NOTE_PINNED',
+      'NOTE_UNPINNED',
+      'NOTE_DELETED',
+      'NOTE_VISIBILITY_CHANGED',
+    ];
 
-      // Exclude note activities that have USERS visibility if user is not author or recipient
-      where.AND = [
-        ...(where.AND || []),
+    where.AND = [
+      ...(where.AND || []),
+      {
+        OR: [
+          // Non-note activities
+          { type: { notIn: noteTypes } },
+          // Public note activities or private ones the user has access to
+          {
+            type: { in: noteTypes },
+            OR: [
+              { note: { visibility: 'TEAM' } },
+              { noteId: { in: Array.from(accessibleNoteIdSet) } },
+              { actorId: userId },
+            ],
+          },
+        ],
+      },
+    ];
+
+    // Calendar Security: Filter out private calendar events for ALL users (no admin bypass)
+    const accessiblePrivateEvents = await prisma.calendarEvent.findMany({
+      where: {
+        projectId,
+        isPrivate: true,
+        OR: [
+          { createdById: userId },
+          { attendees: { some: { userId } } },
+        ],
+      },
+      select: { id: true },
+    });
+    const accessibleEventIdSet = new Set(accessiblePrivateEvents.map((e) => e.id));
+
+    const calendarTypes: ActivityType[] = [
+      'CALENDAR_EVENT_CREATED',
+      'CALENDAR_EVENT_UPDATED',
+      'CALENDAR_EVENT_DELETED',
+    ];
+
+    where.AND.push({
+      OR: [
+        { type: { notIn: calendarTypes } },
         {
+          type: { in: calendarTypes },
           OR: [
-            // Non-note activities
-            { type: { notIn: noteTypes } },
-            // Public note activities or private ones the user has access to
-            {
-              type: { in: noteTypes },
-              OR: [
-                { note: { visibility: 'TEAM' } },
-                { noteId: { in: Array.from(accessibleNoteIdSet) } },
-                { actorId: userId },
-              ],
-            },
+            { calendarEvent: { isPrivate: false } },
+            { calendarEventId: { in: Array.from(accessibleEventIdSet) } },
+            { actorId: userId },
           ],
         },
-      ];
-    }
+      ],
+    });
+
+    // File Security: Filter out private file activities for ALL users (no admin bypass)
+    const fileTypes: ActivityType[] = [
+      'FILE_UPLOADED',
+      'FILE_RENAMED',
+      'FILE_DELETED',
+    ];
+
+    where.AND.push({
+      OR: [
+        { type: { notIn: fileTypes } },
+        {
+          type: { in: fileTypes },
+          OR: [
+            { attachment: { isPrivate: false, note: { visibility: 'TEAM' } } },
+            { attachment: { isPrivate: false, noteId: null } },
+            { attachment: { uploadedById: userId } },
+            { attachment: { workItem: { OR: [{ createdById: userId }, { assignedToId: userId }] } } },
+            { attachment: { note: { OR: [{ createdById: userId }, { mentions: { some: { userId } } }] } } },
+            { actorId: userId },
+          ],
+        },
+      ],
+    });
 
     const limit = Math.min(filters?.limit || 50, 100);
     const offset = filters?.offset || 0;
@@ -291,7 +345,7 @@ export class ActivityService {
       }
     }
 
-    // 3. Filter out private notes across projects where user is not owner/author/mentioned
+    // 3. Filter out private notes across projects (strict privacy: no owner/admin backdoor)
     const accessiblePrivateNotes = await prisma.note.findMany({
       where: {
         projectId: { in: projectIds },
@@ -320,19 +374,76 @@ export class ActivityService {
         OR: [
           // Non-note activities
           { type: { notIn: noteTypes } },
-          // Public note activities, private notes user has access to, or projects user owns
+          // Public note activities or private notes user has access to
           {
             type: { in: noteTypes },
             OR: [
               { note: { visibility: 'TEAM' } },
               { noteId: { in: Array.from(accessibleNoteIdSet) } },
               { actorId: userId },
-              { projectId: { in: Array.from(ownedProjectIds) } },
             ],
           },
         ],
       },
     ];
+
+    // Calendar Security: Filter out private calendar events across projects
+    const accessiblePrivateEvents = await prisma.calendarEvent.findMany({
+      where: {
+        projectId: { in: projectIds },
+        isPrivate: true,
+        OR: [
+          { createdById: userId },
+          { attendees: { some: { userId } } },
+        ],
+      },
+      select: { id: true },
+    });
+    const accessibleEventIdSet = new Set(accessiblePrivateEvents.map((e) => e.id));
+
+    const calendarTypes: ActivityType[] = [
+      'CALENDAR_EVENT_CREATED',
+      'CALENDAR_EVENT_UPDATED',
+      'CALENDAR_EVENT_DELETED',
+    ];
+
+    where.AND.push({
+      OR: [
+        { type: { notIn: calendarTypes } },
+        {
+          type: { in: calendarTypes },
+          OR: [
+            { calendarEvent: { isPrivate: false } },
+            { calendarEventId: { in: Array.from(accessibleEventIdSet) } },
+            { actorId: userId },
+          ],
+        },
+      ],
+    });
+
+    // File Security: Filter out private files across projects
+    const fileTypes: ActivityType[] = [
+      'FILE_UPLOADED',
+      'FILE_RENAMED',
+      'FILE_DELETED',
+    ];
+
+    where.AND.push({
+      OR: [
+        { type: { notIn: fileTypes } },
+        {
+          type: { in: fileTypes },
+          OR: [
+            { attachment: { isPrivate: false, note: { visibility: 'TEAM' } } },
+            { attachment: { isPrivate: false, noteId: null } },
+            { attachment: { uploadedById: userId } },
+            { attachment: { workItem: { OR: [{ createdById: userId }, { assignedToId: userId }] } } },
+            { attachment: { note: { OR: [{ createdById: userId }, { mentions: { some: { userId } } }] } } },
+            { actorId: userId },
+          ],
+        },
+      ],
+    });
 
     const limit = Math.min(filters?.limit || 50, 100);
     const offset = filters?.offset || 0;

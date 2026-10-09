@@ -28,6 +28,7 @@ import {
   PlayIcon,
   CheckCircleIcon,
   ListIcon,
+  LockIcon,
 } from '../../components/ui/Icons';
 import { CustomSelect } from '../../components/ui/CustomSelect';
 
@@ -716,6 +717,11 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                   style={{ backgroundColor: theme.dotColor }}
                                 />
                                 <span className="event-title">{item.title}</span>
+                                {item.isPrivate && (
+                                  <span title="Private Event" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', color: '#DC2626' }}>
+                                    <LockIcon size={10} />
+                                  </span>
+                                )}
                               </div>
                               <div className="event-subtext">
                                 {item.allDay
@@ -788,6 +794,11 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                 <div className="event-top-line">
                                   <span className="event-dot" style={{ backgroundColor: theme.dotColor }} />
                                   <span className="event-title">{item.title}</span>
+                                  {item.isPrivate && (
+                                    <span title="Private Event" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', color: '#DC2626' }}>
+                                      <LockIcon size={11} />
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="event-subtext">
                                   {startTime}
@@ -851,6 +862,26 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                           <div className="cal-agenda-title-line">
                             <span className="event-dot" style={{ backgroundColor: theme.dotColor }} />
                             <h4 className="cal-agenda-title">{item.title}</h4>
+                            {item.isPrivate && (
+                              <span
+                                title="Private Event"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.7rem',
+                                  fontWeight: 600,
+                                  backgroundColor: 'rgba(220, 38, 38, 0.08)',
+                                  color: '#DC2626',
+                                  marginLeft: '0.5rem',
+                                }}
+                              >
+                                <LockIcon size={11} />
+                                Private
+                              </span>
+                            )}
                           </div>
                           <div className="cal-agenda-meta">
                             <span className="cal-agenda-project">{item.project?.name || 'D-Board'}</span>

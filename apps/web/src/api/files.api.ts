@@ -30,6 +30,7 @@ export interface AttachmentDTO {
   extension: string;
   category: FileCategory;
   checksum: string | null;
+  isPrivate?: boolean;
   createdAt: string;
   updatedAt: string;
   uploadedBy?: {
@@ -125,6 +126,8 @@ export interface UploadFilesOptions {
   workItemId?: string | null;
   noteId?: string | null;
   folderId?: string | null;
+  isPrivate?: boolean;
+  visibility?: 'PUBLIC' | 'PRIVATE';
 }
 
 export const filesApi = {
@@ -194,10 +197,12 @@ export const filesApi = {
     const workItemId = typeof options === 'string' ? options : options?.workItemId || null;
     const noteId = typeof options === 'object' ? options?.noteId || null : null;
     const folderId = typeof options === 'object' ? options?.folderId || null : null;
+    const isPrivate = typeof options === 'object' ? (options?.isPrivate !== undefined ? options.isPrivate : options?.visibility === 'PRIVATE') : undefined;
 
     if (workItemId) formData.append('workItemId', workItemId);
     if (noteId) formData.append('noteId', noteId);
     if (folderId) formData.append('folderId', folderId);
+    if (isPrivate !== undefined) formData.append('isPrivate', String(isPrivate));
 
     const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
     const uploadUrl = `${base}/projects/${encodeURIComponent(projectId)}/files`;
@@ -323,6 +328,23 @@ export const filesApi = {
       method: 'PATCH',
       body: JSON.stringify({ name }),
     });
+  },
+
+  /**
+   * Update file visibility between PUBLIC and PRIVATE.
+   */
+  async updateFileVisibility(
+    projectId: string,
+    fileId: string,
+    isPrivate: boolean
+  ): Promise<{ success: boolean; data: { file: AttachmentDTO } }> {
+    return apiClient<{ success: boolean; data: { file: AttachmentDTO } }>(
+      `/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}/visibility`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ isPrivate }),
+      }
+    );
   },
 
   /**

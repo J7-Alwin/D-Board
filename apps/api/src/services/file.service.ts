@@ -4,7 +4,7 @@ import { AppError } from '../middlewares/error.middleware.js';
 import { storageService } from '../storage/storage.service.js';
 import { classifyFile, sanitizeFilename, readHeaderBytes, type FileCategory } from '../utils/fileClassifier.js';
 import { activityService } from './activity.service.js';
-import { publishToProject } from '../realtime/realtime.service.js';
+import { publishToProject, publishToUsers } from '../realtime/realtime.service.js';
 import { enqueueCleanupJob } from '../jobs/queues.js';
 import type { FileQueryParams } from '../schemas/file.schema.js';
 
@@ -75,7 +75,13 @@ export class FileService {
     projectId: string,
     userId: string,
     files: UploadedFilePayload[],
-    options?: { workItemId?: string | null; noteId?: string | null; folderId?: string | null } | string | null
+    options?: {
+      workItemId?: string | null;
+      noteId?: string | null;
+      folderId?: string | null;
+      isPrivate?: boolean;
+      visibility?: 'PUBLIC' | 'PRIVATE';
+    } | string | null
   ) {
     const { project } = await this.getMembershipAndProject(projectId, userId);
 
@@ -102,6 +108,7 @@ export class FileService {
 
     const workItemId = typeof options === 'string' ? options : options?.workItemId || null;
     const noteId = typeof options === 'object' ? options?.noteId || null : null;
+    const isPrivateRequested = typeof options === 'object' ? Boolean((opts as any).isPrivate || (opts as any).visibility === 'PRIVATE') : false;
 
     // If workItemId is supplied, verify it belongs to this project
     if (workItemId) {
@@ -113,6 +120,7 @@ export class FileService {
       }
     }
 
+    let isPrivate = isPrivateRequested;
     // If noteId is supplied, verify it belongs to this project
     if (noteId) {
       const note = await prisma.note.findFirst({
@@ -120,6 +128,10 @@ export class FileService {
       });
       if (!note) {
         throw new AppError('Note does not belong to this project', 400);
+      }
+      // Files uploaded to a private (USERS) note automatically inherit private visibility
+      if (note.visibility === 'USERS') {
+        isPrivate = true;
       }
     }
 
@@ -199,6 +211,7 @@ export class FileService {
           contentHash,
           isNewPhysicalObject,
           existingStoredObjectId: storedObject?.id || null,
+          isPrivate,
         });
       }
 
@@ -273,6 +286,7 @@ export class FileService {
               category: item.category,
               checksum: item.checksum,
               storedObjectId: item.existingStoredObjectId,
+              isPrivate: item.isPrivate,
             },
             include: {
               uploadedBy: {
@@ -285,7 +299,7 @@ export class FileService {
                 select: { id: true, name: true },
               },
               workItem: {
-                select: { id: true, title: true, type: true, status: true },
+                select: { id: true, title: true, type: true, status: true, createdById: true, assignedToId: true },
               },
               note: {
                 select: { id: true, title: true, visibility: true, createdById: true },
@@ -315,17 +329,40 @@ export class FileService {
       });
 
       for (const att of createdAttachments) {
-        publishToProject(projectId, 'FILE_UPLOADED', {
-          projectId,
-          fileId: att.id,
-          originalName: att.originalName,
-          category: att.category,
-          sizeBytes: att.sizeBytes,
-          workItemId: att.workItemId,
-          noteId: (att as any).noteId,
-          actorId: userId,
-          actorName: att.uploadedBy?.fullName || att.uploadedBy?.username || null,
-        });
+        if (att.isPrivate) {
+          let recipientIds: string[] = [userId];
+          if (att.workItem) {
+            if (att.workItem.createdById) recipientIds.push(att.workItem.createdById);
+            if (att.workItem.assignedToId) recipientIds.push(att.workItem.assignedToId);
+          } else if (att.note) {
+            if (att.note.createdById) recipientIds.push(att.note.createdById);
+          }
+          publishToUsers(Array.from(new Set(recipientIds)), 'FILE_UPLOADED', {
+            projectId,
+            fileId: att.id,
+            originalName: att.originalName,
+            category: att.category,
+            sizeBytes: att.sizeBytes,
+            workItemId: att.workItemId,
+            noteId: (att as any).noteId,
+            isPrivate: true,
+            actorId: userId,
+            actorName: att.uploadedBy?.fullName || att.uploadedBy?.username || null,
+          });
+        } else {
+          publishToProject(projectId, 'FILE_UPLOADED', {
+            projectId,
+            fileId: att.id,
+            originalName: att.originalName,
+            category: att.category,
+            sizeBytes: att.sizeBytes,
+            workItemId: att.workItemId,
+            noteId: (att as any).noteId,
+            isPrivate: false,
+            actorId: userId,
+            actorName: att.uploadedBy?.fullName || att.uploadedBy?.username || null,
+          });
+        }
       }
 
       // API DTO Security (Item 21): Strip raw storageKey from response
@@ -347,48 +384,74 @@ export class FileService {
 
   /**
    * Helper to construct Prisma visibility filter for files:
-   * 1. Direct uploads: accessible in project
-   * 2. WorkItem attachments: visible to work item creator, current assignee, file uploader, or admin
-   * 3. Note attachments: visible to all members if TEAM visibility, or note creator, mentioned users, uploader, or admin
+   * 1. Direct uploads:
+   *    - Public (isPrivate: false): visible to all project members
+   *    - Private (isPrivate: true): visible ONLY to uploader (no admin backdoor)
+   * 2. WorkItem attachments:
+   *    - Public (isPrivate: false): visible to all project members
+   *    - Private (isPrivate: true): visible ONLY to task creator, assignee, or uploader (no admin backdoor)
+   * 3. Note attachments:
+   *    - TEAM notes: visible to all project members
+   *    - USERS notes (Private): visible ONLY to note creator, mentioned users, or uploader (no admin backdoor)
    */
   private getFileVisibilityFilter(userId: string, isAdmin: boolean = false) {
-    if (isAdmin) {
-      return { deletedAt: null };
-    }
+    // Condition for Note attachments:
+    // If attached to a note, must be TEAM note OR user is note creator OR mentioned in note OR uploader.
+    // Note: Admins do NOT have view access to private note files.
+    const noteCondition = {
+      noteId: { not: null },
+      note: {
+        OR: [
+          { visibility: 'TEAM' },
+          { createdById: userId },
+          { mentions: { some: { userId } } },
+        ],
+      },
+    };
+
+    // Condition for WorkItem attachments:
+    // If isPrivate: false, accessible to all project members.
+    // If isPrivate: true, ONLY work item creator, assignee, or file uploader.
+    const workItemCondition = {
+      workItemId: { not: null },
+      OR: [
+        { isPrivate: false },
+        {
+          isPrivate: true,
+          OR: [
+            { uploadedById: userId },
+            {
+              workItem: {
+                OR: [
+                  { createdById: userId },
+                  { assignedToId: userId },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    // Condition for direct uploads (no work item, no note):
+    // If isPrivate: false, accessible to all project members.
+    // If isPrivate: true, ONLY accessible to uploader.
+    const directCondition = {
+      workItemId: null,
+      noteId: null,
+      OR: [
+        { isPrivate: false },
+        { isPrivate: true, uploadedById: userId },
+      ],
+    };
 
     return {
       deletedAt: null,
       OR: [
-        {
-          uploadedById: userId,
-        },
-        {
-          workItemId: null,
-          noteId: null,
-        },
-        {
-          workItemId: { not: null },
-          workItem: {
-            OR: [
-              { createdById: userId },
-              { assignedToId: userId },
-            ],
-          },
-        },
-        {
-          noteId: { not: null },
-          note: {
-            OR: [
-              { visibility: 'TEAM' },
-              { createdById: userId },
-              {
-                mentions: {
-                  some: { userId },
-                },
-              },
-            ],
-          },
-        },
+        { uploadedById: userId },
+        noteCondition,
+        workItemCondition,
+        directCondition,
       ],
     };
   }
@@ -416,6 +479,10 @@ export class FileService {
 
     if (params.noteId) {
       where.noteId = params.noteId;
+    }
+
+    if (params.isPrivate !== undefined) {
+      where.isPrivate = params.isPrivate;
     }
 
     if (params.search && params.search.trim()) {
@@ -635,13 +702,15 @@ export class FileService {
       throw new AppError('File not found', 404);
     }
 
-    // Privacy rule for Work Item attachments: visible only to creator + assignee + uploader + admin
+    // Privacy rule for Work Item attachments:
     if (file.workItem) {
       const isCreator = file.workItem.createdById === userId;
       const isAssignee = file.workItem.assignedToId === userId;
       const isUploader = file.uploadedById === userId;
-      if (!isCreator && !isAssignee && !isUploader && !isAdmin) {
-        throw new AppError('You do not have permission to view or download this work item attachment', 403);
+      if (file.isPrivate) {
+        if (!isCreator && !isAssignee && !isUploader) {
+          throw new AppError('You do not have permission to view or download this private work item attachment', 403);
+        }
       }
     }
 
@@ -649,11 +718,18 @@ export class FileService {
     if (file.note) {
       const isTeamNote = file.note.visibility === 'TEAM';
       const isNoteAuthor = file.note.createdById === userId;
-      const isMentioned = file.note.mentions.some((m) => m.userId === userId);
+      const isMentioned = file.note.mentions?.some((m: any) => m.userId === userId);
       const isUploader = file.uploadedById === userId;
 
-      if (!isTeamNote && !isNoteAuthor && !isMentioned && !isUploader && !isAdmin) {
+      if (!isTeamNote && !isNoteAuthor && !isMentioned && !isUploader) {
         throw new AppError('You do not have access to this private note file', 403);
+      }
+    }
+
+    // Privacy rule for Direct uploads:
+    if (!file.workItem && !file.note && file.isPrivate) {
+      if (file.uploadedById !== userId) {
+        throw new AppError('You do not have permission to view or download this private file', 403);
       }
     }
 
@@ -706,8 +782,14 @@ export class FileService {
     const existing = await this.getFileById(projectId, fileId, userId, false);
 
     const isAuthor = existing.uploadedById === userId;
-    if (!isAdmin && !isAuthor) {
-      throw new AppError('You do not have permission to rename this file', 403);
+    if (existing.isPrivate || (existing.note && existing.note.visibility === 'USERS')) {
+      if (!isAuthor) {
+        throw new AppError('You do not have permission to rename this private file', 403);
+      }
+    } else {
+      if (!isAdmin && !isAuthor) {
+        throw new AppError('You do not have permission to rename this file', 403);
+      }
     }
 
     const cleanName = sanitizeFilename(newName);
@@ -779,8 +861,14 @@ export class FileService {
     const existing = await this.getFileById(projectId, fileId, userId, false);
 
     const isAuthor = existing.uploadedById === userId;
-    if (!isAdmin && !isAuthor) {
-      throw new AppError('You do not have permission to delete this file', 403);
+    if (existing.isPrivate || (existing.note && existing.note.visibility === 'USERS')) {
+      if (!isAuthor) {
+        throw new AppError('You do not have permission to delete this private file', 403);
+      }
+    } else {
+      if (!isAdmin && !isAuthor) {
+        throw new AppError('You do not have permission to delete this file', 403);
+      }
     }
 
     let shouldDeletePhysicalStorage = false;
@@ -899,6 +987,52 @@ export class FileService {
         workItem: {
           select: { id: true, title: true, type: true, status: true },
         },
+      },
+    });
+
+    return sanitizeAttachmentDto(updated);
+  }
+
+  /**
+   * Update visibility of an existing attachment (PUBLIC vs PRIVATE).
+   */
+  async updateFileVisibility(projectId: string, fileId: string, userId: string, isPrivate: boolean) {
+    const { isAdmin, project } = await this.getMembershipAndProject(projectId, userId);
+
+    if (project.status === 'ARCHIVED') {
+      throw new AppError('Cannot modify files in an archived project', 400);
+    }
+
+    const existing = await this.getFileById(projectId, fileId, userId, false);
+
+    const isAuthor = existing.uploadedById === userId;
+    if (existing.note && existing.note.visibility === 'USERS' && !isPrivate) {
+      throw new AppError('Files attached to private notes must remain private', 400);
+    }
+    if (existing.isPrivate && !isAuthor) {
+      throw new AppError('Only the file uploader can modify visibility of a private file', 403);
+    }
+    if (!isAdmin && !isAuthor) {
+      throw new AppError('You do not have permission to change visibility of this file', 403);
+    }
+
+    const updated = await prisma.attachment.update({
+      where: { id: fileId },
+      data: { isPrivate },
+      include: {
+        uploadedBy: {
+          select: { id: true, fullName: true, username: true, avatarUrl: true },
+        },
+        project: {
+          select: { id: true, name: true, key: true },
+        },
+        workItem: {
+          select: { id: true, title: true, type: true, status: true },
+        },
+        note: {
+          select: { id: true, title: true, visibility: true, createdById: true },
+        },
+        storedObject: true,
       },
     });
 

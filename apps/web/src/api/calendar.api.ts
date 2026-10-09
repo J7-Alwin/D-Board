@@ -54,6 +54,7 @@ export interface CalendarItem {
     priority: string;
   } | null;
   isOverdue?: boolean;
+  isPrivate?: boolean;
   workItem?: CalendarItemWorkItem;
   attendees?: CalendarItemUser[];
   createdAt: string;
@@ -91,6 +92,7 @@ export interface CreateCalendarEventPayload {
   location?: string | null;
   relatedWorkItemId?: string | null;
   attendeeIds?: string[];
+  isPrivate?: boolean;
 }
 
 export interface UpdateCalendarEventPayload {
@@ -103,6 +105,7 @@ export interface UpdateCalendarEventPayload {
   location?: string | null;
   relatedWorkItemId?: string | null;
   attendeeIds?: string[];
+  isPrivate?: boolean;
 }
 
 export const calendarApi = {

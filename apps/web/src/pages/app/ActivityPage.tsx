@@ -751,9 +751,9 @@ export const ActivityPage: React.FC = () => {
       );
     }
     return (
-      <span className="wap-badge-pill wap-badge-status">
+      <span className="wap-badge-pill wap-badge-updated">
         <span className="wap-badge-dot" />
-        Status changed
+        Updated
       </span>
     );
   };
@@ -1080,22 +1080,6 @@ export const ActivityPage: React.FC = () => {
                               <LayersIcon size={14} />
                               <span>Filter only this project</span>
                             </button>
-                            <button
-                              type="button"
-                              className="wap-dropdown-item"
-                              onClick={() => {
-                                navigator.clipboard?.writeText(
-                                  `${window.location.origin}/app/projects/${group.projectId}`
-                                );
-                                setOpenProjectMenuId(null);
-                              }}
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                              </svg>
-                              <span>Copy Project Link</span>
-                            </button>
                           </div>
                         )}
                       </div>
@@ -1122,7 +1106,7 @@ export const ActivityPage: React.FC = () => {
                               const isLast = actIdx === dateGroup.items.length - 1;
 
                               return (
-                                <div key={act.id} className="wap-timeline-row">
+                                <div key={act.id} className={`wap-timeline-row ${isMenuOpen ? 'has-open-menu' : ''}`}>
                                   {/* Vertical Timeline Connecting Line */}
                                   <div
                                     className={`wap-timeline-line ${
@@ -1169,7 +1153,7 @@ export const ActivityPage: React.FC = () => {
                                   <div className="wap-row-right">
                                     {getBadgeElement(act.type)}
 
-                                    <div className="wap-action-menu-wrap" ref={isMenuOpen ? menuRef : undefined}>
+                                    <div className={`wap-action-menu-wrap ${isMenuOpen ? 'is-open' : ''}`} ref={isMenuOpen ? menuRef : undefined}>
                                       <button
                                         type="button"
                                         className="wap-more-btn"
@@ -1182,32 +1166,16 @@ export const ActivityPage: React.FC = () => {
                                         <MoreOptionsIcon />
                                       </button>
 
-                                      {isMenuOpen && (
+                                      {isMenuOpen && act.project && (
                                         <div className="wap-dropdown-menu">
-                                          {act.project && (
-                                            <Link
-                                              to={`/app/projects/${act.project.id}`}
-                                              className="wap-dropdown-item"
-                                              onClick={() => setOpenMenuId(null)}
-                                            >
-                                              <FolderPillIcon size={14} />
-                                              <span>Go to Project</span>
-                                            </Link>
-                                          )}
-                                          <button
-                                            type="button"
+                                          <Link
+                                            to={`/app/projects/${act.project.id}`}
                                             className="wap-dropdown-item"
-                                            onClick={() => {
-                                              navigator.clipboard?.writeText(window.location.href);
-                                              setOpenMenuId(null);
-                                            }}
+                                            onClick={() => setOpenMenuId(null)}
                                           >
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                                              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                                            </svg>
-                                            <span>Copy Link</span>
-                                          </button>
+                                            <FolderPillIcon size={14} />
+                                            <span>Go to Project</span>
+                                          </Link>
                                         </div>
                                       )}
                                     </div>

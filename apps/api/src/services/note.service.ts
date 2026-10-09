@@ -149,41 +149,32 @@ export class NoteService {
       where.color = params.color.trim();
     }
 
-    // Visibility filter construction
-    if (isAdmin) {
-      if (params.visibility === 'TEAM') {
-        where.visibility = 'TEAM';
-      } else if (params.visibility === 'USERS') {
-        where.visibility = 'USERS';
-      }
-    } else {
-      // Regular project member: must only see TEAM notes, authored notes, or mentioned notes
-      const userVisibilityCondition = [
-        { visibility: 'TEAM' },
-        { createdById: userId },
-        { mentions: { some: { userId } } },
+    // Visibility filter construction (Admins do NOT have view access to private USERS notes)
+    if (params.visibility === 'TEAM') {
+      where.visibility = 'TEAM';
+    } else if (params.visibility === 'USERS') {
+      where.visibility = 'USERS';
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { createdById: userId },
+            { mentions: { some: { userId } } },
+          ],
+        },
       ];
-
-      if (params.visibility === 'TEAM') {
-        where.visibility = 'TEAM';
-      } else if (params.visibility === 'USERS') {
-        where.visibility = 'USERS';
-        where.AND = [
-          ...(where.AND || []),
-          {
-            OR: [
-              { createdById: userId },
-              { mentions: { some: { userId } } },
-            ],
-          },
-        ];
-      } else {
-        // ALL visible notes
-        where.AND = [
-          ...(where.AND || []),
-          { OR: userVisibilityCondition },
-        ];
-      }
+    } else {
+      // ALL visible notes: TEAM notes, authored notes, or mentioned notes
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { visibility: 'TEAM' },
+            { createdById: userId },
+            { mentions: { some: { userId } } },
+          ],
+        },
+      ];
     }
 
     // Ordering
@@ -287,39 +278,28 @@ export class NoteService {
       targetProjectIds = [params.projectId];
     }
 
-    const adminTargets = targetProjectIds.filter((id) => adminProjectIds.has(id));
-    const memberTargets = targetProjectIds.filter((id) => !adminProjectIds.has(id));
-
-    // Construct project + visibility condition
+    // Construct project + visibility condition (Strict privacy across all projects: no admin backdoor for private notes)
     const projectConditions: any[] = [];
-
-    if (adminTargets.length > 0) {
-      const adminCond: any = { projectId: { in: adminTargets } };
-      if (params.visibility === 'TEAM') adminCond.visibility = 'TEAM';
-      if (params.visibility === 'USERS') adminCond.visibility = 'USERS';
-      projectConditions.push(adminCond);
-    }
-
-    if (memberTargets.length > 0) {
-      const memberCond: any = {
-        projectId: { in: memberTargets },
+    if (targetProjectIds.length > 0) {
+      const cond: any = {
+        projectId: { in: targetProjectIds },
       };
       if (params.visibility === 'TEAM') {
-        memberCond.visibility = 'TEAM';
+        cond.visibility = 'TEAM';
       } else if (params.visibility === 'USERS') {
-        memberCond.visibility = 'USERS';
-        memberCond.OR = [
+        cond.visibility = 'USERS';
+        cond.OR = [
           { createdById: userId },
           { mentions: { some: { userId } } },
         ];
       } else {
-        memberCond.OR = [
+        cond.OR = [
           { visibility: 'TEAM' },
           { createdById: userId },
           { mentions: { some: { userId } } },
         ];
       }
-      projectConditions.push(memberCond);
+      projectConditions.push(cond);
     }
 
     const where: any = {
@@ -454,15 +434,13 @@ export class NoteService {
       throw new AppError('Note not found', 404);
     }
 
-    // Check visibility permissions
-    if (!isAdmin) {
-      const isAuthor = note.createdById === userId;
-      const isMentioned = note.mentions.some((m) => m.userId === userId);
-      const isTeam = note.visibility === 'TEAM';
+    // Check visibility permissions: Private notes (USERS) are restricted to Author and Mentioned users only
+    const isAuthor = note.createdById === userId;
+    const isMentioned = note.mentions.some((m) => m.userId === userId);
+    const isTeam = note.visibility === 'TEAM';
 
-      if (!isTeam && !isAuthor && !isMentioned) {
-        throw new AppError('You do not have permission to view this note', 403);
-      }
+    if (!isTeam && !isAuthor && !isMentioned) {
+      throw new AppError('You do not have permission to view this note', 403);
     }
 
     return this.formatNoteDto(note, userId, isAdmin);
@@ -646,10 +624,18 @@ export class NoteService {
       throw new AppError('Note not found', 404);
     }
 
-    // Edit permission check: Project Admin or Note Author
+    // Edit permission check:
+    // If private note (USERS), only Author may edit.
+    // If team note (TEAM), Project Admin or Author may edit.
     const isAuthor = existing.createdById === userId;
-    if (!isAdmin && !isAuthor) {
-      throw new AppError('You do not have permission to edit this note', 403);
+    if (existing.visibility === 'USERS') {
+      if (!isAuthor) {
+        throw new AppError('You do not have permission to edit this private note', 403);
+      }
+    } else {
+      if (!isAdmin && !isAuthor) {
+        throw new AppError('You do not have permission to edit this note', 403);
+      }
     }
 
     let nextVisibility = existing.visibility;
@@ -826,9 +812,18 @@ export class NoteService {
       throw new AppError('Note not found', 404);
     }
 
+    // Delete permission check:
+    // If private note (USERS), only Author may delete.
+    // If team note (TEAM), Project Admin or Author may delete.
     const isAuthor = existing.createdById === userId;
-    if (!isAdmin && !isAuthor) {
-      throw new AppError('You do not have permission to delete this note', 403);
+    if (existing.visibility === 'USERS') {
+      if (!isAuthor) {
+        throw new AppError('You do not have permission to delete this private note', 403);
+      }
+    } else {
+      if (!isAdmin && !isAuthor) {
+        throw new AppError('You do not have permission to delete this note', 403);
+      }
     }
 
     await prisma.$transaction(async (tx) => {
@@ -876,7 +871,10 @@ export class NoteService {
    */
   private formatNoteDto(note: any, currentUserId: string, isAdmin: boolean) {
     const isAuthor = note.createdById === currentUserId;
-    const canSeeRecipients = isAdmin || isAuthor || note.mentions?.some((m: any) => m.userId === currentUserId);
+    const canSeeRecipients =
+      note.visibility === 'TEAM'
+        ? true
+        : isAuthor || note.mentions?.some((m: any) => m.userId === currentUserId);
 
     return {
       id: note.id,

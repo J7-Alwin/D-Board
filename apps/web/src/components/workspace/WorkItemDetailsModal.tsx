@@ -45,6 +45,8 @@ import {
   BanIcon,
   EyeIcon,
   ImageIcon,
+  LockIcon,
+  GlobeIcon,
 } from '../ui/Icons';
 import { Button } from '../ui/Button';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -85,6 +87,7 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [attachmentSort, setAttachmentSort] = useState<'newest' | 'oldest' | 'name' | 'size'>('newest');
+  const [uploadIsPrivate, setUploadIsPrivate] = useState<boolean>(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const [selectedFileForViewer, setSelectedFileForViewer] = useState<AttachmentDTO | null>(null);
@@ -152,7 +155,7 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
     setError(null);
     try {
       const fileArray = Array.from(files);
-      await filesApi.uploadFiles(project.id, fileArray, { workItemId });
+      await filesApi.uploadFiles(project.id, fileArray, { workItemId, isPrivate: uploadIsPrivate });
       await loadAttachments();
     } catch (err: any) {
       setError(err.message || 'Failed to upload attachments');
@@ -168,6 +171,16 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
       await loadAttachments();
     } catch (err: any) {
       setError(err.message || 'Failed to delete attachment');
+    }
+  };
+
+  const handleToggleFilePrivacy = async (att: AttachmentDTO) => {
+    try {
+      const nextPrivacy = !att.isPrivate;
+      await filesApi.updateFileVisibility(project.id, att.id, nextPrivacy);
+      await loadAttachments();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update file privacy');
     }
   };
 
@@ -1142,6 +1155,81 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
                   {/* TAB 2: Attachments */}
                   {activeTab === 'attachments' && (
                     <div className="widm-attachments-pane">
+                      {/* Privacy toggle for upcoming uploads */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: '0.75rem',
+                          padding: '0.5rem 0.75rem',
+                          background: 'rgba(255,255,255,0.03)',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(255,255,255,0.06)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 500, color: '#94a3b8' }}>
+                            Upload privacy:
+                          </span>
+                          <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                            {uploadIsPrivate ? 'Only task creator, assignee & uploader' : 'All project members'}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: '4px',
+                            background: 'rgba(0,0,0,0.25)',
+                            padding: '3px',
+                            borderRadius: '6px',
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setUploadIsPrivate(false)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '4px 10px',
+                              borderRadius: '4px',
+                              fontSize: '0.75rem',
+                              fontWeight: 500,
+                              border: 'none',
+                              cursor: 'pointer',
+                              background: !uploadIsPrivate ? '#2563eb' : 'transparent',
+                              color: !uploadIsPrivate ? '#fff' : '#94a3b8',
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <GlobeIcon size={12} />
+                            Public
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setUploadIsPrivate(true)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '4px 10px',
+                              borderRadius: '4px',
+                              fontSize: '0.75rem',
+                              fontWeight: 500,
+                              border: 'none',
+                              cursor: 'pointer',
+                              background: uploadIsPrivate ? '#dc2626' : 'transparent',
+                              color: uploadIsPrivate ? '#fff' : '#94a3b8',
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <LockIcon size={12} />
+                            Private
+                          </button>
+                        </div>
+                      </div>
+
                       {/* Drag and Drop Zone */}
                       <div
                         className={`widm-dropzone-box ${isDraggingOver ? 'drag-over' : ''}`}
@@ -1240,7 +1328,12 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
                                 hour: '2-digit',
                                 minute: '2-digit',
                               });
-                              const canDeleteFile = isProjectAdmin || att.uploadedById === user?.id;
+                              const canDeleteFile = att.isPrivate
+                                ? att.uploadedById === user?.id
+                                : isProjectAdmin || att.uploadedById === user?.id;
+                              const canTogglePrivacy = att.isPrivate
+                                ? att.uploadedById === user?.id
+                                : isProjectAdmin || att.uploadedById === user?.id;
 
                               return (
                                 <div key={att.id} className="widm-attachment-row-card">
@@ -1251,9 +1344,30 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
                                   >
                                     {getFileIconBadge(att)}
                                     <div className="widm-attachment-text-details">
-                                      <span className="widm-attachment-filename" title={att.originalName}>
-                                        {att.originalName}
-                                      </span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span className="widm-attachment-filename" title={att.originalName}>
+                                          {att.originalName}
+                                        </span>
+                                        {att.isPrivate && (
+                                          <span
+                                            title="Private file (only task creator, assignee, and uploader can view)"
+                                            style={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '3px',
+                                              padding: '1px 5px',
+                                              borderRadius: '4px',
+                                              fontSize: '0.65rem',
+                                              fontWeight: 600,
+                                              backgroundColor: 'rgba(220, 38, 38, 0.12)',
+                                              color: '#ef4444',
+                                            }}
+                                          >
+                                            <LockIcon size={10} />
+                                            Private
+                                          </span>
+                                        )}
+                                      </div>
                                       <span className="widm-attachment-metaline">
                                         {formatFileSize(att.sizeBytes)} • Added by {uploaderFirstName} • {createdDate}, {createdTime}
                                       </span>
@@ -1278,6 +1392,17 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
                                     >
                                       <DownloadIcon size={15} />
                                     </a>
+
+                                    {canTogglePrivacy && (
+                                      <button
+                                        type="button"
+                                        className="widm-file-icon-btn"
+                                        title={att.isPrivate ? 'Make Public' : 'Make Private'}
+                                        onClick={() => handleToggleFilePrivacy(att)}
+                                      >
+                                        {att.isPrivate ? <GlobeIcon size={15} /> : <LockIcon size={15} />}
+                                      </button>
+                                    )}
 
                                     {canDeleteFile && (
                                       <button

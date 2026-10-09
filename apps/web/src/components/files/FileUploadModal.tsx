@@ -3,6 +3,7 @@ import type { Project } from '../../api/projects.api';
 import { filesApi, type AttachmentDTO } from '../../api/files.api';
 import type { FolderItem } from './CreateFolderModal';
 import { CustomSelect } from '../ui/CustomSelect';
+import { LockIcon, GlobeIcon } from '../ui/Icons';
 
 interface FileUploadModalProps {
   isOpen: boolean;
@@ -39,6 +40,7 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [isPrivate, setIsPrivate] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -55,6 +57,7 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
       setFilesToUpload([]);
       setError(null);
       setUploadProgress(0);
+      setIsPrivate(false);
     }
   }, [isOpen, currentFolderId, activeProjectId, projects]);
 
@@ -152,6 +155,7 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
         {
           workItemId: workItemId || null,
           folderId: resolvedFolderId || null,
+          isPrivate,
         },
         (progress) => setUploadProgress(progress)
       );
@@ -285,6 +289,64 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
                   <line x1="12" y1="8" x2="12.01" y2="8"></line>
                 </svg>
                 <span>Files will be uploaded to this folder in your project.</span>
+              </div>
+            </div>
+
+            {/* Field: Visibility / Privacy */}
+            <div className="ufm-field-group" style={{ marginBottom: '1.25rem' }}>
+              <label className="ufm-field-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>File Privacy</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: '#64748B' }}>
+                  {isPrivate ? 'Visible only to you, task creator & assignees' : 'Visible to all project members'}
+                </span>
+              </label>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsPrivate(false)}
+                  style={{
+                    flex: 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    fontSize: '0.82rem',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    border: !isPrivate ? '1.5px solid #10B981' : '1px solid rgba(255,255,255,0.1)',
+                    background: !isPrivate ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255,255,255,0.02)',
+                    color: !isPrivate ? '#10B981' : '#94A3B8',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <GlobeIcon size={14} />
+                  Public (Project Members)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPrivate(true)}
+                  style={{
+                    flex: 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    fontSize: '0.82rem',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    border: isPrivate ? '1.5px solid #EF4444' : '1px solid rgba(255,255,255,0.1)',
+                    background: isPrivate ? 'rgba(239, 68, 68, 0.12)' : 'rgba(255,255,255,0.02)',
+                    color: isPrivate ? '#EF4444' : '#94A3B8',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <LockIcon size={14} />
+                  Private (Restricted)
+                </button>
               </div>
             </div>
 

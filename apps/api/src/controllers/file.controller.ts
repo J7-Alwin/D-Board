@@ -5,7 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import type { AuthenticatedRequest } from '../middlewares/auth.middleware.js';
 import { fileService } from '../services/file.service.js';
-import { fileQuerySchema, renameFileSchema, attachFileSchema } from '../schemas/file.schema.js';
+import { fileQuerySchema, renameFileSchema, attachFileSchema, updateFileVisibilitySchema } from '../schemas/file.schema.js';
 import { AppError } from '../middlewares/error.middleware.js';
 
 // Max file size in MB (defaults to 50MB per file, 100MB per multipart batch for Render Free RAM)
@@ -53,6 +53,7 @@ export class FileController {
       const workItemId = (req.body?.workItemId as string) || null;
       const noteId = (req.body?.noteId as string) || null;
       const folderId = (req.body?.folderId as string) || null;
+      const isPrivate = req.body?.isPrivate === true || req.body?.isPrivate === 'true' || req.body?.visibility === 'PRIVATE';
 
       if (filesToProcess.length === 0) {
         throw new AppError('No files were uploaded', 400);
@@ -76,7 +77,7 @@ export class FileController {
         buffer: f.buffer,
       }));
 
-      const created = await fileService.uploadFiles(projectId, userId, payloads, { workItemId, noteId, folderId });
+      const created = await fileService.uploadFiles(projectId, userId, payloads, { workItemId, noteId, folderId, isPrivate });
 
       res.status(201).json({
         success: true,
@@ -282,6 +283,30 @@ export class FileController {
       res.json({
         success: true,
         message: 'File attachment updated',
+        data: { file },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Update file visibility (PUBLIC vs PRIVATE).
+   */
+  async updateFileVisibility(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const projectId = req.params.projectId as string;
+      const fileId = req.params.fileId as string;
+      const userId = req.user.userId;
+      const body = updateFileVisibilitySchema.parse(req.body);
+      const isPrivate = body.isPrivate !== undefined ? body.isPrivate : body.visibility === 'PRIVATE';
+
+      const file = await fileService.updateFileVisibility(projectId, fileId, userId, isPrivate);
+
+      res.json({
+        success: true,
+        message: `File visibility updated to ${isPrivate ? 'PRIVATE' : 'PUBLIC'}`,
         data: { file },
       });
     } catch (err) {

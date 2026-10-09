@@ -1639,6 +1639,116 @@ export const WelcomeModalVisualArt: React.FC = () => {
   );
 };
 
+export const ActivityHeaderAtmosphere: React.FC = () => {
+  return (
+    <div className="cal-header-art-container activity-art-container" aria-hidden="true">
+      {/* Atmosphere Quote on the Left of the Artwork */}
+      <div className="cal-quote-text-group" style={{ marginRight: '-24px', zIndex: 3 }}>
+        <span className="cal-quote-text" style={{ fontStyle: 'italic', fontFamily: 'Georgia, serif', fontSize: '0.82rem', color: '#334155', letterSpacing: '0.01em' }}>
+          &ldquo;Small updates today,
+        </span>
+        <span className="cal-quote-text" style={{ fontStyle: 'italic', fontFamily: 'Georgia, serif', fontSize: '0.82rem', color: '#334155', letterSpacing: '0.01em', marginTop: '1px' }}>
+          bigger milestones tomorrow.&rdquo;
+        </span>
+        <svg
+          className="cal-quote-underline-svg"
+          viewBox="0 0 120 18"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          style={{ width: '92px', height: '11px', marginTop: '2px' }}
+        >
+          <path
+            d="M3 12C35 3 85 2 117 10M55 14C75 9 95 8 115 13"
+            stroke="#22C55E"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+          />
+        </svg>
+      </div>
+
+      {/* Graphic Illustration */}
+      <svg width="230" height="74" viewBox="0 0 230 74" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+        {/* Background Soft Mint Radial Aura */}
+        <ellipse cx="145" cy="38" rx="60" ry="32" fill="rgba(226, 240, 224, 0.55)" />
+
+        {/* Sun Circle at Top Right */}
+        <circle cx="185" cy="16" r="9.5" fill="#FDE047" opacity="0.95" />
+
+        {/* Trajectory Flight Path (Dashed Arc) */}
+        <path
+          d="M135 48 C 160 44, 185 38, 202 24 C 210 18, 215 14, 218 10"
+          stroke="#88B283"
+          strokeWidth="1.4"
+          strokeDasharray="2.5 3"
+          strokeLinecap="round"
+          fill="none"
+        />
+        <circle cx="178" cy="34" r="6" fill="#589B53" fillOpacity="0.18" />
+        <circle cx="178" cy="34" r="3" fill="#2E7729" />
+
+        {/* Origami Paper Airplane flying up-right */}
+        <g transform="translate(208, 4) rotate(14)">
+          <polygon points="0,13 22,0 13,18" fill="#FFFFFF" stroke="#1F2937" strokeWidth="1.1" strokeLinejoin="round" />
+          <polygon points="13,18 22,0 6,15" fill="#F0F4EF" stroke="#1F2937" strokeWidth="1.1" strokeLinejoin="round" />
+          <line x1="6" y1="15" x2="22" y2="0" stroke="#1F2937" strokeWidth="1.1" />
+        </g>
+
+        {/* Chat Speech Bubble on Left of Card */}
+        <g transform="translate(58, 20)">
+          <rect x="0" y="0" width="28" height="20" rx="5" fill="#FFFFFF" stroke="#D1E2CE" strokeWidth="1.2" />
+          <path d="M6 20 L9 24 L12 20 Z" fill="#FFFFFF" />
+          <path d="M6 20 L9 24 L12 20" stroke="#D1E2CE" strokeWidth="1.2" />
+          <line x1="5" y1="6.5" x2="23" y2="6.5" stroke="#4ADE80" strokeWidth="2" strokeLinecap="round" />
+          <line x1="5" y1="12" x2="17" y2="12" stroke="#4ADE80" strokeWidth="2" strokeLinecap="round" />
+        </g>
+
+        {/* Floating White Card in Center with "D" Logo & Bullets */}
+        <g transform="translate(90, 8)">
+          {/* Soft shadow */}
+          <rect x="0" y="0" width="74" height="56" rx="8" fill="#000000" fillOpacity="0.04" transform="translate(1.5, 2)" />
+          {/* Card Body */}
+          <rect x="0" y="0" width="74" height="56" rx="8" fill="#FFFFFF" stroke="#E2EAE0" strokeWidth="1.2" />
+
+          {/* Dark Rounded Square Badge with "D" Play Logo */}
+          <rect x="15" y="7" width="18" height="18" rx="4.5" fill="#18181B" />
+          <path d="M21 11 H23.5 C25.5 11, 27 12, 27 14 C27 16, 25.5 17, 23.5 17 H21 Z" fill="#22C55E" />
+          <path d="M22.2 12.2 H23.5 C24.5 12.2, 25.2 13, 25.2 14 C25.2 15, 24.5 15.8, 23.5 15.8 H22.2 Z" fill="#18181B" />
+
+          {/* 3 Horizontal Bullet Lines with Colored Dots */}
+          <circle cx="11" cy="32" r="2" fill="#22C55E" />
+          <rect x="17" y="30.5" width="44" height="3" rx="1.5" fill="#E2ECE0" />
+
+          <circle cx="11" cy="40" r="2" fill="#3B82F6" />
+          <rect x="17" y="38.5" width="36" height="3" rx="1.5" fill="#E2ECE0" />
+
+          <circle cx="11" cy="48" r="2" fill="#F59E0B" />
+          <rect x="17" y="46.5" width="28" height="3" rx="1.5" fill="#E2ECE0" />
+        </g>
+
+        {/* Botanical Eucalyptus Sprig Leaves on Bottom Left of Card */}
+        <g transform="translate(72, 30)">
+          <path d="M14 36 C 12 24, 9 14, 1 5" stroke="#9ABF92" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M1 5 C -3 0, 7 -5, 12 0 C 14 3.5, 9 7, 1 5 Z" fill="#81AA7D" />
+          <path d="M6 12 C 14 8, 19 15, 13 20 C 9 22.5, 6 17, 6 12 Z" fill="#62905E" />
+          <path d="M-3 16 C -10 13, -8 6, -1 9 C 2.5 10.5, 1.5 15, -3 16 Z" fill="#99BD92" />
+          <path d="M9 24 C 16 22, 19 28, 14 31 C 10 33, 8 28.5, 9 24 Z" fill="#75A070" />
+        </g>
+
+        {/* Green Circular Clock Badge with Ticks at Bottom Right */}
+        <g transform="translate(196, 40)">
+          <circle cx="10" cy="10" r="9.5" fill="#FAFDF9" stroke="#2E7729" strokeWidth="1.5" />
+          <circle cx="10" cy="10" r="1.3" fill="#2E7729" />
+          <path d="M10 5.5 V10 H13.5" stroke="#2E7729" strokeWidth="1.4" strokeLinecap="round" />
+          <line x1="22" y1="10" x2="25" y2="10" stroke="#2E7729" strokeWidth="1.3" strokeLinecap="round" />
+          <line x1="21" y1="5" x2="24" y2="3" stroke="#2E7729" strokeWidth="1.3" strokeLinecap="round" />
+          <line x1="21" y1="15" x2="24" y2="17" stroke="#2E7729" strokeWidth="1.3" strokeLinecap="round" />
+        </g>
+      </svg>
+    </div>
+  );
+};
+
+
 
 
 

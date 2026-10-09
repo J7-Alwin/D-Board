@@ -33,11 +33,11 @@ export const ProjectWorkspaceShell: React.FC = () => {
   // Determine current active tab from the URL path
   const currentTab = useMemo(() => {
     if (path.includes('/board')) return 'board';
-    if (path.includes('/activity') || path.includes('/list')) return 'list';
     if (path.includes('/members') || path.includes('/team')) return 'members';
     if (path.includes('/calendar')) return 'calendar';
     if (path.includes('/notes')) return 'notes';
     if (path.includes('/files')) return 'files';
+    if (path.includes('/activity') || path.includes('/list')) return 'activity';
     return 'overview';
   }, [path]);
 
@@ -118,7 +118,7 @@ export const ProjectWorkspaceShell: React.FC = () => {
         {currentTab === 'board' && (
           <ProjectBoardPage project={project} hideHeader={true} />
         )}
-        {currentTab === 'list' && (
+        {currentTab === 'activity' && (
           <ProjectActivityPage project={project} hideHeader={true} />
         )}
         {currentTab === 'members' && (

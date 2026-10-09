@@ -119,13 +119,59 @@ export class SearchService {
         take: maxLimit,
       }),
 
-      // Files
+      // Files (enforce strict privacy: no leak of private task files, private note files, or direct private files)
       prisma.attachment.findMany({
         where: {
           projectId: { in: projectIds },
-          OR: [
-            { originalName: { contains: q, mode: 'insensitive' } },
-            { extension: { contains: q, mode: 'insensitive' } },
+          deletedAt: null,
+          AND: [
+            {
+              OR: [
+                { originalName: { contains: q, mode: 'insensitive' } },
+                { extension: { contains: q, mode: 'insensitive' } },
+              ],
+            },
+            {
+              OR: [
+                { uploadedById: userId },
+                // Note attachment
+                {
+                  noteId: { not: null },
+                  note: {
+                    OR: [
+                      { visibility: 'TEAM' },
+                      { createdById: userId },
+                      { mentions: { some: { userId } } },
+                    ],
+                  },
+                },
+                // Work item attachment
+                {
+                  workItemId: { not: null },
+                  OR: [
+                    { isPrivate: false },
+                    {
+                      isPrivate: true,
+                      workItem: {
+                        OR: [
+                          { createdById: userId },
+                          { assignedToId: userId },
+                        ],
+                      },
+                    },
+                  ],
+                },
+                // Direct file
+                {
+                  workItemId: null,
+                  noteId: null,
+                  OR: [
+                    { isPrivate: false },
+                    { isPrivate: true, uploadedById: userId },
+                  ],
+                },
+              ],
+            },
           ],
         },
         select: {
@@ -135,12 +181,13 @@ export class SearchService {
           extension: true,
           category: true,
           sizeBytes: true,
+          isPrivate: true,
           createdAt: true,
         },
         take: maxLimit,
       }),
 
-      // Notes (enforce authorization: TEAM visibility OR author OR mentioned OR owner)
+      // Notes (enforce strict authorization: TEAM visibility OR author OR mentioned - no admin/owner backdoor)
       prisma.note.findMany({
         where: {
           projectId: { in: projectIds },
@@ -156,7 +203,6 @@ export class SearchService {
                 { visibility: 'TEAM' },
                 { createdById: userId },
                 { mentions: { some: { userId } } },
-                { projectId: { in: Array.from(ownedProjectIds) } },
               ],
             },
           ],

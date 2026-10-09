@@ -12,6 +12,7 @@ export interface DashboardData {
   recentProjects: Project[];
   myProjects: Project[];
   joinedProjects: Project[];
+  recentActivities?: any[];
 }
 
 import { API_BASE_URL, safeParseJson } from './client';

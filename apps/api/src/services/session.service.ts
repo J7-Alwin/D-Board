@@ -11,6 +11,17 @@ export interface CreateSessionOptions {
 const SESSION_CACHE_PREFIX = 'dboard:session:';
 const SESSION_CACHE_TTL_SECONDS = 300; // 5 minute read cache
 
+interface CachedSessionEntry {
+  userId: string;
+  expiresAt: Date;
+  revoked: boolean;
+  cachedAt: number;
+}
+
+// Ultra-fast in-memory session cache (serves parallel requests in 0ms even when Redis is offline)
+const memorySessionCache = new Map<string, CachedSessionEntry>();
+const lastTouchedMap = new Map<string, number>();
+
 export class SessionService {
   /**
    * Create a durable PostgreSQL session
@@ -35,6 +46,14 @@ export class SessionService {
       },
     });
 
+    // Populate in-memory cache immediately
+    memorySessionCache.set(session.id, {
+      userId,
+      expiresAt,
+      revoked: false,
+      cachedAt: Date.now(),
+    });
+
     return {
       session,
       rawSessionToken,
@@ -44,11 +63,25 @@ export class SessionService {
 
   /**
    * Validate session state in PostgreSQL (authoritative) with Redis short-lived read cache
+   * and in-memory fast path
    */
   static async validateSession(sessionId: string): Promise<{ valid: boolean; userId?: string }> {
     if (!sessionId) return { valid: false };
 
-    // 1. Check Redis cache first if available
+    // 1. Check ultra-fast in-memory cache first (0ms)
+    const memEntry = memorySessionCache.get(sessionId);
+    if (memEntry) {
+      if (Date.now() - memEntry.cachedAt < SESSION_CACHE_TTL_SECONDS * 1000) {
+        if (memEntry.revoked || memEntry.expiresAt <= new Date()) {
+          return { valid: false };
+        }
+        return { valid: true, userId: memEntry.userId };
+      } else {
+        memorySessionCache.delete(sessionId);
+      }
+    }
+
+    // 2. Check Redis cache if available
     const cacheKey = `${SESSION_CACHE_PREFIX}${sessionId}`;
     if (isRedisReady()) {
       try {
@@ -56,7 +89,15 @@ export class SessionService {
         const cached = await client.get(cacheKey);
         if (cached) {
           const parsed = JSON.parse(cached);
-          if (parsed.revoked || new Date(parsed.expiresAt) <= new Date()) {
+          const expDate = new Date(parsed.expiresAt);
+          const isRev = !!parsed.revoked;
+          memorySessionCache.set(sessionId, {
+            userId: parsed.userId,
+            expiresAt: expDate,
+            revoked: isRev,
+            cachedAt: Date.now(),
+          });
+          if (isRev || expDate <= new Date()) {
             return { valid: false };
           }
           return { valid: true, userId: parsed.userId };
@@ -66,7 +107,7 @@ export class SessionService {
       }
     }
 
-    // 2. Authoritative PostgreSQL lookup
+    // 3. Authoritative PostgreSQL lookup
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
       select: {
@@ -82,7 +123,14 @@ export class SessionService {
       return { valid: false };
     }
 
-    if (session.revokedAt !== null || session.expiresAt <= new Date() || session.user?.isDeactivated) {
+    const isInvalid = session.revokedAt !== null || session.expiresAt <= new Date() || !!session.user?.isDeactivated;
+    if (isInvalid) {
+      memorySessionCache.set(sessionId, {
+        userId: session.userId,
+        expiresAt: session.expiresAt,
+        revoked: true,
+        cachedAt: Date.now(),
+      });
       if (isRedisReady()) {
         try {
           const client = getRedisClient();
@@ -94,7 +142,14 @@ export class SessionService {
       return { valid: false };
     }
 
-    // Cache valid session state in Redis
+    // Cache valid session state in memory and Redis
+    memorySessionCache.set(sessionId, {
+      userId: session.userId,
+      expiresAt: session.expiresAt,
+      revoked: false,
+      cachedAt: Date.now(),
+    });
+
     if (isRedisReady()) {
       try {
         const client = getRedisClient();
@@ -118,6 +173,10 @@ export class SessionService {
   static async revokeSession(sessionId: string): Promise<void> {
     if (!sessionId) return;
 
+    // Invalidate local in-memory cache immediately
+    memorySessionCache.delete(sessionId);
+    lastTouchedMap.delete(sessionId);
+
     await prisma.session.updateMany({
       where: { id: sessionId, revokedAt: null },
       data: { revokedAt: new Date() },
@@ -139,6 +198,14 @@ export class SessionService {
    */
   static async revokeAllUserSessions(userId: string): Promise<void> {
     if (!userId) return;
+
+    // Invalidate all in-memory entries for this user
+    for (const [id, entry] of memorySessionCache.entries()) {
+      if (entry.userId === userId) {
+        memorySessionCache.delete(id);
+        lastTouchedMap.delete(id);
+      }
+    }
 
     const activeSessions = await prisma.session.findMany({
       where: { userId, revokedAt: null },
@@ -163,10 +230,19 @@ export class SessionService {
   }
 
   /**
-   * Update last used timestamp for session
+   * Update last used timestamp for session with 5-minute throttling
+   * (Prevents generating redundant write queries to DB on every single parallel API request)
    */
   static async touchSession(sessionId: string): Promise<void> {
     if (!sessionId) return;
+    const now = Date.now();
+    const lastTouched = lastTouchedMap.get(sessionId) || 0;
+    // Throttle to at most once every 5 minutes (300,000 ms)
+    if (now - lastTouched < 5 * 60 * 1000) {
+      return;
+    }
+    lastTouchedMap.set(sessionId, now);
+
     try {
       await prisma.session.update({
         where: { id: sessionId },

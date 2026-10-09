@@ -155,19 +155,26 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
     return { days: diffDays, text: `${diffDays} days left`, onTrack: true };
   }, [project?.endDate]);
 
-  const loadData = useCallback(async () => {
+  useEffect(() => {
+    if (propProject) {
+      setProject(propProject);
+    }
+  }, [propProject]);
+
+  const loadData = useCallback(async (forceProjectRefresh = false) => {
     if (!projectId) return;
     setLoading(true);
     setError(null);
 
     try {
+      const needsProject = forceProjectRefresh || (!propProject && !project);
       const [projRes, workRes, actRes] = await Promise.all([
-        projectsApi.getProjectById(projectId),
+        needsProject ? projectsApi.getProjectById(projectId) : Promise.resolve(null),
         workApi.getProjectWorkItems(projectId),
         activityApi.getProjectActivities(projectId, { limit: 8 }),
       ]);
 
-      if (projRes.success && projRes.data.project) {
+      if (projRes && projRes.success && projRes.data?.project) {
         setProject(projRes.data.project);
       }
       if (workRes.success && workRes.data) {
@@ -182,11 +189,11 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, propProject, project]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData, refreshTrigger]);
+    loadData(Boolean(refreshTrigger && refreshTrigger > 0));
+  }, [projectId, refreshTrigger]);
 
   const handleWorkItemCreated = (newItem: WorkItem) => {
     setWorkItems((prev) => [newItem, ...prev]);

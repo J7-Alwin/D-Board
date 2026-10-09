@@ -128,10 +128,16 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       .catch(() => {});
   };
 
-  // Initial fetch and on route change
+  // Initial fetch when authenticated user is loaded
   useEffect(() => {
     refreshCountsAndProjects();
-  }, [user, path]);
+
+    const handleCustomRefresh = () => refreshCountsAndProjects();
+    window.addEventListener('dboard:refresh-projects', handleCustomRefresh);
+    return () => {
+      window.removeEventListener('dboard:refresh-projects', handleCustomRefresh);
+    };
+  }, [user?.id]);
 
   // Real-time socket listeners for global user state
   useEffect(() => {

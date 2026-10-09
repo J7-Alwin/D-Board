@@ -130,21 +130,27 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [defaultCreateStatus, setDefaultCreateStatus] = useState<WorkItemStatus>('TODO');
   const [selectedWorkItemId, setSelectedWorkItemId] = useState<string | null>(null);
-
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
-  const loadBoardData = useCallback(async () => {
+  useEffect(() => {
+    if (propProject) {
+      setProject(propProject);
+    }
+  }, [propProject]);
+
+  const loadBoardData = useCallback(async (forceProjectRefresh = false) => {
     if (!projectId) return;
     setLoading(true);
     setError(null);
 
     try {
+      const needsProject = forceProjectRefresh || (!propProject && !project);
       const [projRes, workRes] = await Promise.all([
-        projectsApi.getProjectById(projectId),
+        needsProject ? projectsApi.getProjectById(projectId) : Promise.resolve(null),
         workApi.getProjectWorkItems(projectId),
       ]);
 
-      if (projRes.success && projRes.data.project) {
+      if (projRes && projRes.success && projRes.data?.project) {
         setProject(projRes.data.project);
       }
       if (workRes.success && workRes.data) {
@@ -155,11 +161,11 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, propProject, project]);
 
   useEffect(() => {
     loadBoardData();
-  }, [loadBoardData]);
+  }, [projectId]);
 
   // Real-time synchronization for Kanban board
   useEffect(() => {

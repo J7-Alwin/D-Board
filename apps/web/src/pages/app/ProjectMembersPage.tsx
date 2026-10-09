@@ -73,19 +73,26 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
   const [createWorkModalOpen, setCreateWorkModalOpen] = useState(false);
   const [memberToDelete, setMemberToDelete] = useState<{ id: string; name: string } | null>(null);
 
-  const loadData = useCallback(async () => {
+  useEffect(() => {
+    if (propProject) {
+      setProject(propProject);
+    }
+  }, [propProject]);
+
+  const loadData = useCallback(async (forceProjectRefresh = false) => {
     if (!projectId) return;
     setLoading(true);
     setError(null);
 
     try {
+      const needsProject = forceProjectRefresh || (!propProject && !project);
       const [projRes, memRes, workRes] = await Promise.all([
-        projectsApi.getProjectById(projectId),
+        needsProject ? projectsApi.getProjectById(projectId) : Promise.resolve(null),
         membersApi.getProjectMembers(projectId),
         workApi.getProjectWorkItems(projectId).catch(() => ({ success: false, data: { workItems: [] } })),
       ]);
 
-      if (projRes.success && projRes.data.project) {
+      if (projRes && projRes.success && projRes.data?.project) {
         setProject(projRes.data.project);
       }
       if (memRes.success && memRes.data) {
@@ -101,11 +108,11 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, propProject, project]);
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [projectId]);
 
   // Close member action menu on outside click
   useEffect(() => {

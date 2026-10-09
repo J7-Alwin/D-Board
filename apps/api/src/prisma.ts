@@ -80,7 +80,11 @@ const sslConfig = isRemoteOrSsl
 const pool = new pg.Pool({
     connectionString,
     ssl: sslConfig,
-    max: parseInt(process.env.DB_POOL_MAX || '10', 10),
+    max: parseInt(process.env.DB_POOL_MAX || '5', 10),
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 10000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
 });
 
 const adapter = new PrismaPg(pool);

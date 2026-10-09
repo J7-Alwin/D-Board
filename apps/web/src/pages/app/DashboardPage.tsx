@@ -213,22 +213,27 @@ export const DashboardPage: React.FC = () => {
       if (dashRes.success && dashRes.data) {
         setData(dashRes.data);
 
-        // Fetch recent activities from available projects
-        const allProjs = [...dashRes.data.myProjects, ...dashRes.data.joinedProjects];
-        if (allProjs.length > 0) {
-          const actPromises = allProjs.slice(0, 3).map((p) =>
-            activityApi.getProjectActivities(p.id, { limit: 5 }).catch(() => ({ success: false, data: { activities: [] } }))
-          );
-          const actResults = await Promise.all(actPromises);
-          const collected: ActivityItem[] = [];
-          actResults.forEach((r) => {
-            if (r.success && r.data?.activities) {
-              collected.push(...r.data.activities);
-            }
-          });
-          // Sort latest first
-          collected.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          setRecentActivities(collected.slice(0, 5));
+        // Use recent activities already supplied in the dashboard response (0 extra network roundtrips)
+        if (Array.isArray(dashRes.data.recentActivities) && dashRes.data.recentActivities.length > 0) {
+          setRecentActivities(dashRes.data.recentActivities);
+        } else {
+          // Fallback only if not pre-computed
+          const allProjs = [...dashRes.data.myProjects, ...dashRes.data.joinedProjects];
+          if (allProjs.length > 0) {
+            const actPromises = allProjs.slice(0, 3).map((p) =>
+              activityApi.getProjectActivities(p.id, { limit: 5 }).catch(() => ({ success: false, data: { activities: [] } }))
+            );
+            const actResults = await Promise.all(actPromises);
+            const collected: ActivityItem[] = [];
+            actResults.forEach((r) => {
+              if (r.success && r.data?.activities) {
+                collected.push(...r.data.activities);
+              }
+            });
+            // Sort latest first
+            collected.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            setRecentActivities(collected.slice(0, 5));
+          }
         }
       }
       if (invitesRes.success && invitesRes.data?.invitations) {

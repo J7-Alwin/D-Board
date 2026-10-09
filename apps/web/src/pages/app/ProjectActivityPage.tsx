@@ -57,18 +57,25 @@ export const ProjectActivityPage: React.FC<ProjectActivityPageProps> = ({
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedWorkItemId, setSelectedWorkItemId] = useState<string | null>(null);
 
-  const loadActivities = useCallback(async () => {
+  useEffect(() => {
+    if (propProject) {
+      setProject(propProject);
+    }
+  }, [propProject]);
+
+  const loadActivities = useCallback(async (forceProjectRefresh = false) => {
     if (!projectId) return;
     setLoading(true);
     setError(null);
 
     try {
+      const needsProject = forceProjectRefresh || (!propProject && !project);
       const [projRes, actRes] = await Promise.all([
-        projectsApi.getProjectById(projectId),
+        needsProject ? projectsApi.getProjectById(projectId) : Promise.resolve(null),
         activityApi.getProjectActivities(projectId, { category, limit: 100 }),
       ]);
 
-      if (projRes.success && projRes.data.project) {
+      if (projRes && projRes.success && projRes.data?.project) {
         setProject(projRes.data.project);
       }
       if (actRes.success && actRes.data) {
@@ -79,11 +86,11 @@ export const ProjectActivityPage: React.FC<ProjectActivityPageProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [projectId, category]);
+  }, [projectId, category, propProject, project]);
 
   useEffect(() => {
     loadActivities();
-  }, [loadActivities]);
+  }, [projectId, category]);
 
   // Client-side date and search filtering
   const filteredActivities = useMemo(() => {

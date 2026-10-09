@@ -9,7 +9,7 @@
     "build": "prisma generate --schema=prisma/schema.prisma && tsc && node scripts/copy-prisma.js",
     "start": "node dist/server.js",
     "worker": "node dist/worker.js",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "prisma generate --schema=prisma/schema.prisma && tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run src/tests/unit",
     "test:integration": "vitest run src/tests/integration"
@@ -33,7 +33,7 @@
     "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.3.0",
-    "nodemailer": "^10.0.0",
+    "nodemailer": "^10.0.16",
     "pg": "^8.23.0",
     "socket.io": "^4.8.3",
     "zod": "^4.5.4"

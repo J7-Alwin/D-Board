@@ -2,6 +2,10 @@
   "name": "d-board",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=22.0.0 <23.0.0",
+    "npm": ">=10.0.0"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -19,5 +23,8 @@
     "test": "npm run test:api && npm run test:web && npm run test:e2e",
     "verify:providers": "tsx scripts/verify-providers.ts",
     "audit": "node scripts/audit-check.mjs"
+  },
+  "overrides": {
+    "proxy-addr": "^2.0.8"
   }
 }

@@ -1,27 +1,38 @@
 import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import semver from 'semver';
 
 console.log('🔍 Running D-Board Security Audit with Strict Advisory Allowlist...\n');
 
 let auditOutput = '';
-let execFailed = false;
 
 try {
   auditOutput = execSync('npm audit --omit=dev --json', {
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
-    timeout: 30000,
+    timeout: 120000,
   });
 } catch (err) {
+  if (err.code === 'ETIMEDOUT' || err.killed) {
+    console.error('❌ AUDIT TIMEOUT: npm audit execution timed out after 120 seconds. Registry or network may be slow/unresponsive.');
+    process.exit(1);
+  }
   // npm audit exits with code 1 if vulnerabilities are found
   auditOutput = err.stdout?.toString() || '';
   if (!auditOutput && err.stderr) {
-    console.error('❌ AUDIT UNAVAILABLE: npm audit execution failed:', err.stderr.toString());
+    const errText = err.stderr.toString();
+    if (errText.includes('ENOTFOUND') || errText.includes('ECONNREFUSED') || errText.includes('fetch failed')) {
+      console.error('❌ AUDIT NETWORK FAILURE: npm audit registry network error:', errText);
+    } else {
+      console.error('❌ AUDIT UNAVAILABLE: npm audit execution failed:', errText);
+    }
     process.exit(1);
   }
 }
 
 if (!auditOutput || !auditOutput.trim()) {
-  console.error('❌ AUDIT UNAVAILABLE: No audit output returned from npm audit (possible network failure or missing npm).');
+  console.error('❌ AUDIT UNAVAILABLE: No audit output returned from npm audit (possible network failure, missing npm, or empty response).');
   process.exit(1);
 }
 
@@ -71,6 +82,62 @@ const KNOWN_ACCEPTED_RISKS = [
   },
 ];
 
+/**
+ * Resolves the installed version(s) of a given package from nodes paths or disk.
+ */
+function getInstalledVersions(pkgName, nodes) {
+  const versions = new Set();
+
+  if (Array.isArray(nodes)) {
+    for (const nodePath of nodes) {
+      try {
+        const pkgPath = path.resolve(process.cwd(), nodePath, 'package.json');
+        if (fs.existsSync(pkgPath)) {
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+          if (pkg.version) versions.add(pkg.version);
+        }
+      } catch {}
+    }
+  }
+
+  if (versions.size === 0) {
+    try {
+      const pkgPath = path.resolve(process.cwd(), 'node_modules', pkgName, 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        if (pkg.version) versions.add(pkg.version);
+      }
+    } catch {}
+  }
+
+  if (versions.size === 0) {
+    try {
+      const lockPath = path.resolve(process.cwd(), 'package-lock.json');
+      if (fs.existsSync(lockPath)) {
+        const lock = JSON.parse(fs.readFileSync(lockPath, 'utf-8'));
+        if (lock.packages) {
+          for (const [key, val] of Object.entries(lock.packages)) {
+            if (key.endsWith('node_modules/' + pkgName) && val.version) {
+              versions.add(val.version);
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
+  return Array.from(versions);
+}
+
+function matchesVersion(installedVersion, expectedRange) {
+  try {
+    const s = semver.default || semver;
+    return s.satisfies(installedVersion, expectedRange);
+  } catch {
+    return installedVersion === expectedRange;
+  }
+}
+
 let unexpectedHigh = 0;
 let unexpectedCritical = 0;
 
@@ -100,9 +167,21 @@ for (const [pkgName, details] of Object.entries(report.vulnerabilities)) {
         );
 
         if (matchingRisk) {
-          console.log(`⚠️  [AUDIT EXCEPTION ACCEPTED] Package "${v.name}" (${matchingRisk.riskId}):`);
-          console.log(`    Source ID: ${v.source} | URL: ${v.url}`);
-          console.log(`    Reason: ${matchingRisk.reason}`);
+          const installedVersions = getInstalledVersions(v.name, details.nodes);
+          const hasVersions = installedVersions.length > 0;
+          const allVersionsSatisfy = hasVersions && installedVersions.every(ver => matchesVersion(ver, matchingRisk.expectedVersion));
+
+          if (!hasVersions) {
+            console.error(`❌ UNAPPROVED Version for "${v.name}": Could not determine installed version to verify against expected "${matchingRisk.expectedVersion}".`);
+            allAdvisoriesApproved = false;
+          } else if (!allVersionsSatisfy) {
+            console.error(`❌ UNAPPROVED Version for "${v.name}": Installed version(s) [${installedVersions.join(', ')}] do not satisfy expected version "${matchingRisk.expectedVersion}".`);
+            allAdvisoriesApproved = false;
+          } else {
+            console.log(`⚠️  [AUDIT EXCEPTION ACCEPTED] Package "${v.name}" (version: ${installedVersions.join(', ')}) (${matchingRisk.riskId}):`);
+            console.log(`    Source ID: ${v.source} | URL: ${v.url}`);
+            console.log(`    Reason: ${matchingRisk.reason}`);
+          }
         } else {
           console.error(`❌ UNAPPROVED High Vulnerability in "${v.name}":`, v.title, `(${v.url})`);
           allAdvisoriesApproved = false;

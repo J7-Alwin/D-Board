@@ -242,108 +242,89 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           </button>
         </div>
 
-        {/* Primary Navigation */}
-        <nav className="workspace-nav" aria-label="Main Navigation">
-          <Link
-            to="/app/dashboard"
-            className={`workspace-nav-item ${path === '/app/dashboard' ? 'active' : ''}`}
-            onClick={() => setSidebarOpen(false)}
-          >
-            <LayersIcon size={18} />
-            <span>Dashboard</span>
-          </Link>
-          <Link
-            to="/app/my-work"
-            className={`workspace-nav-item ${path === '/app/my-work' || path === '/app/work' ? 'active' : ''}`}
-            onClick={() => setSidebarOpen(false)}
-          >
-            <CheckSquareIcon size={18} />
-            <span>My Work</span>
-          </Link>
-          <Link
-            to="/app/calendar"
-            className={`workspace-nav-item ${path === '/app/calendar' ? 'active' : ''}`}
-            onClick={() => setSidebarOpen(false)}
-          >
-            <CalendarIcon size={18} />
-            <span>Calendar</span>
-          </Link>
-          <Link
-            to="/app/files"
-            className={`workspace-nav-item ${path === '/app/files' ? 'active' : ''}`}
-            onClick={() => setSidebarOpen(false)}
-          >
-            <FolderIcon size={18} />
-            <span>Files</span>
-          </Link>
-          <Link
-            to="/app/notes"
-            className={`workspace-nav-item ${path === '/app/notes' ? 'active' : ''}`}
-            onClick={() => setSidebarOpen(false)}
-          >
-            <FileTextIcon size={18} />
-            <span>Notes</span>
-          </Link>
-          <Link
-            to="/app/activity"
-            className={`workspace-nav-item ${path === '/app/activity' ? 'active' : ''}`}
-            onClick={() => setSidebarOpen(false)}
-          >
-            <ActivityIcon size={18} />
-            <span>Activity</span>
-          </Link>
-          <Link
-            to="/app/notifications"
-            className={`workspace-nav-item ${path === '/app/notifications' ? 'active' : ''}`}
-            onClick={() => setSidebarOpen(false)}
-          >
-            <BellIcon size={18} />
-            <span>Notifications</span>
-            {unreadNotificationCount > 0 && (
-              <span className="sidebar-invites-badge">{unreadNotificationCount}</span>
-            )}
-          </Link>
-        </nav>
-
-        {/* Project Navigation Area */}
-        <div className="workspace-projects-list">
-          <div className="projects-header-row">
-            <span className="projects-label">MY PROJECTS</span>
+        {/* Scrollable Navigation & Projects Area */}
+        <div className="workspace-sidebar-scroll">
+          {/* Primary Navigation */}
+          <nav className="workspace-nav" aria-label="Main Navigation">
             <Link
-              to="/app/projects/create"
-              className="projects-add-btn"
-              title="Create new project"
+              to="/app/dashboard"
+              className={`workspace-nav-item ${path === '/app/dashboard' ? 'active' : ''}`}
               onClick={() => setSidebarOpen(false)}
             >
-              <PlusIcon size={14} />
+              <LayersIcon size={18} />
+              <span>Dashboard</span>
             </Link>
-          </div>
+            <Link
+              to="/app/my-work"
+              className={`workspace-nav-item ${path === '/app/my-work' || path === '/app/work' ? 'active' : ''}`}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <CheckSquareIcon size={18} />
+              <span>My Work</span>
+            </Link>
+            <Link
+              to="/app/calendar"
+              className={`workspace-nav-item ${path === '/app/calendar' ? 'active' : ''}`}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <CalendarIcon size={18} />
+              <span>Calendar</span>
+            </Link>
+            <Link
+              to="/app/files"
+              className={`workspace-nav-item ${path === '/app/files' ? 'active' : ''}`}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <FolderIcon size={18} />
+              <span>Files</span>
+            </Link>
+            <Link
+              to="/app/notes"
+              className={`workspace-nav-item ${path === '/app/notes' ? 'active' : ''}`}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <FileTextIcon size={18} />
+              <span>Notes</span>
+            </Link>
+            <Link
+              to="/app/activity"
+              className={`workspace-nav-item ${path === '/app/activity' ? 'active' : ''}`}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <ActivityIcon size={18} />
+              <span>Activity</span>
+            </Link>
+            <Link
+              to="/app/notifications"
+              className={`workspace-nav-item ${path === '/app/notifications' ? 'active' : ''}`}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <BellIcon size={18} />
+              <span>Notifications</span>
+              {unreadNotificationCount > 0 && (
+                <span className="sidebar-invites-badge">{unreadNotificationCount}</span>
+              )}
+            </Link>
+          </nav>
 
-          {projects.owned.length === 0 ? (
-            <div className="sidebar-empty-projects">No owned projects</div>
-          ) : (
-            projects.owned.map((p) => {
-              const isActive = path === `/app/projects/${p.id}` || path.startsWith(`/app/projects/${p.id}/`);
-              return (
-                <Link
-                  key={p.id}
-                  to={`/app/projects/${p.id}`}
-                  className={`workspace-project-pill ${isActive ? 'active' : ''}`}
-                  onClick={() => setSidebarOpen(false)}
-                >
-                  <ProjectAvatar project={p} size="xs" />
-                  <span className="proj-name">{p.name}</span>
-                </Link>
-              );
-            })
-          )}
+          {/* Project Navigation Area */}
+          <div className="workspace-projects-list">
+            <div className="projects-header-row">
+              <span className="projects-label">MY PROJECTS</span>
+              <Link
+                to="/app/projects/create"
+                className="projects-add-btn"
+                title="Create new project"
+                onClick={() => setSidebarOpen(false)}
+              >
+                <PlusIcon size={14} />
+              </Link>
+            </div>
 
-          {projects.joined.length > 0 && (
-            <>
-              <div className="projects-header-row" style={{ marginTop: '1rem' }}>
-                <span className="projects-label">JOINED PROJECTS</span>
-              </div>
-              {projects.joined.map((p) => {
+            {projects.owned.length === 0 ? (
+              <div className="sidebar-empty-projects">No owned projects</div>
+            ) : (
+              projects.owned.map((p) => {
                 const isActive = path === `/app/projects/${p.id}` || path.startsWith(`/app/projects/${p.id}/`);
                 return (
                   <Link
@@ -356,9 +337,31 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                     <span className="proj-name">{p.name}</span>
                   </Link>
                 );
-              })}
-            </>
-          )}
+              })
+            )}
+
+            {projects.joined.length > 0 && (
+              <>
+                <div className="projects-header-row" style={{ marginTop: '1rem' }}>
+                  <span className="projects-label">JOINED PROJECTS</span>
+                </div>
+                {projects.joined.map((p) => {
+                  const isActive = path === `/app/projects/${p.id}` || path.startsWith(`/app/projects/${p.id}/`);
+                  return (
+                    <Link
+                      key={p.id}
+                      to={`/app/projects/${p.id}`}
+                      className={`workspace-project-pill ${isActive ? 'active' : ''}`}
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <ProjectAvatar project={p} size="xs" />
+                      <span className="proj-name">{p.name}</span>
+                    </Link>
+                  );
+                })}
+              </>
+            )}
+          </div>
         </div>
 
         {/* Action Area */}

@@ -36,46 +36,48 @@ export const DashboardPreviewPage: React.FC = () => {
           </Link>
         </div>
 
-        <nav className="workspace-nav">
-          <Link to="/app/dashboard" className="workspace-nav-item active">
-            <LayersIcon size={18} />
-            <span>Dashboard</span>
-          </Link>
-          <div className="workspace-nav-item">
-            <CheckSquareIcon size={18} />
-            <span>My Work</span>
-          </div>
-          <div className="workspace-nav-item">
-            <CalendarIcon size={18} />
-            <span>Calendar</span>
-          </div>
-          <div className="workspace-nav-item">
-            <FolderIcon size={18} />
-            <span>Files</span>
-          </div>
-          <div className="workspace-nav-item">
-            <FileTextIcon size={18} />
-            <span>Notes</span>
-          </div>
-          <div className="workspace-nav-item">
-            <ActivityIcon size={18} />
-            <span>Activity</span>
-          </div>
-        </nav>
+        <div className="workspace-sidebar-scroll">
+          <nav className="workspace-nav">
+            <Link to="/app/dashboard" className="workspace-nav-item active">
+              <LayersIcon size={18} />
+              <span>Dashboard</span>
+            </Link>
+            <div className="workspace-nav-item">
+              <CheckSquareIcon size={18} />
+              <span>My Work</span>
+            </div>
+            <div className="workspace-nav-item">
+              <CalendarIcon size={18} />
+              <span>Calendar</span>
+            </div>
+            <div className="workspace-nav-item">
+              <FolderIcon size={18} />
+              <span>Files</span>
+            </div>
+            <div className="workspace-nav-item">
+              <FileTextIcon size={18} />
+              <span>Notes</span>
+            </div>
+            <div className="workspace-nav-item">
+              <ActivityIcon size={18} />
+              <span>Activity</span>
+            </div>
+          </nav>
 
-        <div className="workspace-projects-list">
-          <div className="projects-label">MY PROJECTS</div>
-          <div className="workspace-project-pill active">
-            <span className="proj-dot bullet-d">D</span>
-            <span className="proj-name">D-Board</span>
-          </div>
-          <div className="workspace-project-pill">
-            <span className="proj-dot bullet-p">P</span>
-            <span className="proj-name">Portfolio</span>
-          </div>
-          <div className="workspace-project-pill">
-            <span className="proj-dot bullet-a">&lt;/&gt;</span>
-            <span className="proj-name">API Lab</span>
+          <div className="workspace-projects-list">
+            <div className="projects-label">MY PROJECTS</div>
+            <div className="workspace-project-pill active">
+              <span className="proj-dot bullet-d">D</span>
+              <span className="proj-name">D-Board</span>
+            </div>
+            <div className="workspace-project-pill">
+              <span className="proj-dot bullet-p">P</span>
+              <span className="proj-name">Portfolio</span>
+            </div>
+            <div className="workspace-project-pill">
+              <span className="proj-dot bullet-a">&lt;/&gt;</span>
+              <span className="proj-name">API Lab</span>
+            </div>
           </div>
         </div>
 

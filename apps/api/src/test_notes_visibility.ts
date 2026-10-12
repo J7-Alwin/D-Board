@@ -1,6 +1,7 @@
 import { prisma } from './prisma.js';
 import { noteService } from './services/note.service.js';
 import { activityService } from './services/activity.service.js';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runTests() {
   console.log('🚀 Starting Notes Visibility, Mentions & Security Integration Test Suite...\n');
@@ -32,12 +33,14 @@ async function runTests() {
   });
 
   // 2. Create a project with User A as owner/admin, User B & User C as members
+  const workspaceId = await ensureTestWorkspace(userA.id);
   const project = await prisma.project.create({
     data: {
       name: `Security Project ${timestamp}`,
       key: `SEC${String(timestamp).slice(-3)}`,
       description: 'Notes security and visibility test project',
       createdById: userA.id,
+      workspaceId,
       members: {
         create: [
           { userId: userB.id, role: 'PROJECT_MEMBER' },

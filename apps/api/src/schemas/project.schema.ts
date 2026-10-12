@@ -36,6 +36,7 @@ export const createProjectSchema = z.object({
     .nullable()
     .or(z.literal('')),
   avatarUrl: z.string().trim().optional().nullable().or(z.literal('')),
+  workspaceId: z.string().trim().optional().nullable(),
   invitations: z
     .array(
       z.object({

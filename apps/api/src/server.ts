@@ -7,6 +7,7 @@ import helmet from "helmet";
 import { env, validateEnv } from "./config/env.js";
 import prisma from "./prisma.js";
 import authRoutes from "./routes/auth.routes.js";
+import workspaceRoutes from "./routes/workspace.routes.js";
 import { projectRoutes } from "./routes/project.routes.js";
 import { dashboardRoutes } from "./routes/dashboard.routes.js";
 import { globalWorkRoutes } from "./routes/globalWork.routes.js";
@@ -96,8 +97,8 @@ app.use(
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
-    exposedHeaders: ["X-Request-Id"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Request-Id", "X-Workspace-Id"],
+    exposedHeaders: ["X-Request-Id", "X-Workspace-Id"],
   })
 );
 
@@ -116,6 +117,7 @@ app.use("/api", docsRoutes);
 
 // API Routes with Rate Limiting
 app.use("/api/auth", authRateLimiter, authRoutes);
+app.use("/api/workspaces", apiRateLimiter, workspaceRoutes);
 app.use("/api/invitations", invitationRateLimiter, userInvitationRoutes);
 app.use("/api/projects", apiRateLimiter, projectRoutes);
 app.use("/api/dashboard", apiRateLimiter, dashboardRoutes);

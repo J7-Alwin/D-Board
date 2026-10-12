@@ -47,6 +47,137 @@ function sanitizeUser(user: any): PublicUser {
   };
 }
 
+/**
+ * Ensures a single personal workspace exists for the user with OWNER membership.
+ * Safe under concurrency and idempotent for retries.
+ */
+export async function ensurePersonalWorkspace(
+  user: { id: string; username?: string; fullName?: string | null } | string,
+  txClient?: any
+): Promise<{ id: string; name: string; slug: string }> {
+  const client = txClient || prisma;
+  const userId = typeof user === 'string' ? user : user.id;
+
+  // 1. Check if personal workspace already exists
+  const existing = await client.workspace.findFirst({
+    where: { ownerId: userId, isPersonal: true },
+    select: { id: true, name: true, slug: true },
+  });
+
+  if (existing) {
+    // Ensure owner membership row is present
+    const ownerMember = await client.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: existing.id,
+          userId,
+        },
+      },
+    });
+
+    if (!ownerMember) {
+      await client.workspaceMember.create({
+        data: {
+          workspaceId: existing.id,
+          userId,
+          role: 'OWNER',
+        },
+      });
+    }
+
+    return existing;
+  }
+
+  let username = typeof user === 'object' && user.username ? user.username : 'user';
+  let fullName = typeof user === 'object' && user.fullName ? user.fullName : null;
+
+  if (typeof user === 'string' || !user.username) {
+    const dbUser = await client.user.findUnique({
+      where: { id: userId },
+      select: { username: true, fullName: true },
+    });
+    if (dbUser) {
+      username = dbUser.username;
+      fullName = dbUser.fullName;
+    }
+  }
+
+  // 2. Generate slug with unique entropy to prevent collisions
+  const cleanUsername = username.toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'user';
+  const entropy = crypto.randomBytes(3).toString('hex');
+  const slug = `${cleanUsername}-personal-${entropy}`;
+  const name = fullName?.trim()
+    ? `${fullName.trim()}'s Workspace`
+    : `${username}'s Workspace`;
+
+  try {
+    const execute = async (tx: any) => {
+      const ws = await tx.workspace.create({
+        data: {
+          name,
+          slug,
+          ownerId: userId,
+          isPersonal: true,
+          adminPermissions: {
+            canInviteMembers: false,
+            canRemoveMembers: false,
+            canCreateProjects: false,
+            canManageRoles: false,
+          },
+        },
+      });
+
+      await tx.workspaceMember.create({
+        data: {
+          workspaceId: ws.id,
+          userId,
+          role: 'OWNER',
+        },
+      });
+
+      return { id: ws.id, name: ws.name, slug: ws.slug };
+    };
+
+    if (txClient) {
+      return await execute(txClient);
+    } else {
+      return await prisma.$transaction(execute);
+    }
+  } catch (err: any) {
+    if (err.code === 'P2002' || err.message?.includes('Unique constraint')) {
+      const fallback = await client.workspace.findFirst({
+        where: { ownerId: userId, isPersonal: true },
+        select: { id: true, name: true, slug: true },
+      });
+      if (fallback) {
+        // Ensure owner membership row is present on fallback recovery
+        const ownerMember = await client.workspaceMember.findUnique({
+          where: {
+            workspaceId_userId: {
+              workspaceId: fallback.id,
+              userId,
+            },
+          },
+        });
+
+        if (!ownerMember) {
+          await client.workspaceMember.create({
+            data: {
+              workspaceId: fallback.id,
+              userId,
+              role: 'OWNER',
+              origin: 'DIRECT',
+            },
+          }).catch(() => {});
+        }
+
+        return fallback;
+      }
+    }
+    throw err;
+  }
+}
+
 export async function register(
   input: RegisterInput,
   meta?: AuthSessionMeta
@@ -123,6 +254,9 @@ export async function register(
     }
     throw err;
   }
+
+  // Ensure personal workspace is provisioned for the new account
+  await ensurePersonalWorkspace(newUser);
 
   // Link any pending project invitations for this email address
   await invitationService.linkPendingInvitationsForUser(newUser.email, newUser.id);
@@ -205,6 +339,9 @@ export async function login(
     error.statusCode = 401;
     throw error;
   }
+
+  // Ensure personal workspace exists (self-healing for legacy users)
+  await ensurePersonalWorkspace(user);
 
   // Link any pending invitations in case user had invites created while offline
   await invitationService.linkPendingInvitationsForUser(user.email, user.id);
@@ -628,6 +765,9 @@ export async function handleGoogleAuth(
     }
   }
 
+  // Ensure personal workspace is provisioned for Google OAuth account
+  await ensurePersonalWorkspace(user);
+
   // Link any pending invitations
   await invitationService.linkPendingInvitationsForUser(user.email, user.id);
 
@@ -846,4 +986,5 @@ export const authService = {
   updateUsername,
   isUsernameAvailable,
   getSuggestedUsernames,
+  ensurePersonalWorkspace,
 };

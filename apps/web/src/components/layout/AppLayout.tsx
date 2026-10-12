@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { projectsApi, type Project } from '../../api/projects.api';
 import { invitationsApi } from '../../api/invitations.api';
+import { workspacesApi } from '../../api/workspaces.api';
 import { notificationsApi } from '../../api/notifications.api';
 import { searchApi, type SearchResultItem } from '../../api/search.api';
 import { NotificationDropdown } from '../notifications/NotificationDropdown';
@@ -25,6 +26,8 @@ import {
 import { Button } from '../ui/Button';
 import { ProjectAvatar } from '../ui/ProjectAvatar';
 import { Logo } from '../ui/Logo';
+import { useWorkspace } from '../../context/WorkspaceContext';
+import { WorkspaceSwitcher } from '../workspace/WorkspaceSwitcher';
 
 export interface AppLayoutProps {
   children: React.ReactNode;
@@ -32,6 +35,7 @@ export interface AppLayoutProps {
 
 export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const { user, isLoading, logout } = useAuth();
+  const { activeWorkspace } = useWorkspace();
   const { socket, isConnected } = useSocket();
   const { path, navigate } = useRouter();
 
@@ -109,14 +113,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       })
       .catch(() => {});
 
-    invitationsApi
-      .getPendingCount()
-      .then((res) => {
-        if (res.success && res.data) {
-          setPendingInviteCount(res.data.count || 0);
-        }
-      })
-      .catch(() => {});
+    Promise.all([
+      invitationsApi.getPendingCount().catch(() => ({ success: false, data: { count: 0 } })),
+      workspacesApi.getUserPendingInvitations().catch(() => ({ success: false, data: { invitations: [] } })),
+    ]).then(([projRes, wsRes]) => {
+      const projCount = (projRes && projRes.success && (projRes.data as any)?.count) || 0;
+      const wsCount = (wsRes && wsRes.success && (wsRes.data as any)?.invitations?.length) || 0;
+      setPendingInviteCount(projCount + wsCount);
+    }).catch(() => {});
 
     notificationsApi
       .getUnreadCount()
@@ -137,7 +141,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     return () => {
       window.removeEventListener('dboard:refresh-projects', handleCustomRefresh);
     };
-  }, [user?.id]);
+  }, [user?.id, activeWorkspace?.id]);
 
   // Real-time socket listeners for global user state
   useEffect(() => {
@@ -171,6 +175,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     socket.on('NOTIFICATION_CREATED', handleNotificationCreated);
     socket.on('NOTIFICATION_READ', handleNotificationRead);
     socket.on('INVITATION_CREATED', handleInvitationCreated);
+    socket.on('WORKSPACE_INVITATION_RECEIVED', handleInvitationCreated);
+    socket.on('WORKSPACE_MEMBER_JOINED', handleMemberUpdated);
     socket.on('MEMBER_ADDED', handleMemberUpdated);
     socket.on('MEMBER_REMOVED', handleMemberUpdated);
 
@@ -178,6 +184,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       socket.off('NOTIFICATION_CREATED', handleNotificationCreated);
       socket.off('NOTIFICATION_READ', handleNotificationRead);
       socket.off('INVITATION_CREATED', handleInvitationCreated);
+      socket.off('WORKSPACE_INVITATION_RECEIVED', handleInvitationCreated);
+      socket.off('WORKSPACE_MEMBER_JOINED', handleMemberUpdated);
       socket.off('MEMBER_ADDED', handleMemberUpdated);
       socket.off('MEMBER_REMOVED', handleMemberUpdated);
     };
@@ -247,6 +255,16 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             <CloseIcon size={20} />
           </button>
         </div>
+
+        {/* Workspace Switcher */}
+        <WorkspaceSwitcher
+          onWorkspaceSwitched={() => {
+            refreshCountsAndProjects();
+            if (path.startsWith('/app/projects/')) {
+              navigate('/app/dashboard');
+            }
+          }}
+        />
 
         {/* Scrollable Navigation & Projects Area */}
         <div className="workspace-sidebar-scroll">
@@ -756,7 +774,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         </header>
 
         {/* Page Content View */}
-        <main className="workspace-content-body">
+        <main className="workspace-content-body" key={activeWorkspace?.id || 'default'}>
           {children}
         </main>
       </div>

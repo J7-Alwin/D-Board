@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { projectController } from '../controllers/project.controller.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
+import { resolveWorkspaceContext } from '../middlewares/workspace.middleware.js';
 import { validate } from '../middlewares/validate.middleware.js';
 import { createProjectSchema, updateProjectSchema } from '../schemas/project.schema.js';
 import { workRoutes } from './work.routes.js';
@@ -24,6 +25,7 @@ router.get('/:projectId/calendar/feed.ics', optionalAuthenticate, (req, res, nex
 });
 
 router.use(authenticate);
+router.use(resolveWorkspaceContext);
 
 // Nested subroutes for work items, activities, members, invitations, notes, calendar, files, and folders
 router.use('/:projectId/work', workRoutes);

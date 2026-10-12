@@ -234,15 +234,21 @@ export class NoteService {
   /**
    * List global notes across all projects the user is a member of.
    */
-  async getGlobalNotes(userId: string, params: NoteQueryParams & { projectId?: string }) {
-    // Find all projects accessible by user
+  async getGlobalNotes(userId: string, params: NoteQueryParams & { projectId?: string }, workspaceId?: string) {
+    // Find all projects accessible by user in the active workspace
     const [memberships, ownedProjects] = await Promise.all([
       prisma.projectMember.findMany({
-        where: { userId },
+        where: {
+          userId,
+          ...(workspaceId ? { project: { workspaceId } } : {}),
+        },
         select: { projectId: true, role: true },
       }),
       prisma.project.findMany({
-        where: { createdById: userId },
+        where: {
+          createdById: userId,
+          ...(workspaceId ? { workspaceId } : {}),
+        },
         select: { id: true },
       }),
     ]);

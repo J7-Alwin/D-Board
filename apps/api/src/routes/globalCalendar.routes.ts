@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { calendarController } from '../controllers/calendar.controller.js';
 import { authenticate, optionalAuthenticate } from '../middlewares/auth.middleware.js';
+import { resolveWorkspaceContext } from '../middlewares/workspace.middleware.js';
 
 const router = Router();
 
@@ -10,6 +11,7 @@ router.get('/feed.ics', optionalAuthenticate, (req, res, next) => {
 });
 
 router.use(authenticate);
+router.use(resolveWorkspaceContext);
 
 // Feed subscription token management
 router.post('/feed/token', (req, res, next) => {

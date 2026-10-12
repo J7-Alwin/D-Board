@@ -23,6 +23,7 @@ import { invitationService } from './services/invitation.service.js';
 import { notificationService } from './services/notification.service.js';
 import { projectService } from './services/project.service.js';
 import { detectMagicByteCategory, classifyFile } from './utils/fileClassifier.js';
+import { ensureTestWorkspace } from './test_utils.js';
 import { validateEnv, env } from './config/env.js';
 import prisma from './prisma.js';
 
@@ -316,6 +317,7 @@ async function runRegressionSuite() {
         description: 'Test project for idempotency',
         key: `ITP${Date.now().toString().slice(-4)}`,
         createdById: inviterUser.id,
+        workspaceId: await ensureTestWorkspace(inviterUser.id),
       },
     });
 
@@ -407,6 +409,7 @@ async function runRegressionSuite() {
         description: 'Test project for dedup delete invariant',
         key: `DIP${Date.now().toString().slice(-4)}`,
         createdById: testUser.id,
+        workspaceId: await ensureTestWorkspace(testUser.id),
       },
     });
 
@@ -499,6 +502,7 @@ async function runRegressionSuite() {
         description: 'Testing quota enforcement',
         key: `QTP${Date.now().toString().slice(-4)}`,
         createdById: quotaUser.id,
+        workspaceId: await ensureTestWorkspace(quotaUser.id),
       },
     });
 
@@ -568,6 +572,7 @@ async function runRegressionSuite() {
         description: 'Testing durable cleanup outbox',
         key: `OTP${Date.now().toString().slice(-4)}`,
         createdById: delUser.id,
+        workspaceId: await ensureTestWorkspace(delUser.id),
       },
     });
 

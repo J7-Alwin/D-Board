@@ -6,6 +6,7 @@ import { generateJwt } from './utils/security.js';
 import { initRealtime } from './realtime/realtime.service.js';
 import { noteService } from './services/note.service.js';
 import bcrypt from 'bcryptjs';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runSecurityTests() {
   console.log('🔒 Starting Real-Time Security & Private Note Isolation Tests...\n');
@@ -58,12 +59,14 @@ async function runSecurityTests() {
   const tokenB = generateJwt({ userId: userB.id, email: userB.email, username: userB.username });
   const tokenC = generateJwt({ userId: userC.id, email: userC.email, username: userC.username });
 
+  const workspaceId = await ensureTestWorkspace(userA.id);
   const project = await prisma.project.create({
     data: {
       name: `Security RT Project ${testSuffix}`,
       key: `SRT${testSuffix.slice(-3)}`,
       description: 'Project for testing real-time note isolation',
       createdById: userA.id,
+      workspaceId,
       members: {
         create: [
           { userId: userA.id, role: 'PROJECT_ADMIN' },

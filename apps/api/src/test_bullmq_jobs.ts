@@ -4,6 +4,7 @@ import { authService } from './services/auth.service.js';
 import { invitationService } from './services/invitation.service.js';
 import { notificationService } from './services/notification.service.js';
 import bcrypt from 'bcryptjs';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runJobTests() {
   console.log('🚀 Starting BullMQ Background Jobs Integration Tests...\n');
@@ -30,12 +31,14 @@ async function runJobTests() {
     },
   });
 
+  const workspaceId = await ensureTestWorkspace(userA.id);
   const project = await prisma.project.create({
     data: {
       name: `Jobs Project ${testSuffix}`,
       key: `JOB${testSuffix.slice(-3)}`,
       description: 'Jobs test project',
       createdById: userA.id,
+      workspaceId,
       members: {
         create: [
           { userId: userA.id, role: 'PROJECT_ADMIN' },

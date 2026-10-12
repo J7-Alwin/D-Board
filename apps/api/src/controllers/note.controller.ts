@@ -27,10 +27,11 @@ export class NoteController {
     try {
       if (!req.user) throw new AppError('Authentication required', 401);
       const userId = req.user.userId;
+      const workspaceId = (req as any).workspaceId || (req.query?.workspaceId as string) || (req.headers['x-workspace-id'] as string);
       const query = noteQuerySchema.parse(req.query);
-      const projectId = req.query.projectId ? (req.query.projectId as string) : undefined;
+      const projectId = req.query.projectId as string | undefined;
 
-      const result = await noteService.getGlobalNotes(userId, { ...query, projectId });
+      const result = await noteService.getGlobalNotes(userId, { ...query, projectId }, workspaceId);
 
       res.status(200).json({
         success: true,

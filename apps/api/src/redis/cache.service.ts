@@ -143,19 +143,27 @@ export class CacheService {
 
   // Helper Key Builders for Scoped Cache Isolation
   keys = {
-    userDashboard: (userId: string) => `user:${userId}:dashboard`,
-    userUnreadNotifications: (userId: string) => `user:${userId}:notifications:unread`,
-    userMyWork: (userId: string) => `user:${userId}:mywork`,
-    userProjects: (userId: string) => `user:${userId}:projects`,
+    userDashboard: (userId: string, workspaceId?: string) =>
+      workspaceId ? `user:${userId}:ws:${workspaceId}:dashboard` : `user:${userId}:dashboard`,
+    userUnreadNotifications: (userId: string, workspaceId?: string) =>
+      workspaceId ? `user:${userId}:ws:${workspaceId}:notifications:unread` : `user:${userId}:notifications:unread`,
+    userMyWork: (userId: string, workspaceId?: string) =>
+      workspaceId ? `user:${userId}:ws:${workspaceId}:mywork` : `user:${userId}:mywork`,
+    userProjects: (userId: string, workspaceId?: string) =>
+      workspaceId ? `user:${userId}:ws:${workspaceId}:projects` : `user:${userId}:projects`,
     projectSummary: (projectId: string) => `project:${projectId}:summary`,
     projectMembers: (projectId: string) => `project:${projectId}:members`,
   };
 
   /**
-   * Invalidate all cached data for a specific user
+   * Invalidate all cached data for a specific user (optionally scoped to a workspace)
    */
-  async invalidateUser(userId: string): Promise<void> {
-    await this.delPattern(`user:${userId}:*`);
+  async invalidateUser(userId: string, workspaceId?: string): Promise<void> {
+    if (workspaceId) {
+      await this.delPattern(`user:${userId}:ws:${workspaceId}:*`);
+    } else {
+      await this.delPattern(`user:${userId}:*`);
+    }
   }
 
   /**

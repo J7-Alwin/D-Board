@@ -205,9 +205,9 @@ export class MemberService {
       }
     }
 
-    // Delete membership and log activity
+    // Delete membership, revoke derived workspace access if last project, and log activity
     await prisma.$transaction(async (tx) => {
-      // Unassign target member from work items in this project
+      // Unassign target member from work items in this project (preserve item and creator attribution)
       await tx.workItem.updateMany({
         where: { projectId, assignedToId: targetMember.userId },
         data: { assignedToId: null },
@@ -216,6 +216,49 @@ export class MemberService {
       await tx.projectMember.delete({
         where: { id: targetMemberId },
       });
+
+      // Lifecycle check: If target user had ONLY a legacy project-derived workspace membership,
+      // revoke workspace membership when they have no remaining projects in the workspace.
+      // Preserves independent direct members (origin === 'DIRECT') and workspace admins/owners.
+      const wsMember = await tx.workspaceMember.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId: project.workspaceId,
+            userId: targetMember.userId,
+          },
+        },
+      });
+
+      if (
+        wsMember &&
+        wsMember.origin === 'PROJECT_DERIVED' &&
+        wsMember.role === 'WORKSPACE_MEMBER'
+      ) {
+        const remainingMemberships = await tx.projectMember.count({
+          where: {
+            userId: targetMember.userId,
+            project: { workspaceId: project.workspaceId },
+          },
+        });
+
+        const remainingOwnedProjects = await tx.project.count({
+          where: {
+            workspaceId: project.workspaceId,
+            createdById: targetMember.userId,
+          },
+        });
+
+        if (remainingMemberships === 0 && remainingOwnedProjects === 0) {
+          await tx.workspaceMember.delete({
+            where: {
+              workspaceId_userId: {
+                workspaceId: project.workspaceId,
+                userId: targetMember.userId,
+              },
+            },
+          });
+        }
+      }
 
       await activityService.createActivity(
         {

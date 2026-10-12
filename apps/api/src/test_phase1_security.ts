@@ -6,6 +6,7 @@ import { projectService } from './services/project.service.js';
 import { memberService } from './services/member.service.js';
 import { invitationService } from './services/invitation.service.js';
 import { generateJwt, verifyJwt, hashToken } from './utils/security.js';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runPhase1SecurityTests() {
   console.log('🛡️  === STARTING PHASE 1 COMPREHENSIVE SECURITY HARDENING SUITE ===\n');
@@ -115,12 +116,14 @@ async function runPhase1SecurityTests() {
   });
 
   // Create project and invitation
+  const workspaceId = await ensureTestWorkspace(testUser.user.id);
   const project = await prisma.project.create({
     data: {
       name: `Security Project ${timestamp}`,
       key: 'SECP',
       description: 'Security test project description',
       createdById: testUser.user.id,
+      workspaceId,
       members: {
         create: {
           userId: testUser.user.id,
@@ -158,6 +161,16 @@ async function runPhase1SecurityTests() {
     throw new Error('Email verification token validation failed');
   }
   console.log('✓ Email verification token successfully confirmed user identity');
+
+  // Join workspace first (workspace membership prerequisite)
+  await prisma.workspaceMember.create({
+    data: {
+      workspaceId,
+      userId: unverifiedUser.id,
+      role: 'WORKSPACE_MEMBER',
+      origin: 'PROJECT_DERIVED',
+    },
+  });
 
   // Now invitation acceptance succeeds
   const acceptResult = await invitationService.acceptInvitation(invitation.id, unverifiedUser.id);

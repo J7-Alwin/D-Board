@@ -1,7 +1,12 @@
 import { Worker, type Job } from 'bullmq';
 import { getRedisConfig } from '../../redis/redis.client.js';
 import { QUEUE_NAMES, type EmailJobData } from '../job.types.js';
-import { sendPasswordResetEmail, sendInvitationEmail, sendEmailVerificationEmail } from '../../services/email.service.js';
+import {
+  sendPasswordResetEmail,
+  sendInvitationEmail,
+  sendWorkspaceInvitationEmail,
+  sendEmailVerificationEmail,
+} from '../../services/email.service.js';
 
 export function createEmailWorker(): Worker<EmailJobData> {
   const worker = new Worker<EmailJobData>(
@@ -33,6 +38,20 @@ export function createEmailWorker(): Worker<EmailJobData> {
 
         if (!success) {
           throw new Error(`Failed to deliver invitation email to ${data.toEmail}`);
+        }
+      } else if (data.type === 'WORKSPACE_INVITATION') {
+        const success = await sendWorkspaceInvitationEmail({
+          toEmail: data.toEmail,
+          inviterName: data.inviterName,
+          workspaceName: data.workspaceName,
+          role: data.role,
+          token: data.token,
+          message: data.message,
+          expiresAt: new Date(data.expiresAt),
+        });
+
+        if (!success) {
+          throw new Error(`Failed to deliver workspace invitation email to ${data.toEmail}`);
         }
       } else if (data.type === 'EMAIL_VERIFICATION') {
         const success = await sendEmailVerificationEmail({

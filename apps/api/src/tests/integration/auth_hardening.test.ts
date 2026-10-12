@@ -10,8 +10,10 @@ describe('D-Board Authentication Hardening Integration Tests', () => {
 
   afterAll(async () => {
     if (createdUserIds.length > 0) {
-      await prisma.session.deleteMany({ where: { userId: { in: createdUserIds } } });
-      await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
+      await prisma.session.deleteMany({ where: { userId: { in: createdUserIds } } }).catch(() => {});
+      await prisma.workspaceMember.deleteMany({ where: { userId: { in: createdUserIds } } }).catch(() => {});
+      await prisma.workspace.deleteMany({ where: { ownerId: { in: createdUserIds } } }).catch(() => {});
+      await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } }).catch(() => {});
     }
   });
 

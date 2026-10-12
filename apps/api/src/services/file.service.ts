@@ -549,16 +549,22 @@ export class FileService {
   }
 
   /**
-   * Global cross-project files aggregator across all accessible projects.
+   * Global cross-project files aggregator across all accessible projects in active workspace.
    */
-  async getGlobalFiles(userId: string, params: FileQueryParams) {
+  async getGlobalFiles(userId: string, params: FileQueryParams, workspaceId?: string) {
     const [memberships, ownedProjects] = await Promise.all([
       prisma.projectMember.findMany({
-        where: { userId },
+        where: {
+          userId,
+          ...(workspaceId ? { project: { workspaceId } } : {}),
+        },
         select: { projectId: true },
       }),
       prisma.project.findMany({
-        where: { createdById: userId },
+        where: {
+          createdById: userId,
+          ...(workspaceId ? { workspaceId } : {}),
+        },
         select: { id: true },
       }),
     ]);

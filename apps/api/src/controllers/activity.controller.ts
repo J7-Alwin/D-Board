@@ -34,11 +34,17 @@ export class ActivityController {
       }
       const { category, limit, offset } = req.query;
 
-      const result = await activityService.getGlobalActivities(req.user.userId, {
-        category: (category as any) || 'all',
-        limit: limit ? parseInt(String(limit), 10) : 50,
-        offset: offset ? parseInt(String(offset), 10) : 0,
-      });
+      const workspaceId = (req as any).workspaceId || (req.query?.workspaceId as string) || (req.headers['x-workspace-id'] as string);
+
+      const result = await activityService.getGlobalActivities(
+        req.user.userId,
+        {
+          category: (category as any) || 'all',
+          limit: limit ? parseInt(String(limit), 10) : 50,
+          offset: offset ? parseInt(String(offset), 10) : 0,
+        },
+        workspaceId
+      );
 
       res.status(200).json({
         success: true,

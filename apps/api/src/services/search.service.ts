@@ -41,7 +41,7 @@ export interface SearchResult {
 }
 
 export class SearchService {
-  async searchGlobal(userId: string, query: string, limit = 8): Promise<SearchResult> {
+  async searchGlobal(userId: string, query: string, limit = 8, workspaceId?: string): Promise<SearchResult> {
     const q = query.trim();
     const emptyResult: SearchResult = {
       projects: [],
@@ -56,14 +56,19 @@ export class SearchService {
 
     const maxLimit = Math.min(Math.max(limit, 1), 20);
 
-    // 1. Fetch user's accessible projects
+    const projectWhere: any = {
+      OR: [
+        { createdById: userId },
+        { members: { some: { userId } } },
+      ],
+    };
+    if (workspaceId) {
+      projectWhere.workspaceId = workspaceId;
+    }
+
+    // 1. Fetch user's accessible projects in the active workspace
     const userProjects = await prisma.project.findMany({
-      where: {
-        OR: [
-          { createdById: userId },
-          { members: { some: { userId } } },
-        ],
-      },
+      where: projectWhere,
       select: { id: true, name: true, key: true, description: true, status: true, createdById: true, createdAt: true },
     });
 

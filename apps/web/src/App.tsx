@@ -1,6 +1,7 @@
 import React from 'react';
 import { Router, useRouter } from './router/Router';
 import { AuthProvider } from './context/AuthContext';
+import { WorkspaceProvider } from './context/WorkspaceContext';
 import { SocketProvider } from './context/SocketContext';
 import { PublicLayout } from './components/layout/PublicLayout';
 import { HomePage } from './pages/HomePage';
@@ -89,7 +90,7 @@ const AppRoutes: React.FC = () => {
     );
   }
 
-  if (path === '/app/invitations') {
+  if (path === '/app/invitations' || path === '/app/workspaces/invitations/accept' || path.startsWith('/app/workspaces/invitations/accept')) {
     return (
       <AppLayout>
         <InvitationsPage />
@@ -224,11 +225,13 @@ const AppRoutes: React.FC = () => {
 export function App() {
   return (
     <AuthProvider>
-      <SocketProvider>
-        <Router>
-          <AppRoutes />
-        </Router>
-      </SocketProvider>
+      <WorkspaceProvider>
+        <SocketProvider>
+          <Router>
+            <AppRoutes />
+          </Router>
+        </SocketProvider>
+      </WorkspaceProvider>
     </AuthProvider>
   );
 }

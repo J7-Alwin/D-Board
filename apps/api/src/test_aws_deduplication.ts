@@ -1,6 +1,7 @@
 import { prisma } from './prisma.js';
 import { fileService } from './services/file.service.js';
 import { storageService } from './storage/storage.service.js';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runAwsDeduplicationTests() {
   console.log('📦 === STARTING AWS S3 STORAGE & DEDUPLICATION VERIFICATION SUITE ===\n');
@@ -27,24 +28,28 @@ async function runAwsDeduplicationTests() {
     },
   });
 
+  const workspaceAId = await ensureTestWorkspace(userA.id);
   const projA = await prisma.project.create({
     data: {
       name: `Project Alpha ${timestamp}`,
       key: 'PRJA',
       description: 'Alpha storage workspace',
       createdById: userA.id,
+      workspaceId: workspaceAId,
       members: {
         create: { userId: userA.id, role: 'PROJECT_ADMIN' },
       },
     },
   });
 
+  const workspaceBId = await ensureTestWorkspace(userB.id);
   const projB = await prisma.project.create({
     data: {
       name: `Project Beta ${timestamp}`,
       key: 'PRJB',
       description: 'Beta isolated storage workspace',
       createdById: userB.id,
+      workspaceId: workspaceBId,
       members: {
         create: { userId: userB.id, role: 'PROJECT_ADMIN' },
       },

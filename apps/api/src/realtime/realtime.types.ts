@@ -36,6 +36,8 @@ export type RealtimeEventType =
   | 'INVITATION_CREATED'
   | 'INVITATION_ACCEPTED'
   | 'INVITATION_DECLINED'
+  | 'WORKSPACE_INVITATION_RECEIVED'
+  | 'WORKSPACE_MEMBER_JOINED'
   // Activity Events
   | 'ACTIVITY_CREATED'
   // Notification Events

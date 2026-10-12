@@ -8,6 +8,7 @@ import { workService } from './services/work.service.js';
 import { commentService } from './services/comment.service.js';
 import { notificationService } from './services/notification.service.js';
 import bcrypt from 'bcryptjs';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runTests() {
   console.log('🚀 Starting Real-Time Socket.IO Integration Tests...\n');
@@ -58,12 +59,14 @@ async function runTests() {
   const tokenC = generateJwt({ userId: userC.id, email: userC.email, username: userC.username });
 
   // 3. Setup Project
+  const workspaceId = await ensureTestWorkspace(userA.id);
   const project = await prisma.project.create({
     data: {
       name: `Realtime Test Project ${testSuffix}`,
       key: `RT${testSuffix.slice(-3)}`,
       description: 'Project for testing real-time events',
       createdById: userA.id,
+      workspaceId,
       members: {
         create: [
           { userId: userA.id, role: 'PROJECT_ADMIN' },

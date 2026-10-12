@@ -2,6 +2,7 @@ import { prisma } from './prisma.js';
 import { noteService } from './services/note.service.js';
 import { notificationService } from './services/notification.service.js';
 import bcrypt from 'bcryptjs';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runSecurityTests() {
   console.log('🔒 Starting Notifications Security & IDOR Test Suite...\n');
@@ -37,12 +38,14 @@ async function runSecurityTests() {
     },
   });
 
+  const workspaceId = await ensureTestWorkspace(userA.id);
   const project = await prisma.project.create({
     data: {
       name: `Security Project ${testSuffix}`,
       key: `SEC${testSuffix.slice(-3)}`,
       description: 'Project for testing notification security',
       createdById: userA.id,
+      workspaceId,
       members: {
         create: [
           { userId: userA.id, role: 'PROJECT_ADMIN' },

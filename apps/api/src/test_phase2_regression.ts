@@ -110,6 +110,14 @@ async function runPhase2RegressionTests() {
       where: { id: userB.id },
       data: { isEmailVerified: true },
     });
+    await prisma.workspaceMember.create({
+      data: {
+        workspaceId: projectA.workspaceId,
+        userId: userB.id,
+        role: 'WORKSPACE_MEMBER',
+        origin: 'PROJECT_DERIVED',
+      },
+    });
     await invitationService.acceptInvitation(inviteUserB.id, userB.id);
     const updatedMemberB = await prisma.projectMember.findUnique({
       where: { projectId_userId: { projectId: projectA.id, userId: userB.id } },

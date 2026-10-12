@@ -28,6 +28,16 @@ export interface SendInvitationOptions {
   expiresAt: Date;
 }
 
+export interface SendWorkspaceInvitationOptions {
+  toEmail: string;
+  inviterName: string;
+  workspaceName: string;
+  role: string;
+  token?: string;
+  message?: string | null;
+  expiresAt: Date;
+}
+
 export interface SendProjectJoinedOptions {
   toEmail: string;
   username: string;
@@ -237,6 +247,16 @@ async function deliverEmail(
   mailOptions: SendMailOptions,
   simulatorFn?: () => void
 ): Promise<boolean> {
+  const isFetchMocked =
+    Boolean((globalThis.fetch as any)?.mock) ||
+    Boolean((globalThis.fetch as any)?._isMockFunction) ||
+    typeof (globalThis.fetch as any)?.mockReset === 'function';
+
+  if (process.env.NODE_ENV === 'test' && !isFetchMocked) {
+    if (simulatorFn) simulatorFn();
+    return true;
+  }
+
   const isProduction = process.env.NODE_ENV === 'production';
   const brevoApiKey = process.env.BREVO_API_KEY;
 
@@ -500,6 +520,65 @@ export async function sendInvitationEmail(options: SendInvitationOptions): Promi
       console.log('📬 [D-BOARD INVITATION DISPATCH SIMULATOR (Local Dev)]');
       console.log(`To: ${options.toEmail}`);
       console.log(`Project: ${options.projectName} (${roleLabel})`);
+      console.log(`Invited By: ${options.inviterName}`);
+      console.log('====================================================');
+    }
+  );
+}
+
+/**
+ * 3b. Send Workspace Invitation Email
+ */
+export async function sendWorkspaceInvitationEmail(options: SendWorkspaceInvitationOptions): Promise<boolean> {
+  const appUrl = getAppUrl();
+  const acceptUrl = options.token
+    ? `${appUrl}/app/workspaces/invitations/accept?token=${encodeURIComponent(options.token)}`
+    : `${appUrl}/app/invitations`;
+  const registerUrl = `${appUrl}/register?email=${encodeURIComponent(options.toEmail)}`;
+  const roleLabel = options.role === 'WORKSPACE_ADMIN' ? 'Workspace Administrator' : 'Workspace Member';
+  const expiryFormatted = options.expiresAt.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
+      <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #1F1F1F;">Workspace Invitation</h2>
+      <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 16px;">
+        <strong>${options.inviterName}</strong> has invited you to join the workspace <strong>${options.workspaceName}</strong> as a <strong>${roleLabel}</strong>.
+      </p>
+      ${
+        options.message
+          ? `<div style="background-color: #FFFFFF; border-left: 3px solid #1F1F1F; padding: 12px 16px; margin-bottom: 20px; font-style: italic; color: #333333; font-size: 14px;">"${options.message}"</div>`
+          : ''
+      }
+      <div style="margin-bottom: 28px;">
+        <a href="${acceptUrl}" style="display: inline-block; background-color: #1F1F1F; color: #FFFFFF; font-weight: 600; font-size: 15px; padding: 12px 24px; border-radius: 9999px; text-decoration: none;">
+          View & Accept Invitation &rarr;
+        </a>
+      </div>
+      <p style="font-size: 13px; color: #8E8E8E; line-height: 1.5; border-top: 1px solid #ECECE6; padding-top: 16px;">
+        This invitation will expire on ${expiryFormatted}.<br/>
+        Don't have an account yet? <a href="${registerUrl}" style="color: #1F1F1F; font-weight: 600;">Sign up here</a> with this email address and your invitation will be waiting on your dashboard.
+      </p>
+    </div>
+  `;
+
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: `You have been invited to join the ${options.workspaceName} workspace on D-Board`,
+      text: `Hello,\n\n${options.inviterName} has invited you to join "${options.workspaceName}" on D-Board as a ${roleLabel}.${options.message ? `\n\nMessage: "${options.message}"` : ''}\n\nAccept your invitation: ${acceptUrl}\n\nExpires on: ${expiryFormatted}\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD WORKSPACE INVITATION DISPATCH SIMULATOR (Local Dev)]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Workspace: ${options.workspaceName} (${roleLabel})`);
       console.log(`Invited By: ${options.inviterName}`);
       console.log('====================================================');
     }

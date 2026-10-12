@@ -3,16 +3,59 @@ import { prisma } from '../prisma.js';
 import { CreateProjectInput, UpdateProjectInput } from '../schemas/project.schema.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { enqueueEmailJob, enqueueCleanupJob } from '../jobs/queues.js';
+import { workspaceService } from './workspace.service.js';
+import { authService } from './auth.service.js';
+import { resolveAdminPermissions } from '../schemas/workspace.schema.js';
 
 export class ProjectService {
   /**
    * Atomic project creation transaction:
-   * 1. Create Project
-   * 2. Create ProjectMember for creator as PROJECT_ADMIN
-   * 3. Create pending invitations (if any)
-   * 4. Post-commit: Enqueue invitation emails via BullMQ
+   * 1. Validate workspace membership or provision personal workspace
+   * 2. Create Project scoped to workspace
+   * 3. Create ProjectMember for creator as PROJECT_ADMIN
+   * 4. Create pending invitations (if any)
+   * 5. Post-commit: Enqueue invitation emails via BullMQ
    */
-  async createProject(userId: string, data: CreateProjectInput) {
+  async createProject(
+    userId: string,
+    data: CreateProjectInput & { workspaceId?: string },
+    explicitWorkspaceId?: string
+  ) {
+    let targetWorkspaceId = explicitWorkspaceId || (data as any).workspaceId;
+    if (targetWorkspaceId) {
+      const wsAccess = await workspaceService.verifyWorkspaceAccess(targetWorkspaceId, userId);
+      const ws = await prisma.workspace.findUnique({
+        where: { id: targetWorkspaceId },
+        select: { id: true, isPersonal: true, ownerId: true, name: true, adminPermissions: true },
+      });
+
+      if (!ws) {
+        throw new AppError('Workspace not found', 404);
+      }
+
+      // Rule 1: In personal workspaces, only the workspace owner can create projects.
+      if (ws.isPersonal && ws.ownerId !== userId) {
+        throw new AppError('Only the workspace owner can create projects in a personal workspace', 403);
+      }
+
+      // Rule 2: In non-personal workspaces, only OWNER and WORKSPACE_ADMIN can create projects.
+      // Workspace membership alone does not grant permission to create projects.
+      if (!ws.isPersonal && wsAccess.role === 'WORKSPACE_MEMBER') {
+        throw new AppError('Workspace members cannot create projects in this workspace. Workspace owner or administrator permissions required.', 403);
+      }
+
+      // Rule 2b: WORKSPACE_ADMIN must have canCreateProjects permission enabled by Owner
+      if (!ws.isPersonal && wsAccess.role === 'WORKSPACE_ADMIN') {
+        const permissions = resolveAdminPermissions(ws);
+        if (!permissions.canCreateProjects) {
+          throw new AppError('Workspace administrator does not have permission to create projects in this workspace', 403);
+        }
+      }
+    } else {
+      const personalWs = await authService.ensurePersonalWorkspace(userId);
+      targetWorkspaceId = personalWs.id;
+    }
+
     const pendingEmailDispatches: Array<{
       email: string;
       role: string;
@@ -35,6 +78,7 @@ export class ProjectService {
           liveUrl: data.liveUrl || undefined,
           avatarUrl: data.avatarUrl || undefined,
           createdById: userId,
+          workspaceId: targetWorkspaceId,
         },
       });
 
@@ -178,15 +222,20 @@ export class ProjectService {
   /**
    * Get all projects for an authenticated user (categorized into owned and joined)
    */
-  async getUserProjects(userId: string) {
-    // Projects where user is a member or creator
+  async getUserProjects(userId: string, workspaceId?: string) {
+    const where: any = {
+      OR: [
+        { createdById: userId },
+        { members: { some: { userId } } },
+      ],
+    };
+    if (workspaceId) {
+      where.workspaceId = workspaceId;
+    }
+
+    // Projects where user is a member or creator in this workspace
     const projects = await prisma.project.findMany({
-      where: {
-        OR: [
-          { createdById: userId },
-          { members: { some: { userId } } },
-        ],
-      },
+      where,
       include: {
         createdBy: {
           select: { id: true, fullName: true, username: true, avatarUrl: true },
@@ -248,9 +297,9 @@ export class ProjectService {
   }
 
   /**
-   * Get project details with authorization check
+   * Get project details with authorization check and workspace validation
    */
-  async getProjectById(projectId: string, userId: string) {
+  async getProjectById(projectId: string, userId: string, workspaceId?: string) {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
@@ -277,6 +326,10 @@ export class ProjectService {
 
     if (!project) {
       throw new AppError('Project not found', 404);
+    }
+
+    if (workspaceId && project.workspaceId !== workspaceId) {
+      throw new AppError('Project not found in the active workspace', 404);
     }
 
     const membership = project.members.find((m) => m.userId === userId);

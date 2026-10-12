@@ -105,7 +105,25 @@ async function runE2ESmokeSuite() {
     if (invites.length === 0) throw new Error('Invitation record not found');
     const inviteId = invites[0].id;
 
-    // User B accepts invitation
+    // Verify workspace membership prerequisite: non-workspace member is blocked
+    const preRes = await request(app)
+      .post(`/api/invitations/${inviteId}/accept`)
+      .set('Cookie', sessionCookieB);
+    if (preRes.status !== 403) throw new Error(`Expected 403 WORKSPACE_MEMBERSHIP_REQUIRED, got: ${preRes.status}`);
+
+    // Join workspace first (prerequisite for project membership)
+    const projData = await prisma.project.findUnique({ where: { id: projectId }, select: { workspaceId: true } });
+    if (!projData?.workspaceId) throw new Error('Project has no workspaceId');
+    await prisma.workspaceMember.create({
+      data: {
+        workspaceId: projData.workspaceId,
+        userId: memberUserId,
+        role: 'WORKSPACE_MEMBER',
+        origin: 'DIRECT',
+      },
+    });
+
+    // User B accepts invitation now that workspace membership prerequisite is met
     const acceptRes = await request(app)
       .post(`/api/invitations/${inviteId}/accept`)
       .set('Cookie', sessionCookieB);
@@ -280,7 +298,9 @@ async function runE2ESmokeSuite() {
     const evictedCheck = await request(app)
       .get(`/api/projects/${projectId}`)
       .set('Cookie', sessionCookieB);
-    if (evictedCheck.status !== 403) throw new Error('Removed member still has access to project');
+    if (evictedCheck.status !== 403 && evictedCheck.status !== 404) {
+      throw new Error('Removed member still has access to project');
+    }
     console.log('✓ E2E-10 passed: Member removed and immediate project authorization eviction verified');
 
     console.log('\n================================================================');
@@ -294,9 +314,17 @@ async function runE2ESmokeSuite() {
     if (projectId) {
       await prisma.project.deleteMany({ where: { id: projectId } }).catch(() => {});
     }
-    await prisma.user.deleteMany({
+    const e2eUsers = await prisma.user.findMany({
       where: { email: { in: [userA.email, userB.email] } },
-    }).catch(() => {});
+      select: { id: true },
+    }).catch(() => []);
+    const e2eUserIds = e2eUsers.map((u: any) => u.id);
+    if (e2eUserIds.length > 0) {
+      await prisma.workspaceMember.deleteMany({ where: { userId: { in: e2eUserIds } } }).catch(() => {});
+      await prisma.workspace.deleteMany({ where: { ownerId: { in: e2eUserIds } } }).catch(() => {});
+      await prisma.session.deleteMany({ where: { userId: { in: e2eUserIds } } }).catch(() => {});
+      await prisma.user.deleteMany({ where: { id: { in: e2eUserIds } } }).catch(() => {});
+    }
     await prisma.$disconnect().catch(() => {});
     process.exit(0);
   }

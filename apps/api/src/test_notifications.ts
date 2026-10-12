@@ -5,6 +5,7 @@ import { noteService } from './services/note.service.js';
 import { invitationService } from './services/invitation.service.js';
 import { notificationService } from './services/notification.service.js';
 import bcrypt from 'bcryptjs';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runTests() {
   console.log('🚀 Starting Notifications Vertical Slice Integration Tests...\n');
@@ -50,12 +51,14 @@ async function runTests() {
   });
 
   // Setup Project
+  const workspaceId = await ensureTestWorkspace(userA.id);
   const project = await prisma.project.create({
     data: {
       name: `Notification Test Project ${testSuffix}`,
       key: `NOTIF${testSuffix.slice(-3)}`,
       description: 'Project for testing notification flows',
       createdById: userA.id,
+      workspaceId,
       members: {
         create: [
           { userId: userA.id, role: 'PROJECT_ADMIN' },
@@ -157,6 +160,14 @@ async function runTests() {
     // TEST 5: Invitation Acceptance Notification
     // ----------------------------------------------------
     console.log('\n--- TEST 5: Invitation Acceptance Notification ---');
+    await prisma.workspaceMember.create({
+      data: {
+        workspaceId: project.workspaceId,
+        userId: userD.id,
+        role: 'WORKSPACE_MEMBER',
+        origin: 'PROJECT_DERIVED',
+      },
+    });
     await invitationService.acceptInvitation(invitation.id, userD.id);
 
     const notifsA5 = await notificationService.getUserNotifications(userA.id);

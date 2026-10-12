@@ -345,7 +345,11 @@ export class InvitationService {
 
     const invitation = await prisma.invitation.findUnique({
       where: { id: invitationId },
-      include: { project: true },
+      include: {
+        project: {
+          include: { workspace: true },
+        },
+      },
     });
 
     if (!invitation) {
@@ -371,7 +375,24 @@ export class InvitationService {
       throw new AppError('This invitation has expired', 400);
     }
 
-    // Check if already a member (prevent race conditions)
+    // Workspace membership is required before project membership; external project-only guests are not allowed.
+    const wsMembership = await prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: invitation.project.workspaceId,
+          userId,
+        },
+      },
+    });
+
+    if (!wsMembership) {
+      throw new AppError(
+        `Workspace membership is required before joining this project. You must first join or accept an invitation to workspace "${invitation.project.workspace?.name || 'the workspace'}" before accepting this project invitation.`,
+        403
+      );
+    }
+
+    // Check if already a member (prevent duplicate membership)
     const existingMember = await prisma.projectMember.findUnique({
       where: {
         projectId_userId: {
@@ -390,8 +411,46 @@ export class InvitationService {
       return { success: true, message: 'You are already a member of this project' };
     }
 
-    // Atomically create ProjectMember and update Invitation
+    // Atomically create ProjectMember and update Invitation inside transaction
     const result = await prisma.$transaction(async (tx) => {
+      // Re-verify invitation status and expiry inside transaction to prevent concurrent race conditions
+      const freshInvite = await tx.invitation.findUnique({
+        where: { id: invitationId },
+        select: { status: true, expiresAt: true },
+      });
+
+      if (!freshInvite || freshInvite.status !== 'PENDING') {
+        throw new AppError(
+          `This invitation has already been ${freshInvite ? freshInvite.status.toLowerCase() : 'processed'}`,
+          400
+        );
+      }
+
+      if (new Date(freshInvite.expiresAt) < new Date()) {
+        await tx.invitation.update({
+          where: { id: invitationId },
+          data: { status: 'EXPIRED' },
+        });
+        throw new AppError('This invitation has expired', 400);
+      }
+
+      // Re-verify workspace membership inside transaction
+      const txWsMember = await tx.workspaceMember.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId: invitation.project.workspaceId,
+            userId,
+          },
+        },
+      });
+
+      if (!txWsMember) {
+        throw new AppError(
+          'Workspace membership is required before joining this project. Please join the workspace first.',
+          403
+        );
+      }
+
       // 1. Create ProjectMember
       const member = await tx.projectMember.create({
         data: {

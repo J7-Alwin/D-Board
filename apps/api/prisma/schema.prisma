@@ -7,6 +7,18 @@ datasource db {
   provider = "postgresql"
 }
 
+enum WorkspaceRole {
+  OWNER
+  WORKSPACE_ADMIN
+  WORKSPACE_MEMBER
+}
+
+enum WorkspaceMemberOrigin {
+  DIRECT
+  PROJECT_DERIVED
+}
+
+
 enum ProjectRole {
   PROJECT_ADMIN
   PROJECT_MEMBER
@@ -24,6 +36,7 @@ enum InvitationStatus {
   DECLINED
   EXPIRED
   CANCELLED
+  REVOKED
 }
 
 enum WorkItemType {
@@ -175,6 +188,10 @@ model User {
   notifications              Notification[]          @relation("UserNotifications")
   actedNotifications         Notification[]          @relation("ActorNotifications")
   calendarFeedTokens         CalendarFeedToken[]     @relation("UserCalendarFeedTokens")
+  ownedWorkspaces            Workspace[]             @relation("OwnedWorkspaces")
+  workspaceMemberships       WorkspaceMember[]
+  sentWorkspaceInvitations     WorkspaceInvitation[]   @relation("WorkspaceSentInvitations")
+  receivedWorkspaceInvitations WorkspaceInvitation[]   @relation("WorkspaceReceivedInvitations")
 }
 
 model Project {
@@ -207,9 +224,77 @@ model Project {
   storedObjects   StoredObject[]
   notifications   Notification[]
   calendarFeedTokens CalendarFeedToken[] @relation("ProjectCalendarFeedTokens")
+  workspaceId     String
+  workspace       Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
 
   @@index([createdById])
   @@index([status])
+  @@index([workspaceId])
+}
+
+model Workspace {
+  id               String                @id @default(uuid())
+  name             String
+  slug             String                @unique
+  avatarUrl        String?
+  ownerId          String
+  owner            User                  @relation("OwnedWorkspaces", fields: [ownerId], references: [id], onDelete: Restrict)
+  isPersonal       Boolean               @default(false)
+  adminPermissions Json?                 @default("{\"canInviteMembers\":true,\"canRemoveMembers\":false,\"canCreateProjects\":true,\"canManageRoles\":false}")
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  members          WorkspaceMember[]
+  projects         Project[]
+  invitations      WorkspaceInvitation[]
+  calendarFeedTokens CalendarFeedToken[] @relation("WorkspaceCalendarFeedTokens")
+
+  @@index([ownerId])
+  @@index([isPersonal])
+}
+
+model WorkspaceInvitation {
+  id            String           @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedEmail  String
+  invitedUserId String?
+  invitedUser   User?            @relation("WorkspaceReceivedInvitations", fields: [invitedUserId], references: [id], onDelete: SetNull)
+  invitedById   String
+  invitedBy     User             @relation("WorkspaceSentInvitations", fields: [invitedById], references: [id], onDelete: Restrict)
+  role          WorkspaceRole    @default(WORKSPACE_MEMBER)
+  status        InvitationStatus @default(PENDING)
+  tokenHash     String           @unique
+  message       String?
+  expiresAt     DateTime
+  acceptedAt    DateTime?
+  declinedAt    DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([invitedEmail])
+  @@index([workspaceId, status])
+  @@index([tokenHash])
+  @@index([invitedUserId])
+  @@index([expiresAt])
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid())
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        WorkspaceRole @default(WORKSPACE_MEMBER)
+  origin      WorkspaceMemberOrigin @default(DIRECT)
+  joinedAt    DateTime      @default(now())
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@index([workspaceId, role])
 }
 
 model ProjectMember {
@@ -540,6 +625,8 @@ model CalendarFeedToken {
   user        User      @relation("UserCalendarFeedTokens", fields: [userId], references: [id], onDelete: Cascade)
   projectId   String?
   project     Project?  @relation("ProjectCalendarFeedTokens", fields: [projectId], references: [id], onDelete: Cascade)
+  workspaceId String?
+  workspace   Workspace? @relation("WorkspaceCalendarFeedTokens", fields: [workspaceId], references: [id], onDelete: Cascade)
   revokedAt   DateTime?
   lastUsedAt  DateTime?
   createdAt   DateTime  @default(now())
@@ -547,4 +634,5 @@ model CalendarFeedToken {
 
   @@index([tokenHash])
   @@index([userId, projectId])
+  @@index([workspaceId])
 }

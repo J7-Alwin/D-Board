@@ -269,16 +269,22 @@ export class ActivityService {
       category?: 'all' | 'work' | 'comments' | 'members' | 'notes' | 'calendar' | 'files';
       limit?: number;
       offset?: number;
-    }
+    },
+    workspaceId?: string
   ) {
-    // 1. Find all projects accessible to the user
+    const projectWhere: any = {
+      OR: [
+        { createdById: userId },
+        { members: { some: { userId } } },
+      ],
+    };
+    if (workspaceId) {
+      projectWhere.workspaceId = workspaceId;
+    }
+
+    // 1. Find all projects accessible to the user in the active workspace
     const userProjects = await prisma.project.findMany({
-      where: {
-        OR: [
-          { createdById: userId },
-          { members: { some: { userId } } },
-        ],
-      },
+      where: projectWhere,
       select: { id: true, createdById: true },
     });
 

@@ -6,7 +6,7 @@ export const QUEUE_NAMES = {
 
 export type QueueName = typeof QUEUE_NAMES[keyof typeof QUEUE_NAMES];
 
-export type EmailJobType = 'PASSWORD_RESET' | 'PROJECT_INVITATION' | 'EMAIL_VERIFICATION';
+export type EmailJobType = 'PASSWORD_RESET' | 'PROJECT_INVITATION' | 'EMAIL_VERIFICATION' | 'WORKSPACE_INVITATION';
 
 export interface PasswordResetEmailJobData {
   type: 'PASSWORD_RESET';
@@ -26,6 +26,17 @@ export interface InvitationEmailJobData {
   expiresAt: string; // ISO String
 }
 
+export interface WorkspaceInvitationEmailJobData {
+  type: 'WORKSPACE_INVITATION';
+  toEmail: string;
+  inviterName: string;
+  workspaceName: string;
+  role: string;
+  token?: string;
+  message?: string | null;
+  expiresAt: string; // ISO String
+}
+
 export interface EmailVerificationJobData {
   type: 'EMAIL_VERIFICATION';
   toEmail: string;
@@ -33,7 +44,11 @@ export interface EmailVerificationJobData {
   token: string;
 }
 
-export type EmailJobData = PasswordResetEmailJobData | InvitationEmailJobData | EmailVerificationJobData;
+export type EmailJobData =
+  | PasswordResetEmailJobData
+  | InvitationEmailJobData
+  | WorkspaceInvitationEmailJobData
+  | EmailVerificationJobData;
 
 export interface DeadlineReminderJobData {
   workItemId: string;

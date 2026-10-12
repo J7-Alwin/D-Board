@@ -2,25 +2,28 @@ import { prisma } from '../prisma.js';
 import { projectService } from './project.service.js';
 
 export class DashboardService {
-  async getDashboardSummary(userId: string) {
-    const { all, owned, joined } = await projectService.getUserProjects(userId);
+  async getDashboardSummary(userId: string, workspaceId?: string) {
+    const { all, owned, joined } = await projectService.getUserProjects(userId, workspaceId);
 
     const now = new Date();
     const fourteenDaysLater = new Date();
     fourteenDaysLater.setDate(now.getDate() + 14);
 
-    // Get all project IDs user is part of (owned + joined)
+    // Get all project IDs user is part of within the active workspace
     const projectIds = all.map((p) => p.id);
 
     // Execute independent database queries concurrently to eliminate sequential waterfall latency
     const [myOpenWorkCount, upcomingWorkDeadlinesCount, recentActivities] = await Promise.all([
-      // Count open work items assigned to this user across all projects
-      prisma.workItem.count({
-        where: {
-          assignedToId: userId,
-          status: { not: 'COMPLETED' },
-        },
-      }),
+      // Count open work items assigned to this user within active workspace projects
+      projectIds.length > 0
+        ? prisma.workItem.count({
+            where: {
+              assignedToId: userId,
+              status: { not: 'COMPLETED' },
+              projectId: { in: projectIds },
+            },
+          })
+        : Promise.resolve(0),
 
       // Count upcoming work item deadlines (due in next 14 days and not completed)
       projectIds.length > 0

@@ -32,6 +32,20 @@ describe('Email Verification System Unit Tests', () => {
         };
       });
 
+      vi.spyOn(prisma.workspace, 'findFirst').mockResolvedValue(null as any);
+      vi.spyOn(prisma.workspace, 'create').mockResolvedValue({
+        id: 'mock-ws-123',
+        name: "verifyuser's Workspace",
+        slug: 'verifyuser-personal-123',
+      } as any);
+      vi.spyOn(prisma.workspaceMember, 'create').mockResolvedValue({ id: 'mock-member-123' } as any);
+      vi.spyOn(prisma, '$transaction').mockImplementation(async (cb: any) => {
+        if (typeof cb === 'function') {
+          return cb(prisma);
+        }
+        return cb;
+      });
+
       vi.spyOn(sessionService, 'createSession').mockResolvedValue({
         session: { id: 'mock-session-123', userId: 'mock-user-id-123' },
       } as any);

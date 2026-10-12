@@ -108,17 +108,23 @@ export class WorkController {
       }
       const { tab, status, priority, type, projectId, search, sort, page, limit } = req.query;
 
-      const result = await workService.getMyWorkItems(req.user.userId, {
-        tab: tab as any,
-        status: status ? String(status) : undefined,
-        priority: priority ? String(priority) : undefined,
-        type: type ? String(type) : undefined,
-        projectId: projectId ? String(projectId) : undefined,
-        search: search ? String(search) : undefined,
-        sort: sort as any,
-        page: page ? parseInt(String(page), 10) : 1,
-        limit: limit ? parseInt(String(limit), 10) : 10,
-      });
+      const workspaceId = (req as any).workspaceId || (req.query?.workspaceId as string) || (req.headers['x-workspace-id'] as string);
+
+      const result = await workService.getMyWorkItems(
+        req.user.userId,
+        {
+          tab: tab as any,
+          status: status ? String(status) : undefined,
+          priority: priority ? String(priority) : undefined,
+          type: type ? String(type) : undefined,
+          projectId: projectId ? String(projectId) : undefined,
+          search: search ? String(search) : undefined,
+          sort: sort as any,
+          page: page ? parseInt(String(page), 10) : 1,
+          limit: limit ? parseInt(String(limit), 10) : 10,
+        },
+        workspaceId
+      );
 
       res.status(200).json({
         success: true,

@@ -65,6 +65,21 @@ export async function safeParseJson<T = any>(response: Response, fallbackMessage
   return data as T;
 }
 
+let activeWorkspaceId: string | null = null;
+
+export function setActiveWorkspaceHeader(workspaceId: string | null): void {
+  activeWorkspaceId = workspaceId;
+}
+
+export function getActiveWorkspaceHeader(): string | null {
+  if (activeWorkspaceId) return activeWorkspaceId;
+  try {
+    return localStorage.getItem('dboard_active_workspace_id');
+  } catch {
+    return null;
+  }
+}
+
 export async function apiClient<T = any>(
   endpoint: string,
   options: RequestInit = {}
@@ -72,6 +87,11 @@ export async function apiClient<T = any>(
   const headers = new Headers(options.headers || {});
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
+  }
+
+  const activeWs = getActiveWorkspaceHeader();
+  if (activeWs && !headers.has('X-Workspace-Id')) {
+    headers.set('X-Workspace-Id', activeWs);
   }
 
   // Include credentials for session cookies

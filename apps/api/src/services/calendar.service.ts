@@ -9,6 +9,8 @@ import type {
   UpdateCalendarEventInput,
   CalendarQueryParams,
 } from '../schemas/calendar.schema.js';
+import { workspaceService } from './workspace.service.js';
+import { authService } from './auth.service.js';
 
 export class CalendarService {
   /**
@@ -108,15 +110,27 @@ export class CalendarService {
   /**
    * Unified calendar query combining CalendarEvent items and WorkItem due date deadlines.
    */
-  async getCalendarItems(userId: string, params: CalendarQueryParams) {
-    // 1. Determine accessible projects
+  async getCalendarItems(userId: string, params: CalendarQueryParams, workspaceId?: string) {
+    let targetWorkspaceId = workspaceId;
+    if (!targetWorkspaceId && !params.projectId) {
+      const personalWs = await authService.ensurePersonalWorkspace(userId);
+      targetWorkspaceId = personalWs.id;
+    }
+
+    // 1. Determine accessible projects in the active workspace
     const [memberships, ownedProjects] = await Promise.all([
       prisma.projectMember.findMany({
-        where: { userId },
+        where: {
+          userId,
+          ...(targetWorkspaceId ? { project: { workspaceId: targetWorkspaceId } } : {}),
+        },
         select: { projectId: true },
       }),
       prisma.project.findMany({
-        where: { createdById: userId },
+        where: {
+          createdById: userId,
+          ...(targetWorkspaceId ? { workspaceId: targetWorkspaceId } : {}),
+        },
         select: { id: true },
       }),
     ]);
@@ -793,13 +807,17 @@ export class CalendarService {
   /**
    * Generate RFC 5545 iCalendar stream (.ics) for authenticated user's calendar items.
    */
-  async generateICalFeed(userId: string, projectId?: string): Promise<string> {
-    const calendarData = await this.getCalendarItems(userId, {
-      projectId,
-      type: 'ALL',
-      start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-      end: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
-    });
+  async generateICalFeed(userId: string, projectId?: string, workspaceId?: string): Promise<string> {
+    const calendarData = await this.getCalendarItems(
+      userId,
+      {
+        projectId,
+        type: 'ALL',
+        start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        end: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+      workspaceId
+    );
 
     const lines = [
       'BEGIN:VCALENDAR',
@@ -856,20 +874,38 @@ export class CalendarService {
   /**
    * Create or rotate a high-entropy revocable calendar feed subscription token.
    * Cryptographically generated with 256-bit entropy. Raw token is never stored in DB.
+   * Scoped to a specific project or workspace.
    */
-  async createFeedToken(userId: string, projectId?: string | null): Promise<{ token: string; createdAt: Date }> {
+  async createFeedToken(
+    userId: string,
+    projectId?: string | null,
+    workspaceId?: string | null
+  ): Promise<{ token: string; createdAt: Date }> {
+    let targetWorkspaceId: string | null = workspaceId || null;
+
     if (projectId) {
-      await this.getMembershipAndProject(projectId, userId);
+      const { project } = await this.getMembershipAndProject(projectId, userId);
+      const prj = await prisma.project.findUnique({
+        where: { id: projectId },
+        select: { workspaceId: true },
+      });
+      targetWorkspaceId = prj?.workspaceId || null;
+    } else if (targetWorkspaceId) {
+      await workspaceService.verifyWorkspaceAccess(targetWorkspaceId, userId);
+    } else {
+      const personalWs = await authService.ensurePersonalWorkspace(userId);
+      targetWorkspaceId = personalWs.id;
     }
 
     const rawToken = `dbcal_${crypto.randomBytes(32).toString('hex')}`;
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
-    // Revoke previous active tokens for this user & project scope to enforce rotation
+    // Revoke previous active tokens for this user & project/workspace scope to enforce rotation
     await prisma.calendarFeedToken.updateMany({
       where: {
         userId,
         projectId: projectId || null,
+        workspaceId: targetWorkspaceId,
         revokedAt: null,
       },
       data: {
@@ -883,6 +919,7 @@ export class CalendarService {
         tokenHash,
         userId,
         projectId: projectId || null,
+        workspaceId: targetWorkspaceId,
       },
     });
 
@@ -892,15 +929,27 @@ export class CalendarService {
   /**
    * Revoke existing calendar feed subscription token.
    */
-  async revokeFeedToken(userId: string, projectId?: string | null): Promise<{ success: boolean; message: string }> {
+  async revokeFeedToken(
+    userId: string,
+    projectId?: string | null,
+    workspaceId?: string | null
+  ): Promise<{ success: boolean; message: string }> {
+    let targetWorkspaceId: string | null = workspaceId || null;
+
     if (projectId) {
       await this.getMembershipAndProject(projectId, userId);
+      const prj = await prisma.project.findUnique({
+        where: { id: projectId },
+        select: { workspaceId: true },
+      });
+      targetWorkspaceId = prj?.workspaceId || null;
     }
 
     await prisma.calendarFeedToken.updateMany({
       where: {
         userId,
         projectId: projectId || null,
+        ...(targetWorkspaceId ? { workspaceId: targetWorkspaceId } : {}),
         revokedAt: null,
       },
       data: {
@@ -917,10 +966,13 @@ export class CalendarService {
    * - Computes SHA-256 hash
    * - Token must exist and not be revoked
    * - User must not be deactivated
-   * - If projectId expected: token.projectId MUST match expected projectId (no cross-project leakage)
-   * - User must currently be an active member or owner of the project
+   * - Scoped token verifies user is still an authorized member of that workspace/project
+   * - Never trusts arbitrary workspace parameters from the client
    */
-  async authenticateFeedToken(rawToken: string, expectedProjectId?: string): Promise<{ userId: string; projectId?: string | null }> {
+  async authenticateFeedToken(
+    rawToken: string,
+    expectedProjectId?: string
+  ): Promise<{ userId: string; projectId?: string | null; workspaceId: string }> {
     if (!rawToken || typeof rawToken !== 'string') {
       throw new AppError('Calendar feed subscription token required', 401);
     }
@@ -938,18 +990,24 @@ export class CalendarService {
       throw new AppError('Invalid or expired calendar feed token', 401);
     }
 
+    let resolvedWorkspaceId = feedToken.workspaceId;
+
     if (expectedProjectId) {
-      if (feedToken.projectId !== expectedProjectId) {
+      if (feedToken.projectId && feedToken.projectId !== expectedProjectId) {
         throw new AppError('Calendar feed token is not authorized for this project', 403);
       }
 
       // Verify that user is still an active member of this project
       const project = await prisma.project.findUnique({
         where: { id: expectedProjectId },
-        select: { createdById: true },
+        select: { createdById: true, workspaceId: true },
       });
 
-      const isOwner = project?.createdById === feedToken.userId;
+      if (!project) {
+        throw new AppError('Project not found', 404);
+      }
+
+      const isOwner = project.createdById === feedToken.userId;
       const membership = await prisma.projectMember.findUnique({
         where: {
           projectId_userId: {
@@ -962,6 +1020,52 @@ export class CalendarService {
       if (!isOwner && !membership) {
         throw new AppError('User is no longer an active member of this project', 403);
       }
+
+      resolvedWorkspaceId = project.workspaceId;
+    } else if (feedToken.projectId) {
+      const project = await prisma.project.findUnique({
+        where: { id: feedToken.projectId },
+        select: { createdById: true, workspaceId: true },
+      });
+
+      if (!project) {
+        throw new AppError('Project not found', 404);
+      }
+
+      const isOwner = project.createdById === feedToken.userId;
+      const membership = await prisma.projectMember.findUnique({
+        where: {
+          projectId_userId: {
+            projectId: feedToken.projectId,
+            userId: feedToken.userId,
+          },
+        },
+      });
+
+      if (!isOwner && !membership) {
+        throw new AppError('User is no longer an active member of this project', 403);
+      }
+
+      resolvedWorkspaceId = project.workspaceId;
+    } else if (resolvedWorkspaceId) {
+      // Workspace-scoped feed token: verify user is still an active member of the workspace
+      const wsMember = await prisma.workspaceMember.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId: resolvedWorkspaceId,
+            userId: feedToken.userId,
+          },
+        },
+      });
+
+      if (!wsMember) {
+        throw new AppError('User is no longer an active member of this workspace', 403);
+      }
+    } else {
+      // Legacy token without explicit workspaceId:
+      // Controlled safe transition: scope strictly to user's personal workspace
+      const personalWs = await authService.ensurePersonalWorkspace(feedToken.userId);
+      resolvedWorkspaceId = personalWs.id;
     }
 
     // Touch lastUsedAt asynchronously
@@ -970,7 +1074,11 @@ export class CalendarService {
       data: { lastUsedAt: new Date() },
     }).catch(() => {});
 
-    return { userId: feedToken.userId, projectId: feedToken.projectId };
+    return {
+      userId: feedToken.userId,
+      projectId: feedToken.projectId,
+      workspaceId: resolvedWorkspaceId!,
+    };
   }
 }
 

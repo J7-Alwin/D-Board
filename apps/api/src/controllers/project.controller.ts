@@ -1,15 +1,16 @@
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../middlewares/auth.middleware.js';
+import { WorkspaceRequest } from '../middlewares/workspace.middleware.js';
 import { projectService } from '../services/project.service.js';
 import { AppError } from '../middlewares/error.middleware.js';
 
 export class ProjectController {
-  async createProject(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  async createProject(req: WorkspaceRequest, res: Response, next: NextFunction) {
     try {
       if (!req.user) {
         throw new AppError('Authentication required', 401);
       }
-      const project = await projectService.createProject(req.user.userId, req.body);
+      const project = await projectService.createProject(req.user.userId, req.body, req.workspaceId);
       res.status(201).json({
         success: true,
         message: 'Project created successfully',
@@ -20,12 +21,12 @@ export class ProjectController {
     }
   }
 
-  async getUserProjects(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  async getUserProjects(req: WorkspaceRequest, res: Response, next: NextFunction) {
     try {
       if (!req.user) {
         throw new AppError('Authentication required', 401);
       }
-      const projects = await projectService.getUserProjects(req.user.userId);
+      const projects = await projectService.getUserProjects(req.user.userId, req.workspaceId);
       res.status(200).json({
         success: true,
         data: projects,
@@ -35,13 +36,13 @@ export class ProjectController {
     }
   }
 
-  async getProjectById(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  async getProjectById(req: WorkspaceRequest, res: Response, next: NextFunction) {
     try {
       if (!req.user) {
         throw new AppError('Authentication required', 401);
       }
       const projectId = String(req.params.projectId);
-      const project = await projectService.getProjectById(projectId, req.user.userId);
+      const project = await projectService.getProjectById(projectId, req.user.userId, req.workspaceId);
       res.status(200).json({
         success: true,
         data: { project },

@@ -3,6 +3,7 @@ import { workService } from './services/work.service.js';
 import { commentService } from './services/comment.service.js';
 import { activityService } from './services/activity.service.js';
 import { dashboardService } from './services/dashboard.service.js';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runTests() {
   console.log('🚀 Starting Work Items, Comments, and Activity Integration Test Suite...');
@@ -39,12 +40,14 @@ async function runTests() {
   });
 
   // 2. Create a test project
+  const workspaceId = await ensureTestWorkspace(user1.id);
   const project = await prisma.project.create({
     data: {
       name: 'Alpha Quantum Engine',
       key: 'AQE',
       description: 'High performance physics engine for simulations',
       createdById: user1.id,
+      workspaceId,
       members: {
         create: {
           userId: user2.id,

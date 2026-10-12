@@ -1,6 +1,7 @@
 import { prisma } from './prisma.js';
 import { fileService } from './services/file.service.js';
 import { storageService } from './storage/storage.service.js';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runViewerSecurityTests() {
   console.log('🚀 Starting Universal Viewer Security & Untrusted Payload Test Suite...\n');
@@ -16,12 +17,15 @@ async function runViewerSecurityTests() {
     },
   });
 
+  const workspaceId = await ensureTestWorkspace(userAdmin.id);
+
   const project = await prisma.project.create({
     data: {
       name: `Security Project ${timestamp}`,
       key: 'SECU',
       description: 'Security testing project',
       createdById: userAdmin.id,
+      workspaceId,
     },
   });
 

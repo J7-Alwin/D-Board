@@ -169,7 +169,7 @@ export class NotificationService {
   /**
    * Fetch paginated notifications for the authenticated recipient.
    */
-  async getUserNotifications(userId: string, params: GetNotificationsParams = {}) {
+  async getUserNotifications(userId: string, params: GetNotificationsParams = {}, workspaceId?: string) {
     const page = Math.max(1, Number(params.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(params.limit) || 20));
     const skip = (page - 1) * limit;
@@ -181,11 +181,18 @@ export class NotificationService {
       where: { createdAt: { lt: sevenDaysAgo } },
     }).catch((err) => console.error('[NotificationService] 7-day auto-purge failed:', err));
 
-    // Strict IDOR protection: Always filter by recipientId & 7-day window
+    // Strict IDOR protection: Always filter by recipientId & 7-day window & workspace scoping
     const where: Prisma.NotificationWhereInput = {
       recipientId: userId,
       createdAt: { gte: sevenDaysAgo },
     };
+
+    if (workspaceId) {
+      where.OR = [
+        { project: { workspaceId } },
+        { projectId: null },
+      ];
+    }
 
     if (params.unreadOnly || params.category === 'UNREAD') {
       where.readAt = null;
@@ -290,17 +297,22 @@ export class NotificationService {
   }
 
   /**
-   * Fast unread notification count query (7-day window).
+   * Fast unread notification count query (7-day window) scoped to workspace.
    */
-  async getUnreadCount(userId: string): Promise<number> {
+  async getUnreadCount(userId: string, workspaceId?: string): Promise<number> {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    return await prisma.notification.count({
-      where: {
-        recipientId: userId,
-        readAt: null,
-        createdAt: { gte: sevenDaysAgo },
-      },
-    });
+    const where: Prisma.NotificationWhereInput = {
+      recipientId: userId,
+      readAt: null,
+      createdAt: { gte: sevenDaysAgo },
+    };
+    if (workspaceId) {
+      where.OR = [
+        { project: { workspaceId } },
+        { projectId: null },
+      ];
+    }
+    return await prisma.notification.count({ where });
   }
 
   /**

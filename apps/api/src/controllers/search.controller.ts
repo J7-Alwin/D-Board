@@ -10,8 +10,9 @@ export async function searchGlobalHandler(req: AuthenticatedRequest, res: Respon
     }
     const q = req.query.q ? String(req.query.q) : '';
     const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 8;
+    const workspaceId = (req as any).workspaceId || (req.query?.workspaceId as string) || (req.headers['x-workspace-id'] as string);
 
-    const data = await searchService.searchGlobal(req.user.userId, q, limit);
+    const data = await searchService.searchGlobal(req.user.userId, q, limit, workspaceId);
 
     res.status(200).json({
       success: true,

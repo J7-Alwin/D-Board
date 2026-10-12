@@ -1,6 +1,7 @@
 import { prisma } from './prisma.js';
 import { calendarService } from './services/calendar.service.js';
 import { activityService } from './services/activity.service.js';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runTests() {
   console.log('🚀 Starting Calendar, Deadlines & Events Integration Test Suite...\n');
@@ -30,24 +31,28 @@ async function runTests() {
     },
   });
 
+  const workspaceAId = await ensureTestWorkspace(userAdmin.id);
   const projectA = await prisma.project.create({
     data: {
       name: `Calendar Alpha ${timestamp}`,
       key: `CAL${String(timestamp).slice(-3)}`,
       description: 'Project for calendar integration tests',
       createdById: userAdmin.id,
+      workspaceId: workspaceAId,
       members: {
         create: [{ userId: userMember.id, role: 'PROJECT_MEMBER' }],
       },
     },
   });
 
+  const workspaceBId = await ensureTestWorkspace(userOutsider.id);
   const projectB = await prisma.project.create({
     data: {
       name: `Calendar Beta ${timestamp}`,
       key: `BET${String(timestamp).slice(-3)}`,
       description: 'Second project for isolation tests',
       createdById: userOutsider.id,
+      workspaceId: workspaceBId,
     },
   });
 

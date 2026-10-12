@@ -13,8 +13,9 @@ export class CalendarController {
     try {
       if (!req.user) throw new AppError('Authentication required', 401);
       const query = calendarQuerySchema.parse(req.query);
+      const workspaceId = (req as any).workspaceId || (req.query?.workspaceId as string) || (req.headers['x-workspace-id'] as string);
 
-      const result = await calendarService.getCalendarItems(req.user.userId, query);
+      const result = await calendarService.getCalendarItems(req.user.userId, query, workspaceId);
 
       res.status(200).json({
         success: true,
@@ -132,19 +133,24 @@ export class CalendarController {
       const rawToken = req.query?.token as string | undefined;
 
       let effectiveUserId: string;
+      let effectiveWorkspaceId: string | undefined;
+      let effectiveProjectId: string | undefined = projectId;
 
       if (rawToken && typeof rawToken === 'string' && rawToken.trim()) {
-        // Authenticate via high-entropy revocable feed token
+        // Authenticate via high-entropy revocable feed token with scoped workspace isolation
         const feedAuth = await calendarService.authenticateFeedToken(rawToken.trim(), projectId);
         effectiveUserId = feedAuth.userId;
+        effectiveWorkspaceId = feedAuth.workspaceId;
+        effectiveProjectId = feedAuth.projectId || projectId;
       } else if (req.user?.userId) {
-        // Fallback to active browser session
+        // Fallback to active browser session (verified by resolveWorkspaceContext)
         effectiveUserId = req.user.userId;
+        effectiveWorkspaceId = (req as any).workspaceId;
       } else {
         throw new AppError('Authentication or valid calendar feed subscription token required', 401);
       }
 
-      const icsString = await calendarService.generateICalFeed(effectiveUserId, projectId);
+      const icsString = await calendarService.generateICalFeed(effectiveUserId, effectiveProjectId, effectiveWorkspaceId);
 
       res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
       res.setHeader('Content-Disposition', 'inline; filename="feed.ics"');
@@ -160,8 +166,9 @@ export class CalendarController {
     try {
       if (!req.user) throw new AppError('Authentication required', 401);
       const projectId = req.params.projectId as string | undefined;
+      const workspaceId = (req as any).workspaceId as string | undefined;
 
-      const result = await calendarService.createFeedToken(req.user.userId, projectId || null);
+      const result = await calendarService.createFeedToken(req.user.userId, projectId || null, workspaceId || null);
 
       res.status(201).json({
         success: true,
@@ -176,8 +183,9 @@ export class CalendarController {
     try {
       if (!req.user) throw new AppError('Authentication required', 401);
       const projectId = req.params.projectId as string | undefined;
+      const workspaceId = (req as any).workspaceId as string | undefined;
 
-      const result = await calendarService.revokeFeedToken(req.user.userId, projectId || null);
+      const result = await calendarService.revokeFeedToken(req.user.userId, projectId || null, workspaceId || null);
 
       res.status(200).json(result);
     } catch (error) {

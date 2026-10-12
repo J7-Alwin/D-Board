@@ -3,6 +3,7 @@ import prisma from './prisma.js';
 import * as authService from './services/auth.service.js';
 import { invitationService } from './services/invitation.service.js';
 import { hashToken } from './utils/security.js';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runAuthAndEmailFlowTests() {
   console.log('====================================================');
@@ -129,12 +130,14 @@ async function runAuthAndEmailFlowTests() {
     // ----------------------------------------------------
     console.log('\nTEST 4: Unregistered User Project Invitation Linking');
     // Alwin creates a project
+    const workspaceId = await ensureTestWorkspace(alwinAuth.user.id);
     const project = await prisma.project.create({
       data: {
         name: `Engineering Hub ${timestamp}`,
         key: `ENG${timestamp.toString().slice(-4)}`,
         description: 'Engineering workspace for D-Board testing',
         createdById: alwinAuth.user.id,
+        workspaceId,
         technologyStack: ['TypeScript', 'Node.js', 'PostgreSQL'],
         members: {
           create: [{ userId: alwinAuth.user.id, role: 'PROJECT_ADMIN' }],
@@ -172,7 +175,15 @@ async function runAuthAndEmailFlowTests() {
     }
     console.log(`  ✓ Pending invitation automatically linked to Alan's account!`);
 
-    // Alan accepts the invitation
+    // Alan accepts the invitation after joining the workspace
+    await prisma.workspaceMember.create({
+      data: {
+        workspaceId: project.workspaceId,
+        userId: alanAuth.user.id,
+        role: 'WORKSPACE_MEMBER',
+        origin: 'PROJECT_DERIVED',
+      },
+    });
     const acceptRes = await invitationService.acceptInvitation(invitation.id, alanAuth.user.id);
     if (!acceptRes.success) {
       throw new Error('Alan failed to accept invitation');

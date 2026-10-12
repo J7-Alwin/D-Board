@@ -6,7 +6,12 @@ import {
   type DeadlineReminderJobData,
   type CleanupJobData,
 } from './job.types.js';
-import { sendPasswordResetEmail, sendInvitationEmail, sendEmailVerificationEmail } from '../services/email.service.js';
+import {
+  sendPasswordResetEmail,
+  sendInvitationEmail,
+  sendWorkspaceInvitationEmail,
+  sendEmailVerificationEmail,
+} from '../services/email.service.js';
 
 const defaultJobOptions: JobsOptions = {
   attempts: 3,
@@ -100,6 +105,16 @@ export async function enqueueEmailJob(data: EmailJobData, customJobId?: string):
         projectName: data.projectName,
         projectKey: data.projectKey,
         role: data.role,
+        message: data.message,
+        expiresAt: new Date(data.expiresAt),
+      });
+    } else if (data.type === 'WORKSPACE_INVITATION') {
+      await sendWorkspaceInvitationEmail({
+        toEmail: data.toEmail,
+        inviterName: data.inviterName,
+        workspaceName: data.workspaceName,
+        role: data.role,
+        token: data.token,
         message: data.message,
         expiresAt: new Date(data.expiresAt),
       });

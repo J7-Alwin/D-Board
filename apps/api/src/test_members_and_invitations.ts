@@ -2,6 +2,7 @@ import { prisma } from './prisma.js';
 import { memberService } from './services/member.service.js';
 import { invitationService } from './services/invitation.service.js';
 import { workService } from './services/work.service.js';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runTests() {
   console.log('🚀 Starting Members, Invitations, and My Work Integration Test Suite...');
@@ -49,12 +50,14 @@ async function runTests() {
   });
 
   // 2. Create test project with adminUser as creator
+  const workspaceId = await ensureTestWorkspace(adminUser.id);
   const project = await prisma.project.create({
     data: {
       name: 'Titan Workspace Platform',
       key: 'TWP',
       description: 'Enterprise workspace for developer productivity',
       createdById: adminUser.id,
+      workspaceId,
       members: {
         create: {
           userId: adminUser.id,
@@ -94,9 +97,30 @@ async function runTests() {
     throw new Error('User invitation list mismatch!');
   }
 
-  // 6. Test Invitation Acceptance (Transactional)
+  // 6. Test Workspace Membership Prerequisite Enforcement
+  let wsPrereqBlocked = false;
+  try {
+    await invitationService.acceptInvitation(invitation.id, memberUser.id);
+  } catch (err: any) {
+    if (err.statusCode === 403 && err.message.includes('Workspace membership is required')) {
+      wsPrereqBlocked = true;
+      console.log(`✅ Non-workspace-member acceptance strictly blocked (403): "${err.message}"`);
+    }
+  }
+  if (!wsPrereqBlocked) throw new Error('Non-workspace-member acceptance was not blocked with 403!');
+
+  // Establish workspace membership for memberUser and verify acceptance succeeds
+  await prisma.workspaceMember.create({
+    data: {
+      workspaceId,
+      userId: memberUser.id,
+      role: 'WORKSPACE_MEMBER',
+      origin: 'PROJECT_DERIVED',
+    },
+  });
+
   const acceptResult = await invitationService.acceptInvitation(invitation.id, memberUser.id);
-  console.log(`✅ Invitation accepted: "${acceptResult.message}"`);
+  console.log(`✅ Invitation accepted after workspace membership established: "${acceptResult.message}"`);
 
   // Verify membership created
   const projectMembers = await memberService.getProjectMembers(project.id, adminUser.id);

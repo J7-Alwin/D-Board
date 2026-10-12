@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { notificationController } from '../controllers/notification.controller.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
+import { resolveWorkspaceContext } from '../middlewares/workspace.middleware.js';
 
 const router = Router();
 
-// All notification routes require authentication
+// All notification routes require authentication and active workspace context
 router.use(authenticate);
+router.use(resolveWorkspaceContext);
 
 router.get('/', (req, res, next) => notificationController.getNotifications(req, res, next));
 router.get('/unread-count', (req, res, next) => notificationController.getUnreadCount(req, res, next));

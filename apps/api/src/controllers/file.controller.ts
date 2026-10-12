@@ -124,9 +124,10 @@ export class FileController {
     try {
       if (!req.user) throw new AppError('Authentication required', 401);
       const userId = req.user.userId;
+      const workspaceId = (req as any).workspaceId || (req.query?.workspaceId as string) || (req.headers['x-workspace-id'] as string);
       const query = fileQuerySchema.parse(req.query);
 
-      const result = await fileService.getGlobalFiles(userId, query);
+      const result = await fileService.getGlobalFiles(userId, query, workspaceId);
 
       res.json({
         success: true,

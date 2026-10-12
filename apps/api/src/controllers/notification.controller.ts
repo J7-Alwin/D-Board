@@ -12,14 +12,19 @@ export class NotificationController {
     try {
       if (!req.user) throw new AppError('Authentication required', 401);
       const userId = req.user.userId;
+      const workspaceId = (req as any).workspaceId || (req.query?.workspaceId as string) || (req.headers['x-workspace-id'] as string);
       const { category, unreadOnly, page, limit } = req.query;
 
-      const result = await notificationService.getUserNotifications(userId, {
-        category: category as any,
-        unreadOnly: unreadOnly === 'true',
-        page: page ? Number(page) : undefined,
-        limit: limit ? Number(limit) : undefined,
-      });
+      const result = await notificationService.getUserNotifications(
+        userId,
+        {
+          category: category as any,
+          unreadOnly: unreadOnly === 'true',
+          page: page ? Number(page) : undefined,
+          limit: limit ? Number(limit) : undefined,
+        },
+        workspaceId
+      );
 
       res.status(200).json({
         success: true,
@@ -38,7 +43,8 @@ export class NotificationController {
     try {
       if (!req.user) throw new AppError('Authentication required', 401);
       const userId = req.user.userId;
-      const count = await notificationService.getUnreadCount(userId);
+      const workspaceId = (req as any).workspaceId || (req.query?.workspaceId as string) || (req.headers['x-workspace-id'] as string);
+      const count = await notificationService.getUnreadCount(userId, workspaceId);
 
       res.status(200).json({
         success: true,

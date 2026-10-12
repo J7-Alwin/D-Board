@@ -19,7 +19,7 @@ export function createDeadlineWorker(): Worker<DeadlineReminderJobData> {
             select: { id: true, fullName: true, username: true },
           },
           project: {
-            select: { id: true, name: true, key: true },
+            select: { id: true, name: true, key: true, createdById: true },
           },
         },
       });
@@ -39,6 +39,21 @@ export function createDeadlineWorker(): Worker<DeadlineReminderJobData> {
       if (!workItem.assignedToId || workItem.assignedToId !== data.assignedToId) {
         console.log(`[DeadlineWorker] Assignee changed or unassigned for work item ${data.workItemId}, skipping.`);
         return { skipped: true, reason: 'ASSIGNEE_CHANGED' };
+      }
+
+      // 4. Verify assignee is still an active project member (revocation safety)
+      const member = await prisma.projectMember.findUnique({
+        where: {
+          projectId_userId: {
+            projectId: workItem.projectId,
+            userId: workItem.assignedToId,
+          },
+        },
+      });
+      const isCreator = workItem.project.createdById === workItem.assignedToId;
+      if (!member && !isCreator) {
+        console.log(`[DeadlineWorker] Assignee is no longer an active member of project ${workItem.projectId}, skipping.`);
+        return { skipped: true, reason: 'MEMBERSHIP_REVOKED' };
       }
 
       // 4. Determine title and message

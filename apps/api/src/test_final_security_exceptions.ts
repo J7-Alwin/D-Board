@@ -4,6 +4,7 @@ import { fileService } from './services/file.service.js';
 import { sessionService } from './services/session.service.js';
 import { userService } from './services/user.service.js';
 import { hashPassword, hashToken } from './utils/security.js';
+import { ensureTestWorkspace } from './test_utils.js';
 
 async function runFinalSecurityExceptionTests() {
   console.log('🔒 === STARTING FINAL SECURITY EXCEPTION VERIFICATION SUITE ===\n');
@@ -20,12 +21,14 @@ async function runFinalSecurityExceptionTests() {
     },
   });
 
+  const workspaceId = await ensureTestWorkspace(user.id);
   const project = await prisma.project.create({
     data: {
       name: `Security Project ${timestamp}`,
       key: 'SECP',
       description: 'Security exception testing workspace',
       createdById: user.id,
+      workspaceId,
       members: {
         create: { userId: user.id, role: 'PROJECT_ADMIN' },
       },

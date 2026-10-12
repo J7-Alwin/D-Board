@@ -4,6 +4,7 @@ import { LocalStorageProvider } from './storage/localStorage.provider.js';
 import { fileService } from './services/file.service.js';
 import { activityService } from './services/activity.service.js';
 import { classifyFile, sanitizeFilename } from './utils/fileClassifier.js';
+import { ensureTestWorkspace } from './test_utils.js';
 import path from 'node:path';
 
 async function runTests() {
@@ -94,12 +95,14 @@ async function runTests() {
     },
   });
 
+  const workspaceAId = await ensureTestWorkspace(userAdmin.id);
   const projectA = await prisma.project.create({
     data: {
       name: `Project Alpha ${timestamp}`,
       key: 'ALPH',
       description: 'Alpha storage workspace',
       createdById: userAdmin.id,
+      workspaceId: workspaceAId,
       members: {
         create: [
           { userId: userMember.id, role: 'PROJECT_MEMBER' },
@@ -108,12 +111,14 @@ async function runTests() {
     },
   });
 
+  const workspaceBId = await ensureTestWorkspace(userOutsider.id);
   const projectB = await prisma.project.create({
     data: {
       name: `Project Beta ${timestamp}`,
       key: 'BETA',
       description: 'Beta isolated workspace',
       createdById: userOutsider.id,
+      workspaceId: workspaceBId,
     },
   });
 

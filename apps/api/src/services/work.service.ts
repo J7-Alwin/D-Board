@@ -586,16 +586,22 @@ export class WorkService {
       sort?: 'dueDate' | 'priority' | 'recentlyUpdated' | 'recentlyCreated';
       page?: number;
       limit?: number;
-    }
+    },
+    workspaceId?: string
   ) {
-    // 1. Fetch all project IDs where user is creator or member
+    const projectWhere: any = {
+      OR: [
+        { createdById: userId },
+        { members: { some: { userId } } },
+      ],
+    };
+    if (workspaceId) {
+      projectWhere.workspaceId = workspaceId;
+    }
+
+    // 1. Fetch all project IDs where user is creator or member in the active workspace
     const userProjects = await prisma.project.findMany({
-      where: {
-        OR: [
-          { createdById: userId },
-          { members: { some: { userId } } },
-        ],
-      },
+      where: projectWhere,
       select: { id: true },
     });
 

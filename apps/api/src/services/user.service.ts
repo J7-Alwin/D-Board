@@ -1,5 +1,6 @@
 import prisma, { Prisma } from '../prisma.js';
 import { hashPassword, verifyPassword } from '../utils/security.js';
+import { validatePasswordPolicy } from '../utils/passwordPolicy.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { sessionService } from './session.service.js';
 import {
@@ -142,6 +143,14 @@ export async function changeUserPassword(
     if (!isCurrentValid) {
       throw new AppError('The current password you provided is incorrect', 400);
     }
+  }
+
+  const passwordValidation = validatePasswordPolicy(input.newPassword);
+  if (!passwordValidation.isValid) {
+    const error: AppError = new Error(passwordValidation.error || 'Password does not meet security requirements');
+    error.statusCode = 400;
+    error.errors = { newPassword: [passwordValidation.error || 'Password does not meet security requirements'] };
+    throw error;
   }
 
   // Hash and save new password

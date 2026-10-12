@@ -3,7 +3,7 @@ import React, { forwardRef, useId } from 'react';
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
-  helperText?: string;
+  helperText?: React.ReactNode;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
 }
@@ -23,6 +23,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(({
   const inputId = id || generatedId;
   const errorId = `${inputId}-error`;
   const helperId = `${inputId}-helper`;
+  const describedBy = [error ? errorId : null, helperText ? helperId : null].filter(Boolean).join(' ') || undefined;
 
   return (
     <div className="input-group">
@@ -39,7 +40,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(({
           id={inputId}
           className={`input-field ${className}`}
           aria-invalid={error ? 'true' : 'false'}
-          aria-describedby={error ? errorId : helperText ? helperId : undefined}
+          aria-describedby={describedBy}
           required={required}
           {...props}
         />
@@ -50,7 +51,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(({
           {error}
         </p>
       )}
-      {!error && helperText && (
+      {helperText && (
         <p id={helperId} className="input-helper-msg">
           {helperText}
         </p>

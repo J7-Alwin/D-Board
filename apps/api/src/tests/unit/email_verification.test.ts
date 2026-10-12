@@ -47,7 +47,7 @@ describe('Email Verification System Unit Tests', () => {
       const result = await authService.register({
         username: 'verifyuser',
         email: 'verifyuser@example.com',
-        password: 'Password123!',
+        password: 'Password123!Secure',
         termsAccepted: true,
       });
 

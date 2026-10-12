@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { passwordPolicySchema } from '../utils/passwordPolicy.js';
 
 export const registerSchema = z.object({
   fullName: z
@@ -18,10 +19,7 @@ export const registerSchema = z.object({
     .trim()
     .email('Invalid email address')
     .max(100, 'Email must not exceed 100 characters'),
-  password: z
-    .string()
-    .min(8, 'Password must be at least 8 characters')
-    .max(100, 'Password must not exceed 100 characters'),
+  password: passwordPolicySchema,
   termsAccepted: z
     .boolean()
     .optional(),
@@ -38,7 +36,8 @@ export const loginSchema = z.object({
     .min(1, 'Username or email is required'),
   password: z
     .string()
-    .min(1, 'Password is required'),
+    .min(1, 'Password is required')
+    .refine((val) => val.trim().length > 0, 'Password is required'),
   rememberMe: z.boolean().optional(),
 });
 
@@ -77,10 +76,7 @@ export const resetPasswordSchema = z.object({
     .string()
     .trim()
     .optional(),
-  newPassword: z
-    .string()
-    .min(8, 'Password must be at least 8 characters')
-    .max(100, 'Password must not exceed 100 characters'),
+  newPassword: passwordPolicySchema,
 }).refine((data) => (data.otp && data.email) || data.token, {
   message: 'Either 6-digit OTP with email or reset token must be provided',
 });

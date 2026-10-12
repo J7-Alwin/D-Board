@@ -8,7 +8,7 @@ describe('Auth, Project RBAC, and Calendar Feed Token Integration Tests', () => 
   const testUser = {
     username: `test_user_${timestamp}`,
     email: `test_user_${timestamp}@example.com`,
-    password: 'Password123!',
+    password: 'Password123!Secure',
     fullName: 'Integration Test User',
   };
 

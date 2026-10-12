@@ -47,8 +47,8 @@ describe('RegisterPage Component Tests', () => {
     fireEvent.change(screen.getByPlaceholderText(/e\.g\. Alex Henderson/i), { target: { value: 'Alex Henderson' } });
     fireEvent.change(screen.getByPlaceholderText(/e\.g\. alex_dev/i), { target: { value: 'alex_dev' } });
     fireEvent.change(screen.getByPlaceholderText(/name@company\.com/i), { target: { value: 'alex@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText(/minimum 8 characters/i), { target: { value: 'Password123!' } });
-    fireEvent.change(screen.getByPlaceholderText(/re-enter your password/i), { target: { value: 'Password123!' } });
+    fireEvent.change(screen.getByPlaceholderText(/minimum 15 characters/i), { target: { value: 'Password123!Secure' } });
+    fireEvent.change(screen.getByPlaceholderText(/re-enter your password/i), { target: { value: 'Password123!Secure' } });
 
     // Check terms
     const termsCheckbox = screen.getByRole('checkbox');
@@ -84,8 +84,8 @@ describe('RegisterPage Component Tests', () => {
     fireEvent.change(screen.getByPlaceholderText(/e\.g\. Alex Henderson/i), { target: { value: 'Alex Henderson' } });
     fireEvent.change(screen.getByPlaceholderText(/e\.g\. alex_dev/i), { target: { value: 'alex_dev' } });
     fireEvent.change(screen.getByPlaceholderText(/name@company\.com/i), { target: { value: 'alex@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText(/minimum 8 characters/i), { target: { value: 'Password123!' } });
-    fireEvent.change(screen.getByPlaceholderText(/re-enter your password/i), { target: { value: 'Password123!' } });
+    fireEvent.change(screen.getByPlaceholderText(/minimum 15 characters/i), { target: { value: 'Password123!Secure' } });
+    fireEvent.change(screen.getByPlaceholderText(/re-enter your password/i), { target: { value: 'Password123!Secure' } });
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 

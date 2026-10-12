@@ -7,6 +7,7 @@ import {
   type NotificationPreferences,
 } from '../../api/user.api';
 import { authApi } from '../../api/auth.api';
+import { validatePassword } from '../../utils/passwordPolicy';
 import { GOOGLE_AUTH_ENABLED } from '../../config/features';
 import {
   UserIcon,
@@ -170,8 +171,9 @@ export const AccountSettingsPage: React.FC = () => {
     e.preventDefault();
     setError(null);
 
-    if (newPassword.length < 8) {
-      setError('New password must be at least 8 characters long');
+    const validation = validatePassword(newPassword);
+    if (!validation.isValid) {
+      setError(validation.error || 'Password does not meet security requirements');
       return;
     }
 
@@ -622,9 +624,9 @@ export const AccountSettingsPage: React.FC = () => {
             TAB 2: CREDENTIALS (CONNECTED ACCOUNTS & PASSWORD)
             =================================================================== */}
         {activeTab === 'security' && (() => {
-          const hasMinLength = newPassword.length >= 8;
-          const hasNumber = /\d/.test(newPassword);
-          const hasLetter = /[a-zA-Z]/.test(newPassword);
+          const hasMinLength = newPassword.length >= 15;
+          const hasNonWhitespace = /\S/.test(newPassword);
+          const isByteSafe = new TextEncoder().encode(newPassword).length <= 72;
 
           return (
             <div className="as-cred-container">
@@ -782,9 +784,12 @@ export const AccountSettingsPage: React.FC = () => {
                           <LockIcon size={16} className="as-pwd-icon" />
                           <input
                             type={showNewPassword ? 'text' : 'password'}
-                            placeholder="At least 8 characters"
+                            placeholder="Minimum 15 characters"
                             value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
+                            onChange={(e) => {
+                              setNewPassword(e.target.value);
+                              if (error) setError(null);
+                            }}
                             className="as-pwd-input"
                             required
                           />
@@ -802,17 +807,21 @@ export const AccountSettingsPage: React.FC = () => {
                         <div className="as-pwd-reqs-row">
                           <span className={`as-req-pill ${hasMinLength ? 'met' : ''}`}>
                             <span className="as-req-indicator">{hasMinLength ? '✓' : '⊙'}</span>
-                            <span>At least 8 characters</span>
+                            <span>At least 15 characters</span>
                           </span>
-                          <span className={`as-req-pill ${hasNumber ? 'met' : ''}`}>
-                            <span className="as-req-indicator">{hasNumber ? '✓' : '⊙'}</span>
-                            <span>Include a number</span>
+                          <span className={`as-req-pill ${hasNonWhitespace ? 'met' : ''}`}>
+                            <span className="as-req-indicator">{hasNonWhitespace ? '✓' : '⊙'}</span>
+                            <span>Not only spaces</span>
                           </span>
-                          <span className={`as-req-pill ${hasLetter ? 'met' : ''}`}>
-                            <span className="as-req-indicator">{hasLetter ? '✓' : '⊙'}</span>
-                            <span>Include a letter</span>
+                          <span className={`as-req-pill ${isByteSafe ? 'met' : ''}`}>
+                            <span className="as-req-indicator">{isByteSafe ? '✓' : '⊙'}</span>
+                            <span>Max 64 chars / 72 bytes</span>
                           </span>
                         </div>
+
+                        <p className="as-pwd-helper-tip">
+                          💡 Tip: A memorable passphrase of 3–4 words with spaces is easy to remember and secure (min 15 characters). No complex symbols required.
+                        </p>
                       </div>
 
                       {/* Confirm New Password */}

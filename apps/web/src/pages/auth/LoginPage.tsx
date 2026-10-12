@@ -27,7 +27,7 @@ export const LoginPage: React.FC = () => {
     if (!identifier.trim()) {
       newErrors.identifier = 'Username or email is required';
     }
-    if (!password) {
+    if (!password || !password.trim()) {
       newErrors.password = 'Password is required';
     }
 

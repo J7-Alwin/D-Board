@@ -19,14 +19,14 @@ async function runE2ESmokeSuite() {
   const userA = {
     username: `e2e_owner_${timestamp}`,
     email: `e2e_owner_${timestamp}@example.com`,
-    password: 'Password123!',
+    password: 'Password123!Secure',
     fullName: 'E2E Project Owner',
   };
 
   const userB = {
     username: `e2e_member_${timestamp}`,
     email: `e2e_member_${timestamp}@example.com`,
-    password: 'Password123!',
+    password: 'Password123!Secure',
     fullName: 'E2E Project Collaborator',
   };
 

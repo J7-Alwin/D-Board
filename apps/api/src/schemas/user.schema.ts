@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { passwordPolicySchema } from '../utils/passwordPolicy.js';
 
 export const updateProfileSchema = z.object({
   fullName: z.string().max(100).nullable().optional(),
@@ -18,13 +19,11 @@ export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
 export const changePasswordSchema = z
   .object({
-    currentPassword: z.string().min(1, 'Current password is required'),
-    newPassword: z
+    currentPassword: z
       .string()
-      .min(8, 'New password must be at least 8 characters')
-      .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-      .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-      .regex(/[0-9]/, 'Password must contain at least one number'),
+      .min(1, 'Current password is required')
+      .refine((val) => val.trim().length > 0, 'Current password is required'),
+    newPassword: passwordPolicySchema,
     confirmPassword: z.string().min(1, 'Please confirm your new password'),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {

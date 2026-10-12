@@ -10,6 +10,7 @@ import { authApi } from '../../api/auth.api';
 import { GOOGLE_AUTH_ENABLED } from '../../config/features';
 import { useAuth } from '../../context/AuthContext';
 import { LegalModal } from '../../components/modals/LegalModal';
+import { validatePassword } from '../../utils/passwordPolicy';
 
 function getEmailProviderUrl(email: string): string {
   const domain = email.split('@')[1]?.toLowerCase();
@@ -289,13 +290,14 @@ export const RegisterPage: React.FC = () => {
       newErrors.email = 'Please enter a valid email address';
     }
 
-    if (!password) {
-      newErrors.password = 'Password is required';
-    } else if (password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters';
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      newErrors.password = passwordValidation.error;
     }
 
-    if (password !== confirmPassword) {
+    if (!confirmPassword) {
+      newErrors.confirmPassword = 'Confirm password is required';
+    } else if (password !== confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match';
     }
 
@@ -570,10 +572,16 @@ export const RegisterPage: React.FC = () => {
 
           <PasswordInput
             label="Password"
-            placeholder="Minimum 8 characters"
+            placeholder="Minimum 15 characters"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (errors.password) {
+                setErrors((prev) => ({ ...prev, password: undefined }));
+              }
+            }}
             error={errors.password}
+            helperText="💡 Tip: A memorable passphrase of 3–4 words with spaces is easy to remember and secure (min 15 characters). No complex symbols required."
             leftIcon={<LockIcon size={18} />}
             required
             autoComplete="new-password"

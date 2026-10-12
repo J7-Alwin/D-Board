@@ -6,6 +6,7 @@ import { PasswordInput } from '../../components/ui/PasswordInput';
 import { Button } from '../../components/ui/Button';
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon } from '../../components/ui/Icons';
 import { authApi } from '../../api/auth.api';
+import { validatePassword } from '../../utils/passwordPolicy';
 
 export const ResetPasswordPage: React.FC = () => {
   const { navigate } = useRouter();
@@ -63,13 +64,14 @@ export const ResetPasswordPage: React.FC = () => {
       newErrors.otp = 'Please enter a valid 6-digit verification code';
     }
 
-    if (!newPassword) {
-      newErrors.newPassword = 'New password is required';
-    } else if (newPassword.length < 8) {
-      newErrors.newPassword = 'Password must be at least 8 characters';
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.isValid) {
+      newErrors.newPassword = passwordValidation.error;
     }
 
-    if (newPassword !== confirmPassword) {
+    if (!confirmPassword) {
+      newErrors.confirmPassword = 'Confirm password is required';
+    } else if (newPassword !== confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match';
     }
 
@@ -208,10 +210,16 @@ export const ResetPasswordPage: React.FC = () => {
 
             <PasswordInput
               label="New Password"
-              placeholder="Minimum 8 characters"
+              placeholder="Minimum 15 characters"
               value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
+              onChange={(e) => {
+                setNewPassword(e.target.value);
+                if (errors.newPassword) {
+                  setErrors((prev) => ({ ...prev, newPassword: undefined }));
+                }
+              }}
               error={errors.newPassword}
+              helperText="💡 Tip: A memorable passphrase of 3–4 words with spaces is easy to remember and secure (min 15 characters). No complex symbols required."
               required
               autoComplete="new-password"
               disabled={isLoading}

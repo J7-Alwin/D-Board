@@ -8,6 +8,7 @@ import {
   generateJwt,
   JwtPayload,
 } from '../utils/security.js';
+import { validatePasswordPolicy } from '../utils/passwordPolicy.js';
 import { RegisterInput, LoginInput } from '../schemas/auth.schema.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { sendWelcomeEmail, sendPasswordResetOtpEmail, sendEmailVerificationEmail } from './email.service.js';
@@ -75,6 +76,14 @@ export async function register(
     throw error;
   }
 
+  const passwordValidation = validatePasswordPolicy(input.password);
+  if (!passwordValidation.isValid) {
+    const error: AppError = new Error(passwordValidation.error || 'Password does not meet security requirements');
+    error.statusCode = 400;
+    error.errors = { password: [passwordValidation.error || 'Password does not meet security requirements'] };
+    throw error;
+  }
+
   const passwordHash = await hashPassword(input.password);
 
   // Generate email verification token (24 hour expiration)
@@ -82,20 +91,38 @@ export async function register(
   const verificationTokenHash = hashToken(verificationToken);
   const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-  const newUser = await prisma.user.create({
-    data: {
-      fullName: input.fullName?.trim() || null,
-      username: normalizedUsername,
-      email: normalizedEmail,
-      passwordHash,
-      avatarUrl: input.avatarUrl || null,
-      termsAccepted: input.termsAccepted ?? true,
-      isEmailVerified: false,
-      emailVerificationTokenHash: verificationTokenHash,
-      emailVerificationExpiresAt: verificationExpiresAt,
-      passwordResetAttempts: 0,
-    },
-  });
+  let newUser: any;
+  try {
+    newUser = await prisma.user.create({
+      data: {
+        fullName: input.fullName?.trim() || null,
+        username: normalizedUsername,
+        email: normalizedEmail,
+        passwordHash,
+        avatarUrl: input.avatarUrl || null,
+        termsAccepted: input.termsAccepted ?? true,
+        isEmailVerified: false,
+        emailVerificationTokenHash: verificationTokenHash,
+        emailVerificationExpiresAt: verificationExpiresAt,
+        passwordResetAttempts: 0,
+      },
+    });
+  } catch (err: any) {
+    if (err.code === 'P2002' || err.message?.includes('Unique constraint')) {
+      const target = err.meta?.target;
+      const targetStr = Array.isArray(target) ? target.join(',') : typeof target === 'string' ? target : '';
+      const isEmail = targetStr.includes('email') || err.message?.includes('User_email_key');
+      const error: AppError = new Error(
+        isEmail ? 'Email address is already registered' : 'Username is already taken'
+      );
+      error.statusCode = 409;
+      error.errors = isEmail
+        ? { email: ['This email address is already registered'] }
+        : { username: ['This username is already in use'] };
+      throw error;
+    }
+    throw err;
+  }
 
   // Link any pending project invitations for this email address
   await invitationService.linkPendingInvitationsForUser(newUser.email, newUser.id);
@@ -145,6 +172,13 @@ export async function login(
   input: LoginInput,
   meta?: AuthSessionMeta
 ): Promise<{ user: PublicUser; token: string }> {
+  if (!input.password || input.password.trim().length === 0) {
+    const error: AppError = new Error('Password is required');
+    error.statusCode = 400;
+    error.errors = { password: ['Password is required'] };
+    throw error;
+  }
+
   const isEmail = input.identifier.includes('@');
   
   const user = await prisma.user.findFirst({
@@ -398,6 +432,14 @@ export async function resetPassword(
   identifier: { email?: string; otp?: string; token?: string },
   newPassword: string
 ): Promise<void> {
+  const passwordValidation = validatePasswordPolicy(newPassword);
+  if (!passwordValidation.isValid) {
+    const error: AppError = new Error(passwordValidation.error || 'Password does not meet security requirements');
+    error.statusCode = 400;
+    error.errors = { newPassword: [passwordValidation.error || 'Password does not meet security requirements'] };
+    throw error;
+  }
+
   let user: any = null;
 
   if (identifier.otp && identifier.email) {

@@ -42470,6 +42470,17 @@ a.footer-contact-row:hover .footer-contact-value {
   line-height: 1;
 }
 
+.as-pwd-helper-tip {
+  font-size: 0.75rem;
+  color: #64748B;
+  margin-top: 0.45rem;
+  line-height: 1.45;
+  padding: 0.4rem 0.6rem;
+  background-color: #F8FAFC;
+  border-radius: 6px;
+  border: 1px dashed #E2E8F0;
+}
+
 /* "Keep your account safe" card */
 .as-keep-safe-card {
   background-color: #F8FAFC;

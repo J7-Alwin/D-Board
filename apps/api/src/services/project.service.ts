@@ -67,14 +67,17 @@ export class ProjectService {
       // Re-verify target workspace is not deleted inside the transaction
       const targetWs = await tx.workspace.findUnique({
         where: { id: targetWorkspaceId },
-        select: { id: true, deletedAt: true },
+        select: { id: true, isPersonal: true, deletedAt: true },
       });
       if (!targetWs || targetWs.deletedAt) {
         throw new AppError('Workspace not found', 404);
       }
 
       const rawVis = data.visibility ? String(data.visibility).toUpperCase() : 'WORKSPACE';
-      const normVisibility: 'WORKSPACE' | 'RESTRICTED' = rawVis === 'RESTRICTED' ? 'RESTRICTED' : 'WORKSPACE';
+      let normVisibility: 'WORKSPACE' | 'RESTRICTED' = rawVis === 'RESTRICTED' ? 'RESTRICTED' : 'WORKSPACE';
+      if (targetWs.isPersonal) {
+        normVisibility = 'RESTRICTED';
+      }
 
       // 1. Create project
       const project = await tx.project.create({
@@ -254,9 +257,20 @@ export class ProjectService {
       }
       isWsOwner = ws.ownerId === userId;
       isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
+      const isWsMember = ws.members.length > 0;
+
+      if (!isWsOwner && !isWsAdmin && !isWsMember) {
+        return { all: [], owned: [], joined: [] };
+      }
 
       if (isWsOwner || isWsAdmin) {
         where = { workspaceId, workspace: { deletedAt: null } };
+      } else if (ws.isPersonal) {
+        where = {
+          workspaceId,
+          workspace: { deletedAt: null },
+          members: { some: { userId } },
+        };
       } else {
         where = {
           workspaceId,
@@ -268,11 +282,31 @@ export class ProjectService {
         };
       }
     } else {
+      const adminWorkspaces = await prisma.workspace.findMany({
+        where: {
+          deletedAt: null,
+          OR: [
+            { ownerId: userId },
+            { members: { some: { userId, role: 'WORKSPACE_ADMIN' } } },
+          ],
+        },
+        select: { id: true },
+      });
+      const adminWorkspaceIds = adminWorkspaces.map((w) => w.id);
+
       where = {
         workspace: { deletedAt: null },
         OR: [
-          { visibility: 'WORKSPACE' },
+          { workspaceId: { in: adminWorkspaceIds } },
           { members: { some: { userId } } },
+          {
+            visibility: 'WORKSPACE',
+            workspace: {
+              deletedAt: null,
+              isPersonal: false,
+              members: { some: { userId } },
+            },
+          },
         ],
       };
     }
@@ -298,7 +332,14 @@ export class ProjectService {
           select: { id: true, status: true },
         },
         workspace: {
-          select: { id: true, name: true, slug: true, isPersonal: true },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            isPersonal: true,
+            ownerId: true,
+            members: { where: { userId } },
+          },
         },
       },
       orderBy: { updatedAt: 'desc' },
@@ -306,7 +347,9 @@ export class ProjectService {
 
     const formatted = projects.map((p) => {
       const userMember = p.members.find((m) => m.userId === userId);
-      const userRole = userMember ? userMember.role : (isWsOwner || isWsAdmin) ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
+      const projectIsWsOwner = isWsOwner || p.workspace?.ownerId === userId;
+      const projectIsWsAdmin = isWsAdmin || p.workspace?.members[0]?.role === 'WORKSPACE_ADMIN';
+      const userRole = userMember ? userMember.role : (projectIsWsOwner || projectIsWsAdmin) ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
       const totalTasks = p.workItems ? p.workItems.length : (p._count as any)?.workItems || 0;
       const completedTasks = p.workItems ? p.workItems.filter((w) => w.status === 'COMPLETED').length : 0;
       const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
@@ -409,7 +452,7 @@ export class ProjectService {
       isWsOwner ||
       isWsAdmin ||
       !!membership ||
-      (project.visibility === 'WORKSPACE' && isWsMember);
+      (project.visibility === 'WORKSPACE' && isWsMember && !ws.isPersonal);
 
     if (!canAccess) {
       throw new AppError('You are not authorized to view this project', 403);
@@ -463,6 +506,9 @@ export class ProjectService {
     if (data.visibility !== undefined) {
       const rawVis = String(data.visibility).toUpperCase();
       normVisibility = rawVis === 'RESTRICTED' ? 'RESTRICTED' : 'WORKSPACE';
+      if (ws.isPersonal && normVisibility === 'WORKSPACE') {
+        throw new AppError('Projects in a personal workspace cannot be made workspace-visible', 400);
+      }
     }
 
     return await prisma.$transaction(async (tx) => {

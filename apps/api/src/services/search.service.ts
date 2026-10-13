@@ -62,11 +62,24 @@ export class SearchService {
         where: { id: workspaceId },
         include: { members: { where: { userId } } },
       });
-      const isWsOwner = ws?.ownerId === userId;
-      const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+      if (!ws || ws.deletedAt) {
+        return emptyResult;
+      }
+      const isWsOwner = ws.ownerId === userId;
+      const isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
+      const isWsMember = ws.members.length > 0;
+
+      if (!isWsOwner && !isWsAdmin && !isWsMember) {
+        return emptyResult;
+      }
 
       if (isWsOwner || isWsAdmin) {
         projectWhere = { workspaceId };
+      } else if (ws.isPersonal) {
+        projectWhere = {
+          workspaceId,
+          members: { some: { userId } },
+        };
       } else {
         projectWhere = {
           workspaceId,
@@ -77,10 +90,31 @@ export class SearchService {
         };
       }
     } else {
+      const adminWorkspaces = await prisma.workspace.findMany({
+        where: {
+          deletedAt: null,
+          OR: [
+            { ownerId: userId },
+            { members: { some: { userId, role: 'WORKSPACE_ADMIN' } } },
+          ],
+        },
+        select: { id: true },
+      });
+      const adminWorkspaceIds = adminWorkspaces.map((w) => w.id);
+
       projectWhere = {
+        workspace: { deletedAt: null },
         OR: [
-          { visibility: 'WORKSPACE' },
+          { workspaceId: { in: adminWorkspaceIds } },
           { members: { some: { userId } } },
+          {
+            visibility: 'WORKSPACE',
+            workspace: {
+              deletedAt: null,
+              isPersonal: false,
+              members: { some: { userId } },
+            },
+          },
         ],
       };
     }

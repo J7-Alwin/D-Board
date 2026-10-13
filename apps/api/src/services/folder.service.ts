@@ -21,6 +21,7 @@ export class FolderService {
           select: {
             id: true,
             ownerId: true,
+            isPersonal: true,
             deletedAt: true,
             members: { where: { userId } },
           },
@@ -48,7 +49,7 @@ export class FolderService {
     const isWsOwner = project.workspace.ownerId === userId;
     const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
     const isWsMember = project.workspace.members.length > 0;
-    const isMember = !!membership || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember);
+    const isMember = !!membership || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember && !project.workspace.isPersonal);
 
     if (!isMember) {
       throw new AppError('You are not authorized to access this project', 403);

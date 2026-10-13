@@ -209,10 +209,13 @@ export async function runWorkspacesBackfill(): Promise<BackfillSummary> {
       continue;
     }
 
-    // Map project to workspace
+    // Map project to workspace and ensure RESTRICTED visibility for personal workspace
     await prisma.project.update({
       where: { id: unmapped.id },
-      data: { workspaceId: creatorPersonalWorkspace.id },
+      data: {
+        workspaceId: creatorPersonalWorkspace.id,
+        visibility: 'RESTRICTED',
+      },
     });
     summary.projectsMapped++;
 

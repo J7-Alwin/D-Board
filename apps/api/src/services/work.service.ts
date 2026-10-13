@@ -20,6 +20,7 @@ export class WorkService {
           select: {
             id: true,
             ownerId: true,
+            isPersonal: true,
             deletedAt: true,
             members: { where: { userId } },
           },
@@ -40,7 +41,7 @@ export class WorkService {
     const isWsOwner = project.workspace.ownerId === userId;
     const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
     const isWsMember = project.workspace.members.length > 0;
-    const isMember = !!member || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember);
+    const isMember = !!member || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember && !project.workspace.isPersonal);
 
     if (!isMember) {
       throw new AppError('You are not a member of this project', 403);
@@ -61,6 +62,7 @@ export class WorkService {
           select: {
             id: true,
             ownerId: true,
+            isPersonal: true,
             members: { where: { userId: assignedToId } },
           },
         },
@@ -77,7 +79,7 @@ export class WorkService {
     const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
     const isWsMember = project.workspace.members.length > 0;
 
-    if (!isMember && !isWsOwner && !isWsAdmin && !(project.visibility === 'WORKSPACE' && isWsMember)) {
+    if (!isMember && !isWsOwner && !isWsAdmin && !(project.visibility === 'WORKSPACE' && isWsMember && !project.workspace.isPersonal)) {
       throw new AppError('The assigned user is not a member of this project', 400);
     }
   }

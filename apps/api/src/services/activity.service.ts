@@ -56,6 +56,7 @@ export class ActivityService {
         workspace: {
           select: {
             ownerId: true,
+            isPersonal: true,
             members: { where: { userId } },
           },
         },
@@ -71,7 +72,7 @@ export class ActivityService {
     const isWsOwner = project.workspace.ownerId === userId;
     const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
     const isWsMember = project.workspace.members.length > 0;
-    const isMember = !!membership || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember);
+    const isMember = !!membership || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember && !project.workspace.isPersonal);
 
     if (!isMember) {
       throw new AppError('You are not authorized to view this project activity', 403);

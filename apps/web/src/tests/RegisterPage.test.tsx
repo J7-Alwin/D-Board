@@ -97,4 +97,69 @@ describe('RegisterPage Component Tests', () => {
       expect(screen.getByText(/A new verification email has been dispatched/i)).toBeInTheDocument();
     });
   });
+
+  it('should display error message, populate field error, reset loading state, and keep form usable on registration failure', async () => {
+    const apiError = Object.assign(new Error('Email address is already registered'), {
+      data: {
+        errors: {
+          email: ['This email address is already registered'],
+        },
+      },
+    });
+    mockRegister.mockRejectedValueOnce(apiError);
+
+    render(<RegisterPage />);
+
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\. Alex Henderson/i), { target: { value: 'Alex Henderson' } });
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\. alex_dev/i), { target: { value: 'alex_dev' } });
+    fireEvent.change(screen.getByPlaceholderText(/name@company\.com/i), { target: { value: 'duplicate@example.com' } });
+    fireEvent.change(screen.getByPlaceholderText(/minimum 15 characters/i), { target: { value: 'Password123!Secure' } });
+    fireEvent.change(screen.getByPlaceholderText(/re-enter your password/i), { target: { value: 'Password123!Secure' } });
+    fireEvent.click(screen.getByRole('checkbox'));
+
+    const submitBtn = screen.getByRole('button', { name: /create account/i });
+    fireEvent.click(submitBtn);
+
+    // Verify error is displayed on UI in both general banner and field error
+    expect(await screen.findByText('Email address is already registered')).toBeInTheDocument();
+    expect(screen.getByText('This email address is already registered')).toBeInTheDocument();
+
+    // Verify loading has reset and button is not disabled
+    expect(submitBtn).not.toBeDisabled();
+
+    // Verify inputs remain interactive
+    const emailInput = screen.getByPlaceholderText(/name@company\.com/i);
+    expect(emailInput).not.toBeDisabled();
+    fireEvent.change(emailInput, { target: { value: 'new_unique@example.com' } });
+    expect(emailInput).toHaveValue('new_unique@example.com');
+  });
+
+  it('should transition to account created screen when email delivery failed without reporting false registration failure', async () => {
+    mockRegister.mockResolvedValueOnce({
+      success: true,
+      message: 'Account created successfully, but we could not deliver the verification email. You can request a new one from the verification screen.',
+      data: {
+        user: { id: 'u1', username: 'alex_dev', email: 'alex@example.com' },
+        emailDeliveryStatus: 'failed',
+      },
+    });
+
+    render(<RegisterPage />);
+
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\. Alex Henderson/i), { target: { value: 'Alex Henderson' } });
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\. alex_dev/i), { target: { value: 'alex_dev' } });
+    fireEvent.change(screen.getByPlaceholderText(/name@company\.com/i), { target: { value: 'alex@example.com' } });
+    fireEvent.change(screen.getByPlaceholderText(/minimum 15 characters/i), { target: { value: 'Password123!Secure' } });
+    fireEvent.change(screen.getByPlaceholderText(/re-enter your password/i), { target: { value: 'Password123!Secure' } });
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+
+    // User should see Account created screen (NOT a registration failure)
+    expect(await screen.findByText('Account created')).toBeInTheDocument();
+    expect(screen.getByText('alex@example.com')).toBeInTheDocument();
+
+    // User should see actionable delivery failure note and resend button
+    expect(screen.getByText(/could not deliver your verification email automatically/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /resend verification email/i })).toBeInTheDocument();
+  });
 });

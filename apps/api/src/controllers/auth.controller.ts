@@ -37,14 +37,19 @@ export async function register(req: Request, res: Response, next: NextFunction):
       userAgent: req.headers['user-agent'],
       ipAddress: req.ip || req.socket.remoteAddress,
     };
-    const { user, token } = await authService.register(req.body, meta);
+    const { user, token, emailDeliveryStatus } = await authService.register(req.body, meta);
     setAuthCookie(res, token, true);
+
+    const message = emailDeliveryStatus === 'failed'
+      ? 'Account created successfully, but we could not deliver the verification email. You can request a new one from the verification screen.'
+      : 'Account created successfully. A verification link has been sent to your email.';
 
     res.status(201).json({
       success: true,
-      message: 'Account created successfully. A verification link has been sent to your email.',
+      message,
       data: {
         user,
+        ...(emailDeliveryStatus ? { emailDeliveryStatus } : {}),
       },
     });
   } catch (error) {

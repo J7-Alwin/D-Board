@@ -15,6 +15,7 @@ import { sendWelcomeEmail, sendPasswordResetOtpEmail, sendEmailVerificationEmail
 import { enqueueEmailJob } from '../jobs/queues.js';
 import { invitationService } from './invitation.service.js';
 import { sessionService } from './session.service.js';
+import { logger } from '../utils/logger.js';
 
 export interface PublicUser {
   id: string;
@@ -144,7 +145,7 @@ export async function ensurePersonalWorkspace(
       return await prisma.$transaction(execute);
     }
   } catch (err: any) {
-    if (err.code === 'P2002' || err.message?.includes('Unique constraint')) {
+    if (!txClient && (err.code === 'P2002' || err.message?.includes('Unique constraint'))) {
       const fallback = await client.workspace.findFirst({
         where: { ownerId: userId, isPersonal: true },
         select: { id: true, name: true, slug: true },
@@ -181,11 +182,24 @@ export async function ensurePersonalWorkspace(
 export async function register(
   input: RegisterInput,
   meta?: AuthSessionMeta
-): Promise<{ user: PublicUser; token: string }> {
+): Promise<{
+  user: PublicUser;
+  token: string;
+  emailDeliveryStatus?: 'sent' | 'queued' | 'failed';
+}> {
   const normalizedUsername = input.username.trim().toLowerCase();
   const normalizedEmail = input.email.toLowerCase().trim();
 
-  // Check for duplicate username (case-insensitive)
+  // 1. Password policy validation (before opening transaction)
+  const passwordValidation = validatePasswordPolicy(input.password);
+  if (!passwordValidation.isValid) {
+    const error: AppError = new Error(passwordValidation.error || 'Password does not meet security requirements');
+    error.statusCode = 400;
+    error.errors = { password: [passwordValidation.error || 'Password does not meet security requirements'] };
+    throw error;
+  }
+
+  // 2. Pre-checks for duplicate username (case-insensitive) and duplicate email (fast fail)
   const existingUsername = await prisma.user.findFirst({
     where: { username: { equals: normalizedUsername, mode: 'insensitive' } },
   });
@@ -196,7 +210,6 @@ export async function register(
     throw error;
   }
 
-  // Check for duplicate email
   const existingEmail = await prisma.user.findUnique({
     where: { email: normalizedEmail },
   });
@@ -207,98 +220,167 @@ export async function register(
     throw error;
   }
 
-  const passwordValidation = validatePasswordPolicy(input.password);
-  if (!passwordValidation.isValid) {
-    const error: AppError = new Error(passwordValidation.error || 'Password does not meet security requirements');
-    error.statusCode = 400;
-    error.errors = { password: [passwordValidation.error || 'Password does not meet security requirements'] };
-    throw error;
-  }
-
+  // 3. Password hashing (CPU-intensive, performed outside/before transaction)
   const passwordHash = await hashPassword(input.password);
 
-  // Generate email verification token (24 hour expiration)
+  // 4. Verification token generation (performed before transaction)
   const verificationToken = generateSecureToken(32);
   const verificationTokenHash = hashToken(verificationToken);
   const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-  let newUser: any;
+  // 5. Core Atomic Transaction: User + Personal Workspace + Owner Member + Initial Session
+  let coreResult: {
+    user: any;
+    session: any;
+    rawSessionToken?: string;
+    expiresAt?: Date;
+  };
+
   try {
-    newUser = await prisma.user.create({
-      data: {
-        fullName: input.fullName?.trim() || null,
-        username: normalizedUsername,
-        email: normalizedEmail,
-        passwordHash,
-        avatarUrl: input.avatarUrl || null,
-        termsAccepted: input.termsAccepted ?? true,
-        isEmailVerified: false,
-        emailVerificationTokenHash: verificationTokenHash,
-        emailVerificationExpiresAt: verificationExpiresAt,
-        passwordResetAttempts: 0,
+    coreResult = await prisma.$transaction(
+      async (tx) => {
+        // 5a. Create User row
+        const newUser = await tx.user.create({
+          data: {
+            fullName: input.fullName?.trim() || null,
+            username: normalizedUsername,
+            email: normalizedEmail,
+            passwordHash,
+            avatarUrl: input.avatarUrl || null,
+            termsAccepted: input.termsAccepted ?? true,
+            isEmailVerified: false,
+            emailVerificationTokenHash: verificationTokenHash,
+            emailVerificationExpiresAt: verificationExpiresAt,
+            passwordResetAttempts: 0,
+          },
+        });
+
+        // 5b. Provision Personal Workspace and Owner WorkspaceMember
+        await ensurePersonalWorkspace(newUser, tx);
+
+        // 5c. Create Initial Session inside transaction
+        const sessionData = await sessionService.createSession(
+          newUser.id,
+          {
+            userAgent: meta?.userAgent,
+            ipAddress: meta?.ipAddress,
+            rememberMe: true,
+          },
+          tx
+        );
+
+        return {
+          user: newUser,
+          session: sessionData.session,
+          rawSessionToken: sessionData.rawSessionToken,
+          expiresAt: sessionData.expiresAt,
+        };
       },
-    });
+      {
+        maxWait: 5000,
+        timeout: 10000,
+      }
+    );
   } catch (err: any) {
+    // Check for Prisma unique constraint violations (e.g. concurrent registrations)
     if (err.code === 'P2002' || err.message?.includes('Unique constraint')) {
       const target = err.meta?.target;
       const targetStr = Array.isArray(target) ? target.join(',') : typeof target === 'string' ? target : '';
-      const isEmail = targetStr.includes('email') || err.message?.includes('User_email_key');
-      const error: AppError = new Error(
-        isEmail ? 'Email address is already registered' : 'Username is already taken'
-      );
+      const isEmail = targetStr.includes('email') || err.message?.includes('User_email_key') || err.message?.includes('email');
+      const isUsername = targetStr.includes('username') || err.message?.includes('User_username_key') || err.message?.includes('username');
+
+      if (isEmail) {
+        const error: AppError = new Error('Email address is already registered');
+        error.statusCode = 409;
+        error.errors = { email: ['This email address is already registered'] };
+        throw error;
+      }
+      if (isUsername) {
+        const error: AppError = new Error('Username is already taken');
+        error.statusCode = 409;
+        error.errors = { username: ['This username is already in use'] };
+        throw error;
+      }
+
+      // Disambiguation check against DB in case target meta was not explicit
+      const emailExists = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+      if (emailExists) {
+        const error: AppError = new Error('Email address is already registered');
+        error.statusCode = 409;
+        error.errors = { email: ['This email address is already registered'] };
+        throw error;
+      }
+
+      const error: AppError = new Error('Username is already taken');
       error.statusCode = 409;
-      error.errors = isEmail
-        ? { email: ['This email address is already registered'] }
-        : { username: ['This username is already in use'] };
+      error.errors = { username: ['This username is already in use'] };
       throw error;
     }
+
     throw err;
   }
 
-  // Ensure personal workspace is provisioned for the new account
-  await ensurePersonalWorkspace(newUser);
+  const { user: committedUser, session: committedSession, expiresAt } = coreResult;
 
-  // Link any pending project invitations for this email address
-  await invitationService.linkPendingInvitationsForUser(newUser.email, newUser.id);
-
-  // Send Welcome onboarding email asynchronously
-  sendWelcomeEmail({
-    toEmail: newUser.email,
-    username: newUser.username,
-    fullName: newUser.fullName,
-  }).catch((err) => console.error('[AuthService] Welcome email dispatch failed:', err));
-
-  // Queue Email Verification job through BullMQ (with automatic fallback)
-  try {
-    await enqueueEmailJob({
-      type: 'EMAIL_VERIFICATION',
-      toEmail: newUser.email,
-      username: newUser.username,
-      token: verificationToken,
-    });
-  } catch (err) {
-    console.error('[AuthService] Verification email queueing failed:', err);
+  // 6. Post-commit: Cache session in ultra-fast memory cache now that transaction is committed
+  if (expiresAt) {
+    sessionService.cacheSession(committedSession.id, committedUser.id, expiresAt);
   }
 
-  // Create authoritative session
-  const { session } = await sessionService.createSession(newUser.id, {
-    userAgent: meta?.userAgent,
-    ipAddress: meta?.ipAddress,
-    rememberMe: true,
-  });
-
+  // 7. Post-commit: Generate authentication token only after transaction succeeds
   const tokenPayload: JwtPayload = {
-    userId: newUser.id,
-    email: newUser.email,
-    username: newUser.username,
-    sessionId: session.id,
+    userId: committedUser.id,
+    email: committedUser.email,
+    username: committedUser.username,
+    sessionId: committedSession.id,
   };
-
   const token = generateJwt(tokenPayload, '7d');
 
+  // 8. Secondary Operations (Safe & Non-blocking)
+  // 8a. Link pending project invitations
+  try {
+    await invitationService.linkPendingInvitationsForUser(committedUser.email, committedUser.id);
+  } catch (err: any) {
+    logger.error('[AuthService] Linking pending invitations failed during registration', {
+      userId: committedUser.id,
+      error: err?.message,
+    });
+  }
+
+  // 8b. Welcome onboarding email (fire and forget with safe error capture)
+  sendWelcomeEmail({
+    toEmail: committedUser.email,
+    username: committedUser.username,
+    fullName: committedUser.fullName,
+  }).catch((err: any) => {
+    logger.error('[AuthService] Welcome email dispatch failed during registration', {
+      userId: committedUser.id,
+      error: err?.message,
+    });
+  });
+
+  // 8c. Verification email dispatch/queueing
+  let emailDeliveryStatus: 'sent' | 'queued' | 'failed' = 'sent';
+  try {
+    const queueResult = await enqueueEmailJob({
+      type: 'EMAIL_VERIFICATION',
+      toEmail: committedUser.email,
+      username: committedUser.username,
+      token: verificationToken,
+    });
+    emailDeliveryStatus = queueResult?.queued ? 'queued' : 'sent';
+  } catch (err: any) {
+    emailDeliveryStatus = 'failed';
+    logger.error('[AuthService] Verification email dispatch/queueing failed during registration', {
+      userId: committedUser.id,
+      error: err?.message,
+    });
+  }
+
   return {
-    user: sanitizeUser(newUser),
+    user: sanitizeUser(committedUser),
     token,
+    emailDeliveryStatus,
   };
 }
 

@@ -25,8 +25,13 @@ const lastTouchedMap = new Map<string, number>();
 export class SessionService {
   /**
    * Create a durable PostgreSQL session
+   * Supports an optional transaction client (txClient) for atomic multi-step flows.
    */
-  static async createSession(userId: string, options: CreateSessionOptions = {}) {
+  static async createSession(
+    userId: string,
+    options: CreateSessionOptions = {},
+    txClient?: any
+  ) {
     const rawSessionToken = generateSecureToken(32);
     const sessionTokenHash = hashToken(rawSessionToken);
 
@@ -36,7 +41,8 @@ export class SessionService {
 
     const expiresAt = new Date(Date.now() + lifetimeMs);
 
-    const session = await prisma.session.create({
+    const client = txClient || prisma;
+    const session = await client.session.create({
       data: {
         userId,
         sessionTokenHash,
@@ -46,19 +52,33 @@ export class SessionService {
       },
     });
 
-    // Populate in-memory cache immediately
-    memorySessionCache.set(session.id, {
-      userId,
-      expiresAt,
-      revoked: false,
-      cachedAt: Date.now(),
-    });
+    // Populate in-memory cache immediately only when NOT running inside an uncommitted transaction
+    if (!txClient) {
+      memorySessionCache.set(session.id, {
+        userId,
+        expiresAt,
+        revoked: false,
+        cachedAt: Date.now(),
+      });
+    }
 
     return {
       session,
       rawSessionToken,
       expiresAt,
     };
+  }
+
+  /**
+   * Cache a committed session in the ultra-fast in-memory cache
+   */
+  static cacheSession(sessionId: string, userId: string, expiresAt: Date) {
+    memorySessionCache.set(sessionId, {
+      userId,
+      expiresAt,
+      revoked: false,
+      cachedAt: Date.now(),
+    });
   }
 
   /**

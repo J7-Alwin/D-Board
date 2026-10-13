@@ -312,7 +312,7 @@ export const RegisterPage: React.FC = () => {
 
     try {
       setIsLoading(true);
-      await register({
+      const res: any = await register({
         fullName: fullName.trim(),
         username: username.trim(),
         email: email.trim(),
@@ -322,9 +322,20 @@ export const RegisterPage: React.FC = () => {
       });
 
       setRegisteredEmail(email.trim());
+      if (res?.data?.emailDeliveryStatus === 'failed' || res?.message?.includes('could not deliver')) {
+        setResendStatus('Account created, but we could not deliver your verification email automatically. Click "Resend verification email" below to receive your link.');
+      }
       setIsRegistered(true);
     } catch (err: any) {
+      const fieldErrors: typeof errors = {};
+      if (err.data?.errors) {
+        if (err.data.errors.username?.[0]) fieldErrors.username = err.data.errors.username[0];
+        if (err.data.errors.email?.[0]) fieldErrors.email = err.data.errors.email[0];
+        if (err.data.errors.password?.[0]) fieldErrors.password = err.data.errors.password[0];
+        if (err.data.errors.fullName?.[0]) fieldErrors.fullName = err.data.errors.fullName[0];
+      }
       setErrors({
+        ...fieldErrors,
         general: err.message || 'Registration failed. Please try again.',
       });
     } finally {

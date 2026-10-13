@@ -36,6 +36,7 @@ export const createProjectSchema = z.object({
     .nullable()
     .or(z.literal('')),
   avatarUrl: z.string().trim().optional().nullable().or(z.literal('')),
+  visibility: z.enum(['WORKSPACE', 'RESTRICTED', 'Workspace', 'Restricted']).optional().default('WORKSPACE'),
   workspaceId: z.string().trim().optional().nullable(),
   invitations: z
     .array(
@@ -51,5 +52,5 @@ export const createProjectSchema = z.object({
 
 export const updateProjectSchema = createProjectSchema.partial();
 
-export type CreateProjectInput = z.infer<typeof createProjectSchema>;
-export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
+export type CreateProjectInput = z.input<typeof createProjectSchema>;
+export type UpdateProjectInput = z.input<typeof updateProjectSchema>;

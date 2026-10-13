@@ -30,6 +30,11 @@ enum ProjectStatus {
   COMPLETED
 }
 
+enum ProjectVisibility {
+  WORKSPACE
+  RESTRICTED
+}
+
 enum InvitationStatus {
   PENDING
   ACCEPTED
@@ -245,6 +250,7 @@ model Project {
   liveUrl         String?
   avatarUrl       String?
   status          ProjectStatus   @default(ACTIVE)
+  visibility      ProjectVisibility @default(WORKSPACE)
   createdById     String
   createdBy       User            @relation("CreatedProjects", fields: [createdById], references: [id], onDelete: Restrict)
   createdAt       DateTime        @default(now())
@@ -269,6 +275,7 @@ model Project {
   @@index([createdById])
   @@index([status])
   @@index([workspaceId])
+  @@index([workspaceId, visibility])
 }
 
 model Workspace {

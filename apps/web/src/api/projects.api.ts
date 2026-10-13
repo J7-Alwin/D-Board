@@ -39,9 +39,14 @@ export interface Project {
   avatarUrl: string | null;
   status: 'ACTIVE' | 'ARCHIVED' | 'COMPLETED';
   workspaceId?: string;
+  workspace?: { id: string; name: string; slug: string; isPersonal?: boolean };
   createdById: string;
   createdBy?: ProjectMemberUser;
   userRole?: 'PROJECT_ADMIN' | 'PROJECT_MEMBER';
+  visibility?: string;
+  taskCount?: number;
+  completedTaskCount?: number;
+  progress?: number;
   memberCount?: number;
   members?: ProjectMember[];
   invitations?: Invitation[];
@@ -60,6 +65,8 @@ export interface CreateProjectInput {
   repositoryUrl?: string | null;
   liveUrl?: string | null;
   avatarUrl?: string | null;
+  visibility?: 'WORKSPACE' | 'RESTRICTED' | 'Workspace' | 'Restricted';
+  workspaceId?: string;
   invitations?: {
     email: string;
     role?: 'PROJECT_ADMIN' | 'PROJECT_MEMBER';
@@ -69,70 +76,50 @@ export interface CreateProjectInput {
 
 export type UpdateProjectInput = Partial<CreateProjectInput>;
 
-import { API_BASE_URL, safeParseJson } from './client';
+import { apiClient } from './client';
 
 export const projectsApi = {
-  async createProject(input: CreateProjectInput): Promise<{ success: boolean; data: { project: Project } }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects`, {
+  async createProject(input: CreateProjectInput, workspaceId?: string): Promise<{ success: boolean; data: { project: Project } }> {
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: { project: Project } }>('/projects', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
+      headers,
       body: JSON.stringify(input),
     });
-
-    return safeParseJson<{ success: boolean; data: { project: Project } }>(res, 'Failed to create project');
   },
 
-  async getUserProjects(): Promise<{
+  async getUserProjects(workspaceId?: string): Promise<{
     success: boolean;
     data: { all: Project[]; owned: Project[]; joined: Project[] };
   }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-
-    return safeParseJson<{
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{
       success: boolean;
       data: { all: Project[]; owned: Project[]; joined: Project[] };
-    }>(res, 'Failed to fetch projects');
+    }>('/projects', { headers });
   },
 
-  async getProjectById(projectId: string): Promise<{ success: boolean; data: { project: Project } }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-
-    return safeParseJson<{ success: boolean; data: { project: Project } }>(res, 'Failed to fetch project');
+  async getProjectById(projectId: string, workspaceId?: string): Promise<{ success: boolean; data: { project: Project } }> {
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: { project: Project } }>(`/projects/${projectId}`, { headers });
   },
 
   async updateProject(
     projectId: string,
     input: Partial<CreateProjectInput>
   ): Promise<{ success: boolean; data: { project: Project } }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}`, {
+    return apiClient<{ success: boolean; data: { project: Project } }>(`/projects/${projectId}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify(input),
     });
-
-    return safeParseJson<{ success: boolean; data: { project: Project } }>(res, 'Failed to update project');
   },
 
   async deleteProject(projectId: string): Promise<{ success: boolean; data: { id: string; name?: string } }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}`, {
+    return apiClient<{ success: boolean; data: { id: string; name?: string } }>(`/projects/${projectId}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
     });
-
-    return safeParseJson<{ success: boolean; data: { id: string; name?: string } }>(res, 'Failed to delete project');
   },
 };

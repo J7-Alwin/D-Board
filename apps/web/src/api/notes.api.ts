@@ -1,4 +1,4 @@
-import { API_BASE_URL, safeParseJson } from './client';
+import { apiClient } from './client';
 import type { AttachmentDTO } from './files.api';
 
 export type NoteVisibility = 'TEAM' | 'USERS';
@@ -97,16 +97,12 @@ export const notesApi = {
     if (params?.offset) query.append('offset', String(params.offset));
 
     const qs = query.toString();
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/notes${qs ? `?${qs}` : ''}`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; data: NotesResponse }>(res, 'Failed to fetch notes');
+    return apiClient<{ success: boolean; data: NotesResponse }>(`/projects/${projectId}/notes${qs ? `?${qs}` : ''}`);
   },
 
   getGlobalNotes: async (
-    params?: NotesFilterParams
+    params?: NotesFilterParams,
+    workspaceId?: string
   ): Promise<{ success: boolean; data: NotesResponse }> => {
     const query = new URLSearchParams();
     if (params?.projectId) query.append('projectId', params.projectId);
@@ -121,38 +117,26 @@ export const notesApi = {
     if (params?.offset) query.append('offset', String(params.offset));
 
     const qs = query.toString();
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/notes${qs ? `?${qs}` : ''}`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; data: NotesResponse }>(res, 'Failed to fetch notes');
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: NotesResponse }>(`/notes${qs ? `?${qs}` : ''}`, { headers });
   },
 
   getNoteById: async (
     projectId: string,
     noteId: string
   ): Promise<{ success: boolean; data: { note: Note } }> => {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/notes/${noteId}`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; data: { note: Note } }>(res, 'Failed to fetch note');
+    return apiClient<{ success: boolean; data: { note: Note } }>(`/projects/${projectId}/notes/${noteId}`);
   },
 
   createNote: async (
     projectId: string,
     payload: CreateNotePayload
   ): Promise<{ success: boolean; message: string; data: { note: Note } }> => {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/notes`, {
+    return apiClient<{ success: boolean; message: string; data: { note: Note } }>(`/projects/${projectId}/notes`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify(payload),
     });
-    return safeParseJson<{ success: boolean; message: string; data: { note: Note } }>(res, 'Failed to create note');
   },
 
   updateNote: async (
@@ -160,26 +144,18 @@ export const notesApi = {
     noteId: string,
     payload: UpdateNotePayload
   ): Promise<{ success: boolean; message: string; data: { note: Note } }> => {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/notes/${noteId}`, {
+    return apiClient<{ success: boolean; message: string; data: { note: Note } }>(`/projects/${projectId}/notes/${noteId}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify(payload),
     });
-    return safeParseJson<{ success: boolean; message: string; data: { note: Note } }>(res, 'Failed to update note');
   },
 
   deleteNote: async (
     projectId: string,
     noteId: string
   ): Promise<{ success: boolean; message: string }> => {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/notes/${noteId}`, {
+    return apiClient<{ success: boolean; message: string }>(`/projects/${projectId}/notes/${noteId}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
     });
-    return safeParseJson<{ success: boolean; message: string }>(res, 'Failed to delete note');
   },
 };

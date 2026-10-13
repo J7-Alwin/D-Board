@@ -228,6 +228,10 @@ describe('Multi-Workspace Flow, Scoping, and Isolation Integration Tests', () =>
       const teamProjectIds = resTeam.body.data.owned.map((p: any) => p.id);
       expect(teamProjectIds).toContain(projectInTeamWsId);
       expect(teamProjectIds).not.toContain(projectInPersonalWsId);
+      const teamProj = resTeam.body.data.owned.find((p: any) => p.id === projectInTeamWsId);
+      expect(teamProj.visibility).toBe('Workspace');
+      expect(typeof teamProj.taskCount).toBe('number');
+      expect(typeof teamProj.progress).toBe('number');
 
       // Request scoped to personal workspace
       const resPersonal = await request(app)

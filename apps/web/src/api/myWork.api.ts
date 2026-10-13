@@ -34,11 +34,12 @@ export interface MyWorkFilterParams {
   limit?: number;
 }
 
-import { API_BASE_URL, safeParseJson } from './client';
+import { apiClient } from './client';
 
 export const myWorkApi = {
   async getMyWork(
-    params?: MyWorkFilterParams
+    params?: MyWorkFilterParams,
+    workspaceId?: string
   ): Promise<{ success: boolean; data: MyWorkResponse }> {
     const searchParams = new URLSearchParams();
     if (params?.tab) searchParams.append('tab', params.tab);
@@ -52,12 +53,8 @@ export const myWorkApi = {
     if (params?.limit) searchParams.append('limit', params.limit.toString());
 
     const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/work/my${queryString}`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-
-    return safeParseJson<{ success: boolean; data: MyWorkResponse }>(res, 'Failed to fetch my work');
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: MyWorkResponse }>(`/work/my${queryString}`, { headers });
   },
 };

@@ -70,12 +70,18 @@ export class SearchService {
       } else {
         projectWhere = {
           workspaceId,
-          members: { some: { userId } },
+          OR: [
+            { visibility: 'WORKSPACE' },
+            { members: { some: { userId } } },
+          ],
         };
       }
     } else {
       projectWhere = {
-        members: { some: { userId } },
+        OR: [
+          { visibility: 'WORKSPACE' },
+          { members: { some: { userId } } },
+        ],
       };
     }
 

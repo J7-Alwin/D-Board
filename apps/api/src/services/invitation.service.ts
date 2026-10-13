@@ -268,9 +268,9 @@ export class InvitationService {
   }
 
   /**
-   * Get all invitations for the authenticated user
+   * Get all invitations for the authenticated user (optionally scoped to workspace)
    */
-  static async getUserInvitations(userId: string, filterStatus?: string) {
+  static async getUserInvitations(userId: string, filterStatus?: string, workspaceId?: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { email: true },
@@ -289,6 +289,10 @@ export class InvitationService {
       where.status = filterStatus as InvitationStatus;
     }
 
+    if (workspaceId) {
+      where.project = { workspaceId };
+    }
+
     const invitations = await prisma.invitation.findMany({
       where,
       include: {
@@ -300,6 +304,10 @@ export class InvitationService {
             description: true,
             avatarUrl: true,
             category: true,
+            workspaceId: true,
+            workspace: {
+              select: { id: true, name: true, slug: true },
+            },
           },
         },
         invitedBy: {
@@ -390,7 +398,9 @@ export class InvitationService {
       },
     });
 
-    if (!wsMembership) {
+    const isWsOwner = invitation.project.workspace?.ownerId === userId;
+
+    if (!wsMembership && !isWsOwner) {
       throw new AppError(
         `Workspace membership is required before joining this project. You must first join or accept an invitation to workspace "${invitation.project.workspace?.name || 'the workspace'}" before accepting this project invitation.`,
         403
@@ -629,9 +639,9 @@ export class InvitationService {
   }
 
   /**
-   * Get pending invitations count for sidebar badge
+   * Get pending invitations count for sidebar badge (optionally scoped to workspace)
    */
-  static async getPendingCount(userId: string) {
+  static async getPendingCount(userId: string, workspaceId?: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { email: true },
@@ -639,12 +649,18 @@ export class InvitationService {
 
     if (!user) return { count: 0 };
 
+    const where: any = {
+      OR: [{ invitedEmail: user.email.toLowerCase() }, { invitedUserId: userId }],
+      status: 'PENDING',
+      expiresAt: { gt: new Date() },
+    };
+
+    if (workspaceId) {
+      where.project = { workspaceId };
+    }
+
     const count = await prisma.invitation.count({
-      where: {
-        OR: [{ invitedEmail: user.email.toLowerCase() }, { invitedUserId: userId }],
-        status: 'PENDING',
-        expiresAt: { gt: new Date() },
-      },
+      where,
     });
 
     return { count };

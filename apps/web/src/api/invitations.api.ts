@@ -32,7 +32,7 @@ export interface CreateInvitationInput {
   message?: string | null;
 }
 
-import { API_BASE_URL, safeParseJson } from './client';
+import { apiClient } from './client';
 
 export const invitationsApi = {
   // Project-scoped calls (Admin)
@@ -40,96 +40,91 @@ export const invitationsApi = {
     projectId: string,
     input: CreateInvitationInput
   ): Promise<{ success: boolean; message: string; data: { invitation: ProjectInvitation } }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/invitations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(input),
-    });
-    return safeParseJson<{ success: boolean; message: string; data: { invitation: ProjectInvitation } }>(res, 'Failed to send invitation');
+    return apiClient<{ success: boolean; message: string; data: { invitation: ProjectInvitation } }>(
+      `/projects/${projectId}/invitations`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }
+    );
   },
 
   async getProjectInvitations(
     projectId: string
   ): Promise<{ success: boolean; data: { invitations: ProjectInvitation[] } }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/invitations`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; data: { invitations: ProjectInvitation[] } }>(res, 'Failed to fetch invitations');
+    return apiClient<{ success: boolean; data: { invitations: ProjectInvitation[] } }>(
+      `/projects/${projectId}/invitations`
+    );
   },
 
   async resendInvitation(
     projectId: string,
     invitationId: string
   ): Promise<{ success: boolean; message: string; data: { invitation: ProjectInvitation } }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/invitations/${invitationId}/resend`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; message: string; data: { invitation: ProjectInvitation } }>(res, 'Failed to resend invitation');
+    return apiClient<{ success: boolean; message: string; data: { invitation: ProjectInvitation } }>(
+      `/projects/${projectId}/invitations/${invitationId}/resend`,
+      { method: 'POST' }
+    );
   },
 
   async cancelInvitation(
     projectId: string,
     invitationId: string
   ): Promise<{ success: boolean; message: string }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/invitations/${invitationId}/cancel`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; message: string }>(res, 'Failed to cancel invitation');
+    return apiClient<{ success: boolean; message: string }>(
+      `/projects/${projectId}/invitations/${invitationId}/cancel`,
+      { method: 'POST' }
+    );
   },
 
   // User-scoped calls
   async getUserInvitations(
-    status?: string
+    status?: string,
+    workspaceId?: string
   ): Promise<{ success: boolean; data: { invitations: ProjectInvitation[] } }> {
     const query = status && status !== 'ALL' ? `?status=${status}` : '';
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/invitations${query}`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; data: { invitations: ProjectInvitation[] } }>(res, 'Failed to fetch user invitations');
+    const headers: Record<string, string> = {};
+    if (workspaceId && workspaceId !== 'all') {
+      headers['X-Workspace-Id'] = workspaceId;
+    } else {
+      headers['X-Workspace-Id'] = 'all';
+    }
+    return apiClient<{ success: boolean; data: { invitations: ProjectInvitation[] } }>(
+      `/invitations${query}`,
+      { headers }
+    );
   },
 
-  async getPendingCount(): Promise<{ success: boolean; data: { count: number } }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/invitations/count`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; data: { count: number } }>(res, 'Failed to fetch pending count');
+  async getPendingCount(
+    workspaceId?: string
+  ): Promise<{ success: boolean; data: { count: number } }> {
+    const headers: Record<string, string> = {};
+    if (workspaceId && workspaceId !== 'all') {
+      headers['X-Workspace-Id'] = workspaceId;
+    } else {
+      headers['X-Workspace-Id'] = 'all';
+    }
+    return apiClient<{ success: boolean; data: { count: number } }>(
+      '/invitations/count',
+      { headers }
+    );
   },
 
   async acceptInvitation(
     invitationId: string
   ): Promise<{ success: boolean; message: string; data: any }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/invitations/${invitationId}/accept`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; message: string; data: any }>(res, 'Failed to accept invitation');
+    return apiClient<{ success: boolean; message: string; data: any }>(
+      `/invitations/${invitationId}/accept`,
+      { method: 'POST' }
+    );
   },
 
   async declineInvitation(
     invitationId: string
   ): Promise<{ success: boolean; message: string }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/invitations/${invitationId}/decline`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; message: string }>(res, 'Failed to decline invitation');
+    return apiClient<{ success: boolean; message: string }>(
+      `/invitations/${invitationId}/decline`,
+      { method: 'POST' }
+    );
   },
 };

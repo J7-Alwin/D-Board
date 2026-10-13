@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from '../../router/Router';
 import { useAuth } from '../../context/AuthContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { calendarApi, type CalendarItem } from '../../api/calendar.api';
 import { projectsApi, type Project } from '../../api/projects.api';
 import { ProjectWorkspaceHeader } from '../../components/workspace/ProjectWorkspaceHeader';
@@ -54,6 +55,8 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
 }) => {
   const { path, navigate } = useRouter();
   const { user } = useAuth();
+  const { activeWorkspace, isLoading: wsLoading } = useWorkspace();
+  const activeWsId = activeWorkspace?.id;
 
   const routeProjectIdMatch = path.match(/^\/app\/projects\/([^/]+)\/calendar/);
   const activeProjectId = propProjectId || (routeProjectIdMatch ? routeProjectIdMatch[1] : null);
@@ -113,7 +116,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
   useEffect(() => {
     if (activeProjectId) {
       projectsApi
-        .getProjectById(activeProjectId)
+        .getProjectById(activeProjectId, activeWsId)
         .then((res) => {
           if (res.success && res.data) {
             setProject(res.data.project);
@@ -121,8 +124,11 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         })
         .catch(() => {});
     } else {
+      if (wsLoading) return;
+      setAccessibleProjects([]);
+      setSelectedGlobalProject('');
       projectsApi
-        .getUserProjects()
+        .getUserProjects(activeWsId)
         .then((res) => {
           if (res.success && res.data) {
             const all = [...(res.data.owned || []), ...(res.data.joined || [])];
@@ -131,7 +137,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         })
         .catch(() => {});
     }
-  }, [activeProjectId]);
+  }, [activeProjectId, activeWsId, wsLoading]);
 
   // Compute month window starting on SUNDAY (42 cells: 6 rows x 7 days)
   const dateRange = useMemo(() => {
@@ -152,26 +158,32 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
 
   // Load Calendar Items from API
   const loadCalendar = useCallback(async () => {
+    if (!activeProjectId && wsLoading) return;
+    setItems([]);
     setLoading(true);
     setFeedback(null);
     try {
       const targetProj = activeProjectId || selectedGlobalProject || undefined;
-      const res = await calendarApi.getCalendarItems({
-        projectId: targetProj,
-        start: dateRange.start.toISOString(),
-        end: dateRange.end.toISOString(),
-        search: searchQuery.trim() || undefined,
-      });
+      const res = await calendarApi.getCalendarItems(
+        {
+          projectId: targetProj,
+          start: dateRange.start.toISOString(),
+          end: dateRange.end.toISOString(),
+          search: searchQuery.trim() || undefined,
+        },
+        activeWsId
+      );
 
       if (res.success && res.data) {
         setItems(res.data.items);
       }
     } catch (err: any) {
+      setItems([]);
       setFeedback({ type: 'error', message: err.message || 'Failed to load calendar events' });
     } finally {
       setLoading(false);
     }
-  }, [activeProjectId, selectedGlobalProject, dateRange, searchQuery]);
+  }, [activeProjectId, selectedGlobalProject, dateRange, searchQuery, activeWsId, wsLoading]);
 
   useEffect(() => {
     loadCalendar();

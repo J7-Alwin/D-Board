@@ -1,4 +1,4 @@
-import { apiClient, API_BASE_URL } from './client';
+import { apiClient, API_BASE_URL, getActiveWorkspaceHeader } from './client';
 
 export type FileCategory =
   | 'IMAGE'
@@ -212,6 +212,10 @@ export const filesApi = {
     return new Promise((resolve, reject) => {
       xhr.open('POST', uploadUrl);
       xhr.withCredentials = true;
+      const activeWs = getActiveWorkspaceHeader();
+      if (activeWs) {
+        xhr.setRequestHeader('X-Workspace-Id', activeWs);
+      }
 
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && onProgress) {
@@ -389,9 +393,15 @@ export const filesApi = {
   /**
    * Fetch raw file ArrayBuffer for client-side parsers (SheetJS, Mammoth, JSZip).
    */
-  async fetchFileArrayBuffer(projectId: string, fileId: string): Promise<ArrayBuffer> {
+  async fetchFileArrayBuffer(projectId: string, fileId: string, workspaceId?: string): Promise<ArrayBuffer> {
     const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    const headers: Record<string, string> = {};
+    const activeWs = workspaceId || getActiveWorkspaceHeader();
+    if (activeWs) {
+      headers['X-Workspace-Id'] = activeWs;
+    }
     const res = await fetch(`${base}/projects/${projectId}/files/${fileId}/content`, {
+      headers,
       credentials: 'include',
     });
 
@@ -405,9 +415,15 @@ export const filesApi = {
   /**
    * Fetch raw file text content for code/markdown/data viewers.
    */
-  async fetchFileText(projectId: string, fileId: string): Promise<string> {
+  async fetchFileText(projectId: string, fileId: string, workspaceId?: string): Promise<string> {
     const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    const headers: Record<string, string> = {};
+    const activeWs = workspaceId || getActiveWorkspaceHeader();
+    if (activeWs) {
+      headers['X-Workspace-Id'] = activeWs;
+    }
     const res = await fetch(`${base}/projects/${projectId}/files/${fileId}/content`, {
+      headers,
       credentials: 'include',
     });
 
@@ -421,9 +437,15 @@ export const filesApi = {
   /**
    * Fetch file Blob for image/pdf object URLs.
    */
-  async fetchFileBlob(projectId: string, fileId: string): Promise<Blob> {
+  async fetchFileBlob(projectId: string, fileId: string, workspaceId?: string): Promise<Blob> {
     const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    const headers: Record<string, string> = {};
+    const activeWs = workspaceId || getActiveWorkspaceHeader();
+    if (activeWs) {
+      headers['X-Workspace-Id'] = activeWs;
+    }
     const res = await fetch(`${base}/projects/${projectId}/files/${fileId}/content`, {
+      headers,
       credentials: 'include',
     });
 

@@ -64,6 +64,9 @@ export class ProjectService {
     }> = [];
 
     const fullProject = await prisma.$transaction(async (tx) => {
+      const rawVis = data.visibility ? String(data.visibility).toUpperCase() : 'WORKSPACE';
+      const normVisibility: 'WORKSPACE' | 'RESTRICTED' = rawVis === 'RESTRICTED' ? 'RESTRICTED' : 'WORKSPACE';
+
       // 1. Create project
       const project = await tx.project.create({
         data: {
@@ -77,6 +80,7 @@ export class ProjectService {
           repositoryUrl: data.repositoryUrl || undefined,
           liveUrl: data.liveUrl || undefined,
           avatarUrl: data.avatarUrl || undefined,
+          visibility: normVisibility,
           createdById: userId,
           workspaceId: targetWorkspaceId,
         },
@@ -192,7 +196,11 @@ export class ProjectService {
         },
       });
 
-      return created;
+      if (!created) return null;
+      return {
+        ...created,
+        visibility: created.visibility === 'RESTRICTED' ? 'Restricted' : 'Workspace',
+      };
     }, { timeout: 20000, maxWait: 10000 });
 
     // POST-COMMIT: Enqueue invitation emails via BullMQ outside the DB transaction
@@ -244,13 +252,19 @@ export class ProjectService {
         where = {
           workspaceId,
           workspace: { deletedAt: null },
-          members: { some: { userId } },
+          OR: [
+            { visibility: 'WORKSPACE' },
+            { members: { some: { userId } } },
+          ],
         };
       }
     } else {
       where = {
         workspace: { deletedAt: null },
-        members: { some: { userId } },
+        OR: [
+          { visibility: 'WORKSPACE' },
+          { members: { some: { userId } } },
+        ],
       };
     }
 
@@ -269,7 +283,13 @@ export class ProjectService {
           },
         },
         _count: {
-          select: { members: true },
+          select: { members: true, workItems: true },
+        },
+        workItems: {
+          select: { id: true, status: true },
+        },
+        workspace: {
+          select: { id: true, name: true, slug: true, isPersonal: true },
         },
       },
       orderBy: { updatedAt: 'desc' },
@@ -278,6 +298,11 @@ export class ProjectService {
     const formatted = projects.map((p) => {
       const userMember = p.members.find((m) => m.userId === userId);
       const userRole = userMember ? userMember.role : (isWsOwner || isWsAdmin) ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
+      const totalTasks = p.workItems ? p.workItems.length : (p._count as any)?.workItems || 0;
+      const completedTasks = p.workItems ? p.workItems.filter((w) => w.status === 'COMPLETED').length : 0;
+      const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+      const visibility = p.visibility === 'RESTRICTED' ? 'Restricted' : 'Workspace';
+
       return {
         id: p.id,
         name: p.name,
@@ -291,9 +316,15 @@ export class ProjectService {
         liveUrl: p.liveUrl,
         avatarUrl: p.avatarUrl,
         status: p.status,
+        workspaceId: p.workspaceId,
+        workspace: p.workspace,
         createdById: p.createdById,
         createdBy: p.createdBy,
         userRole,
+        visibility,
+        taskCount: totalTasks,
+        completedTaskCount: completedTasks,
+        progress,
         memberCount: p._count.members,
         members: p.members.map((m) => ({
           id: m.id,
@@ -364,16 +395,25 @@ export class ProjectService {
     const isWsOwner = ws.ownerId === userId;
     const isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
 
-    if (!membership && !isWsOwner && !isWsAdmin) {
+    const isWsMember = ws.members.length > 0;
+    const canAccess =
+      isWsOwner ||
+      isWsAdmin ||
+      !!membership ||
+      (project.visibility === 'WORKSPACE' && isWsMember);
+
+    if (!canAccess) {
       throw new AppError('You are not authorized to view this project', 403);
     }
 
     const userRole = membership ? membership.role : (isWsOwner || isWsAdmin) ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
     const isAdmin = userRole === 'PROJECT_ADMIN';
+    const visibility = project.visibility === 'RESTRICTED' ? 'Restricted' : 'Workspace';
 
     return {
       ...project,
       userRole,
+      visibility,
       // Only project admins see pending invitations
       invitations: isAdmin ? project.invitations : [],
     };
@@ -405,6 +445,12 @@ export class ProjectService {
       throw new AppError('Only project administrators can update project details', 403);
     }
 
+    let normVisibility: 'WORKSPACE' | 'RESTRICTED' | undefined = undefined;
+    if (data.visibility !== undefined) {
+      const rawVis = String(data.visibility).toUpperCase();
+      normVisibility = rawVis === 'RESTRICTED' ? 'RESTRICTED' : 'WORKSPACE';
+    }
+
     const updated = await prisma.project.update({
       where: { id: projectId },
       data: {
@@ -418,6 +464,7 @@ export class ProjectService {
         repositoryUrl: data.repositoryUrl !== undefined ? data.repositoryUrl : undefined,
         liveUrl: data.liveUrl !== undefined ? data.liveUrl : undefined,
         avatarUrl: data.avatarUrl !== undefined ? data.avatarUrl : undefined,
+        visibility: normVisibility,
       },
       include: {
         createdBy: {
@@ -433,7 +480,10 @@ export class ProjectService {
       },
     });
 
-    return updated;
+    return {
+      ...updated,
+      visibility: updated.visibility === 'RESTRICTED' ? 'Restricted' : 'Workspace',
+    };
   }
 
   /**

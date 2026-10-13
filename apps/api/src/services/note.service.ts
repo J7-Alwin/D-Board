@@ -17,6 +17,7 @@ export class NoteService {
         id: true,
         name: true,
         createdById: true,
+        visibility: true,
         workspaceId: true,
         workspace: {
           select: {
@@ -48,7 +49,8 @@ export class NoteService {
 
     const isWsOwner = project.workspace.ownerId === userId;
     const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
-    const isMember = !!membership || isWsOwner || isWsAdmin;
+    const isWsMember = project.workspace.members.length > 0;
+    const isMember = !!membership || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember);
 
     if (!isMember) {
       throw new AppError('You are not a member of this project', 403);

@@ -38,7 +38,8 @@ export class WorkService {
     const member = project.members[0];
     const isWsOwner = project.workspace.ownerId === userId;
     const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
-    const isMember = !!member || isWsOwner || isWsAdmin;
+    const isWsMember = project.workspace.members.length > 0;
+    const isMember = !!member || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember);
 
     if (!isMember) {
       throw new AppError('You are not a member of this project', 403);
@@ -73,8 +74,9 @@ export class WorkService {
     const isMember = project.members.length > 0;
     const isWsOwner = project.workspace.ownerId === assignedToId;
     const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
+    const isWsMember = project.workspace.members.length > 0;
 
-    if (!isMember && !isWsOwner && !isWsAdmin) {
+    if (!isMember && !isWsOwner && !isWsAdmin && !(project.visibility === 'WORKSPACE' && isWsMember)) {
       throw new AppError('The assigned user is not a member of this project', 400);
     }
   }

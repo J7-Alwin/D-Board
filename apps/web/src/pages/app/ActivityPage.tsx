@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link } from '../../router/Router';
 import { activityApi, type ActivityItem } from '../../api/activity.api';
 import { projectsApi, type Project } from '../../api/projects.api';
+import { useWorkspace } from '../../context/WorkspaceContext';
 
 // --- Custom SVGs for Pixel-Perfect Design ---
 
@@ -319,6 +320,9 @@ const createMockActivities = (): ActivityItem[] => {
 // --- Component Main ---
 
 export const ActivityPage: React.FC = () => {
+  const { activeWorkspace, isLoading: wsLoading } = useWorkspace();
+  const activeWsId = activeWorkspace?.id;
+
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
@@ -359,15 +363,21 @@ export const ActivityPage: React.FC = () => {
 
   // Load activities & projects
   const loadActivities = useCallback(async () => {
+    if (wsLoading) return;
+    setActivities([]);
+    setProjects([]);
     setLoading(true);
     setError(null);
     try {
       const [actRes, projRes] = await Promise.allSettled([
-        activityApi.getGlobalActivities({
-          category,
-          limit: 100,
-        }),
-        projectsApi.getUserProjects(),
+        activityApi.getGlobalActivities(
+          {
+            category,
+            limit: 100,
+          },
+          activeWsId
+        ),
+        projectsApi.getUserProjects(activeWsId),
       ]);
 
       if (projRes.status === 'fulfilled' && projRes.value?.success && projRes.value?.data) {
@@ -387,11 +397,12 @@ export const ActivityPage: React.FC = () => {
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load workspace activity');
-      setActivities(createMockActivities());
+      setActivities([]);
+      setProjects([]);
     } finally {
       setLoading(false);
     }
-  }, [category]);
+  }, [category, activeWsId, wsLoading]);
 
   useEffect(() => {
     loadActivities();

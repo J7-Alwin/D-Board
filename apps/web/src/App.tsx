@@ -18,6 +18,7 @@ import { ResetSuccessPage } from './pages/auth/ResetSuccessPage';
 import { VerifyEmailPage } from './pages/auth/VerifyEmailPage';
 import { AppLayout } from './components/layout/AppLayout';
 import { DashboardPage } from './pages/app/DashboardPage';
+import { ProjectsPage } from './pages/app/ProjectsPage';
 import { CreateProjectPage } from './pages/app/CreateProjectPage';
 import { ProjectWorkspaceShell } from './pages/app/ProjectWorkspaceShell';
 import { InvitationsPage } from './pages/app/InvitationsPage';
@@ -94,6 +95,14 @@ const AppRoutes: React.FC = () => {
     return (
       <AppLayout>
         <InvitationsPage />
+      </AppLayout>
+    );
+  }
+
+  if (path === '/app/projects') {
+    return (
+      <AppLayout>
+        <ProjectsPage />
       </AppLayout>
     );
   }

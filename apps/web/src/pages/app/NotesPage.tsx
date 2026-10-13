@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from '../../router/Router';
 import { useAuth } from '../../context/AuthContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { notesApi, type Note } from '../../api/notes.api';
 import { projectsApi, type Project } from '../../api/projects.api';
 import { membersApi, type ProjectMemberDetail } from '../../api/members.api';
@@ -59,6 +60,8 @@ export const NotesPage: React.FC<NotesPageProps> = ({
 }) => {
   const { path, navigate } = useRouter();
   const { user } = useAuth();
+  const { activeWorkspace, isLoading: wsLoading } = useWorkspace();
+  const activeWsId = activeWorkspace?.id;
 
   // Determine active project ID from prop or route
   const routeProjectIdMatch = path.match(/^\/app\/projects\/([^/]+)\/notes/);
@@ -164,9 +167,11 @@ export const NotesPage: React.FC<NotesPageProps> = ({
 
   // Load user's accessible projects and active project details
   useEffect(() => {
-    // 1. ALWAYS load all accessible projects for project selector
+    // 1. ALWAYS load all accessible projects for project selector (scoped to active workspace)
+    if (!activeProjectId && wsLoading) return;
+    setSelectedGlobalProject('');
     projectsApi
-      .getUserProjects()
+      .getUserProjects(activeWsId)
       .then((res) => {
         if (res.success && res.data) {
           const all = [...(res.data.owned || []), ...(res.data.joined || [])];
@@ -181,7 +186,7 @@ export const NotesPage: React.FC<NotesPageProps> = ({
     // 2. If inside a specific project, load project metadata & members
     if (activeProjectId) {
       projectsApi
-        .getProjectById(activeProjectId)
+        .getProjectById(activeProjectId, activeWsId)
         .then((res) => {
           if (res.success && res.data) {
             setProject(res.data.project);
@@ -214,7 +219,7 @@ export const NotesPage: React.FC<NotesPageProps> = ({
         })
         .catch(() => {});
     }
-  }, [activeProjectId]);
+  }, [activeProjectId, activeWsId, wsLoading]);
 
   // Load members if global note editor project changes
   useEffect(() => {
@@ -252,6 +257,9 @@ export const NotesPage: React.FC<NotesPageProps> = ({
 
   // Load notes
   const loadNotes = useCallback(async () => {
+    if (!activeProjectId && wsLoading) return;
+    setNotes([]);
+    setViewingNote(null);
     setLoading(true);
     setFeedback(null);
     try {
@@ -265,22 +273,27 @@ export const NotesPage: React.FC<NotesPageProps> = ({
           setViewingNote((curr) => (curr ? res.data.notes.find((n) => n.id === curr.id) || curr : null));
         }
       } else {
-        const res = await notesApi.getGlobalNotes({
-          projectId: selectedGlobalProject || undefined,
-          search: debouncedSearch.trim() || undefined,
-          sort: sortOption,
-        });
+        const res = await notesApi.getGlobalNotes(
+          {
+            projectId: selectedGlobalProject || undefined,
+            search: debouncedSearch.trim() || undefined,
+            sort: sortOption,
+          },
+          activeWsId
+        );
         if (res.success && res.data) {
           setNotes(res.data.notes);
           setViewingNote((curr) => (curr ? res.data.notes.find((n) => n.id === curr.id) || curr : null));
         }
       }
     } catch (err: any) {
+      setNotes([]);
+      setViewingNote(null);
       setFeedback({ type: 'error', message: err.message || 'Failed to load notes' });
     } finally {
       setLoading(false);
     }
-  }, [activeProjectId, selectedGlobalProject, debouncedSearch, sortOption]);
+  }, [activeProjectId, selectedGlobalProject, debouncedSearch, sortOption, activeWsId, wsLoading]);
 
   useEffect(() => {
     loadNotes();

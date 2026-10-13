@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from '../../router/Router';
 import { useAuth } from '../../context/AuthContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { projectsApi, type Project } from '../../api/projects.api';
 import {
   filesApi,
@@ -66,6 +67,8 @@ export const FilesPage: React.FC<FilesPageProps> = ({
   const isProjectScope = path.startsWith('/app/projects/');
   const projectId = isProjectScope ? path.split('/')[3] : undefined;
   const { user } = useAuth();
+  const { activeWorkspace, isLoading: wsLoading } = useWorkspace();
+  const activeWsId = activeWorkspace?.id;
 
   // Project state (if in project context)
   const [project, setProject] = useState<Project | null>(propProject || null);
@@ -175,7 +178,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
   useEffect(() => {
     if (projectId) {
       projectsApi
-        .getProjectById(projectId)
+        .getProjectById(projectId, activeWsId)
         .then((res) => {
           if (res.success && res.data.project) {
             setProject(res.data.project);
@@ -183,8 +186,11 @@ export const FilesPage: React.FC<FilesPageProps> = ({
         })
         .catch(() => {});
     } else {
+      if (wsLoading) return;
+      setAccessibleProjects([]);
+      setSelectedGlobalProjectId('all');
       projectsApi
-        .getUserProjects()
+        .getUserProjects(activeWsId)
         .then((res) => {
           if (res.success && res.data?.all) {
             setAccessibleProjects(res.data.all);
@@ -192,7 +198,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
         })
         .catch(() => {});
     }
-  }, [projectId]);
+  }, [projectId, activeWsId, wsLoading]);
 
   // Load storage stats
   const loadStorageStats = useCallback(async () => {
@@ -206,6 +212,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
 
   // Load files
   const loadFiles = useCallback(async () => {
+    setFiles([]);
     setLoading(true);
     setError(null);
 
@@ -236,11 +243,12 @@ export const FilesPage: React.FC<FilesPageProps> = ({
       }
       loadStorageStats();
     } catch (err: any) {
+      setFiles([]);
       setError(err.message || 'Failed to load files');
     } finally {
       setLoading(false);
     }
-  }, [projectId, selectedGlobalProjectId, categoryFilter, searchQuery, sortBy, sortOrder, loadStorageStats]);
+  }, [projectId, selectedGlobalProjectId, categoryFilter, searchQuery, sortBy, sortOrder, loadStorageStats, activeWsId, wsLoading]);
 
   useEffect(() => {
     loadFiles();

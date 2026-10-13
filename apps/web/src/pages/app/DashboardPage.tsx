@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from '../../router/Router';
 import { useAuth } from '../../context/AuthContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { dashboardApi, type DashboardData } from '../../api/dashboard.api';
 import { invitationsApi, type ProjectInvitation } from '../../api/invitations.api';
 import { activityApi, type ActivityItem } from '../../api/activity.api';
@@ -163,6 +164,8 @@ const formatRelativeTime = (dateStr: string): string => {
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const { navigate } = useRouter();
+  const { activeWorkspace, isLoading: wsLoading } = useWorkspace();
+  const activeWsId = activeWorkspace?.id;
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [pendingInvitations, setPendingInvitations] = useState<ProjectInvitation[]>([]);
@@ -201,13 +204,17 @@ export const DashboardPage: React.FC = () => {
     }
   }, []);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async (targetWsId?: string) => {
+    const wsId = targetWsId !== undefined ? targetWsId : activeWsId;
+    setData(null);
+    setRecentActivities([]);
+    setPendingInvitations([]);
     setIsLoading(true);
     setError(null);
     try {
       const [dashRes, invitesRes] = await Promise.all([
-        dashboardApi.getDashboard(),
-        invitationsApi.getUserInvitations('PENDING').catch(() => ({ success: false, data: { invitations: [] } })),
+        dashboardApi.getDashboard(wsId),
+        invitationsApi.getUserInvitations('PENDING', wsId).catch(() => ({ success: false, data: { invitations: [] } })),
       ]);
 
       if (dashRes.success && dashRes.data) {
@@ -221,7 +228,7 @@ export const DashboardPage: React.FC = () => {
           const allProjs = [...dashRes.data.myProjects, ...dashRes.data.joinedProjects];
           if (allProjs.length > 0) {
             const actPromises = allProjs.slice(0, 3).map((p) =>
-              activityApi.getProjectActivities(p.id, { limit: 5 }).catch(() => ({ success: false, data: { activities: [] } }))
+              activityApi.getProjectActivities(p.id, { limit: 5 }, wsId).catch(() => ({ success: false, data: { activities: [] } }))
             );
             const actResults = await Promise.all(actPromises);
             const collected: ActivityItem[] = [];
@@ -233,6 +240,8 @@ export const DashboardPage: React.FC = () => {
             // Sort latest first
             collected.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
             setRecentActivities(collected.slice(0, 5));
+          } else {
+            setRecentActivities([]);
           }
         }
       }
@@ -240,15 +249,83 @@ export const DashboardPage: React.FC = () => {
         setPendingInvitations(invitesRes.data.invitations);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load dashboard data');
+      setData(null);
+      setRecentActivities([]);
+      setPendingInvitations([]);
+      setError(err?.response?.data?.message || err?.message || 'Failed to load dashboard data');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [activeWsId]);
 
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    if (wsLoading) return;
+    let isCancelled = false;
+    const currentWsId = activeWsId;
+
+    const runFetch = async () => {
+      setData(null);
+      setRecentActivities([]);
+      setPendingInvitations([]);
+      setIsLoading(true);
+      setError(null);
+      try {
+        const [dashRes, invitesRes] = await Promise.all([
+          dashboardApi.getDashboard(currentWsId),
+          invitationsApi.getUserInvitations('PENDING', currentWsId).catch(() => ({ success: false, data: { invitations: [] } })),
+        ]);
+
+        if (isCancelled) return;
+
+        if (dashRes.success && dashRes.data) {
+          setData(dashRes.data);
+
+          if (Array.isArray(dashRes.data.recentActivities) && dashRes.data.recentActivities.length > 0) {
+            setRecentActivities(dashRes.data.recentActivities);
+          } else {
+            const allProjs = [...dashRes.data.myProjects, ...dashRes.data.joinedProjects];
+            if (allProjs.length > 0) {
+              const actPromises = allProjs.slice(0, 3).map((p) =>
+                activityApi.getProjectActivities(p.id, { limit: 5 }, currentWsId).catch(() => ({ success: false, data: { activities: [] } }))
+              );
+              const actResults = await Promise.all(actPromises);
+              if (isCancelled) return;
+              const collected: ActivityItem[] = [];
+              actResults.forEach((r) => {
+                if (r.success && r.data?.activities) {
+                  collected.push(...r.data.activities);
+                }
+              });
+              collected.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+              setRecentActivities(collected.slice(0, 5));
+            } else {
+              setRecentActivities([]);
+            }
+          }
+        }
+        if (invitesRes.success && invitesRes.data?.invitations) {
+          setPendingInvitations(invitesRes.data.invitations);
+        }
+      } catch (err: any) {
+        if (!isCancelled) {
+          setData(null);
+          setRecentActivities([]);
+          setPendingInvitations([]);
+          setError(err?.response?.data?.message || err?.message || 'Failed to load dashboard data');
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    runFetch();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeWsId, wsLoading]);
 
   const handleAcceptInvite = async (invitationId: string) => {
     setProcessingInviteId(invitationId);
@@ -258,7 +335,7 @@ export const DashboardPage: React.FC = () => {
       if (res.success) {
         setActionMessage(res.message || 'Successfully joined project! Confirmation email sent.');
         setPendingInvitations((prev) => prev.filter((inv) => inv.id !== invitationId));
-        const fresh = await dashboardApi.getDashboard();
+        const fresh = await dashboardApi.getDashboard(activeWsId);
         if (fresh.success && fresh.data) {
           setData(fresh.data);
         }
@@ -500,7 +577,7 @@ export const DashboardPage: React.FC = () => {
       {error && !isLoading && (
         <div className="auth-alert error-alert" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span>{error}</span>
-          <Button variant="outline" size="sm" onClick={fetchDashboardData}>
+          <Button variant="outline" size="sm" onClick={() => fetchDashboardData()}>
             Retry
           </Button>
         </div>
@@ -643,14 +720,23 @@ export const DashboardPage: React.FC = () => {
               <div className="workspace-projects-header-text">
                 <h2 className="workspace-projects-title">Projects</h2>
               </div>
-              <button
-                type="button"
-                className="workspace-create-project-btn"
-                onClick={() => navigate('/app/projects/create')}
-              >
-                <PlusIcon size={15} />
-                <span>Create Project</span>
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/app/projects')}
+                >
+                  View All
+                </Button>
+                <button
+                  type="button"
+                  className="workspace-create-project-btn"
+                  onClick={() => navigate('/app/projects/create')}
+                >
+                  <PlusIcon size={15} />
+                  <span>Create Project</span>
+                </button>
+              </div>
             </div>
 
             <div className="dashboard-toolbar-row">

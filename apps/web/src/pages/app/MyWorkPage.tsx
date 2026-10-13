@@ -4,6 +4,7 @@ import { projectsApi, type Project } from '../../api/projects.api';
 import type { WorkItem } from '../../api/work.api';
 import { workApi } from '../../api/work.api';
 import { useAuth } from '../../context/AuthContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { WorkItemDetailsModal } from '../../components/workspace/WorkItemDetailsModal';
 import { CreateWorkItemModal } from '../../components/workspace/CreateWorkItemModal';
 import { DeleteWorkItemModal } from '../../components/workspace/DeleteWorkItemModal';
@@ -47,6 +48,9 @@ import { CustomSelect } from '../../components/ui/CustomSelect';
 export const MyWorkPage: React.FC = () => {
   const { navigate } = useRouter();
   const { user } = useAuth();
+  const { activeWorkspace, isLoading: wsLoading } = useWorkspace();
+  const activeWsId = activeWorkspace?.id;
+
   const [data, setData] = useState<MyWorkResponse | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,41 +78,54 @@ export const MyWorkPage: React.FC = () => {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createTargetProject, setCreateTargetProject] = useState<Project | null>(null);
 
-  // Load accessible projects for filter dropdown
+  // Load accessible projects for filter dropdown scoped to active workspace
   useEffect(() => {
-    projectsApi.getUserProjects().then((res) => {
-      if (res.success && res.data) {
+    if (wsLoading) return;
+    let isCancelled = false;
+    setProjects([]);
+    setSelectedProjectId('');
+    projectsApi.getUserProjects(activeWsId).then((res) => {
+      if (!isCancelled && res.success && res.data) {
         setProjects(res.data.all);
       }
     });
-  }, []);
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeWsId, wsLoading]);
 
   const loadWork = useCallback(async () => {
+    if (wsLoading) return;
+    setData(null);
     setLoading(true);
     setError(null);
 
     try {
-      const res = await myWorkApi.getMyWork({
-        tab: activeTab,
-        search: searchQuery.trim() || undefined,
-        projectId: selectedProjectId || undefined,
-        status: selectedStatus || undefined,
-        priority: selectedPriority || undefined,
-        type: selectedType || undefined,
-        sort: selectedSort,
-        page: currentPage,
-        limit: 10,
-      });
+      const res = await myWorkApi.getMyWork(
+        {
+          tab: activeTab,
+          search: searchQuery.trim() || undefined,
+          projectId: selectedProjectId || undefined,
+          status: selectedStatus || undefined,
+          priority: selectedPriority || undefined,
+          type: selectedType || undefined,
+          sort: selectedSort,
+          page: currentPage,
+          limit: 10,
+        },
+        activeWsId
+      );
 
       if (res.success && res.data) {
         setData(res.data);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load work items');
+      setData(null);
+      setError(err?.message || 'Failed to load work items');
     } finally {
       setLoading(false);
     }
-  }, [activeTab, searchQuery, selectedProjectId, selectedStatus, selectedPriority, selectedType, selectedSort, currentPage]);
+  }, [activeWsId, wsLoading, activeTab, searchQuery, selectedProjectId, selectedStatus, selectedPriority, selectedType, selectedSort, currentPage]);
 
   useEffect(() => {
     loadWork();

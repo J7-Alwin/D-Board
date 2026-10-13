@@ -30,12 +30,13 @@ export interface ActivityResponse {
   offset: number;
 }
 
-import { API_BASE_URL, safeParseJson } from './client';
+import { apiClient } from './client';
 
 export const activityApi = {
   async getProjectActivities(
     projectId: string,
-    params?: { category?: string; limit?: number; offset?: number }
+    params?: { category?: string; limit?: number; offset?: number },
+    workspaceId?: string
   ): Promise<{ success: boolean; data: ActivityResponse }> {
     const searchParams = new URLSearchParams();
     if (params?.category) searchParams.append('category', params.category);
@@ -43,16 +44,14 @@ export const activityApi = {
     if (params?.offset) searchParams.append('offset', params.offset.toString());
 
     const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/activity${queryString}`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; data: ActivityResponse }>(res, 'Failed to fetch project activity');
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: ActivityResponse }>(`/projects/${projectId}/activity${queryString}`, { headers });
   },
 
   async getGlobalActivities(
-    params?: { category?: string; limit?: number; offset?: number }
+    params?: { category?: string; limit?: number; offset?: number },
+    workspaceId?: string
   ): Promise<{ success: boolean; data: ActivityResponse }> {
     const searchParams = new URLSearchParams();
     if (params?.category) searchParams.append('category', params.category);
@@ -60,11 +59,8 @@ export const activityApi = {
     if (params?.offset) searchParams.append('offset', params.offset.toString());
 
     const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/activities${queryString}`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; data: ActivityResponse }>(res, 'Failed to fetch global activities');
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: ActivityResponse }>(`/activities${queryString}`, { headers });
   },
 };

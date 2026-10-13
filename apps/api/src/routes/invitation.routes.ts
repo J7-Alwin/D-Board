@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { invitationController } from '../controllers/invitation.controller.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
+import { resolveWorkspaceContext } from '../middlewares/workspace.middleware.js';
 import { validate } from '../middlewares/validate.middleware.js';
 import { createInvitationSchema } from '../schemas/invitation.schema.js';
 

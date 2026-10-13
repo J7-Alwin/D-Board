@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../middlewares/auth.middleware.js';
 import { invitationService } from '../services/invitation.service.js';
+import { workspaceService } from '../services/workspace.service.js';
 import { AppError } from '../middlewares/error.middleware.js';
 
 export class InvitationController {
@@ -83,7 +84,19 @@ export class InvitationController {
         throw new AppError('Authentication required', 401);
       }
       const status = req.query.status ? String(req.query.status) : undefined;
-      const invitations = await invitationService.getUserInvitations(req.user.userId, status);
+      const rawWorkspaceId =
+        (req.query?.workspaceId as string) ||
+        (req.headers['x-workspace-id'] as string) ||
+        undefined;
+
+      let workspaceId: string | undefined = undefined;
+      if (rawWorkspaceId && rawWorkspaceId.trim() && rawWorkspaceId.trim() !== 'all') {
+        const targetWsId = rawWorkspaceId.trim();
+        await workspaceService.verifyWorkspaceAccess(targetWsId, req.user.userId);
+        workspaceId = targetWsId;
+      }
+
+      const invitations = await invitationService.getUserInvitations(req.user.userId, status, workspaceId);
 
       res.status(200).json({
         success: true,
@@ -134,7 +147,19 @@ export class InvitationController {
       if (!req.user) {
         throw new AppError('Authentication required', 401);
       }
-      const result = await invitationService.getPendingCount(req.user.userId);
+      const rawWorkspaceId =
+        (req.query?.workspaceId as string) ||
+        (req.headers['x-workspace-id'] as string) ||
+        undefined;
+
+      let workspaceId: string | undefined = undefined;
+      if (rawWorkspaceId && rawWorkspaceId.trim() && rawWorkspaceId.trim() !== 'all') {
+        const targetWsId = rawWorkspaceId.trim();
+        await workspaceService.verifyWorkspaceAccess(targetWsId, req.user.userId);
+        workspaceId = targetWsId;
+      }
+
+      const result = await invitationService.getPendingCount(req.user.userId, workspaceId);
 
       res.status(200).json({
         success: true,

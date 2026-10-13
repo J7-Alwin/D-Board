@@ -15,16 +15,12 @@ export interface DashboardData {
   recentActivities?: any[];
 }
 
-import { API_BASE_URL, safeParseJson } from './client';
+import { apiClient } from './client';
 
 export const dashboardApi = {
-  async getDashboard(): Promise<{ success: boolean; data: DashboardData }> {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/dashboard`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-
-    return safeParseJson<{ success: boolean; data: DashboardData }>(res, 'Failed to fetch dashboard data');
+  async getDashboard(workspaceId?: string): Promise<{ success: boolean; data: DashboardData }> {
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: DashboardData }>('/dashboard', { headers });
   },
 };

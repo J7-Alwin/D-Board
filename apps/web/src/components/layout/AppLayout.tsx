@@ -279,6 +279,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               <span>Dashboard</span>
             </Link>
             <Link
+              to="/app/projects"
+              className={`workspace-nav-item ${path === '/app/projects' ? 'active' : ''}`}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <FolderIcon size={18} />
+              <span>Projects</span>
+            </Link>
+            <Link
               to="/app/my-work"
               className={`workspace-nav-item ${path === '/app/my-work' || path === '/app/work' ? 'active' : ''}`}
               onClick={() => setSidebarOpen(false)}

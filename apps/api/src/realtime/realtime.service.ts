@@ -119,6 +119,7 @@ export function initRealtime(httpServer: HTTPServer): SocketIOServer {
           select: {
             id: true,
             workspaceId: true,
+            visibility: true,
             workspace: {
               select: {
                 ownerId: true,
@@ -137,8 +138,9 @@ export function initRealtime(httpServer: HTTPServer): SocketIOServer {
         const isMember = project.members.length > 0;
         const isWsOwner = project.workspace.ownerId === userId;
         const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
+        const isWsMember = project.workspace.members.length > 0;
 
-        if (!isMember && !isWsOwner && !isWsAdmin) {
+        if (!isMember && !isWsOwner && !isWsAdmin && !(project.visibility === 'WORKSPACE' && isWsMember)) {
           if (callback) callback({ success: false, error: 'Unauthorized to join project room' });
           return;
         }

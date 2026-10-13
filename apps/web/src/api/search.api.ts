@@ -1,5 +1,3 @@
-import { API_BASE_URL, safeParseJson } from './client';
-
 export interface SearchResultItem {
   projects: Array<{
     id: string;
@@ -40,8 +38,10 @@ export interface SearchResultItem {
   }>;
 }
 
+import { apiClient } from './client';
+
 export const searchApi = {
-  async searchGlobal(query: string, limit = 8): Promise<{ success: boolean; data: SearchResultItem }> {
+  async searchGlobal(query: string, limit = 8, workspaceId?: string): Promise<{ success: boolean; data: SearchResultItem }> {
     const q = query.trim();
     if (!q) {
       return {
@@ -49,11 +49,8 @@ export const searchApi = {
         data: { projects: [], workItems: [], notes: [], files: [] },
       };
     }
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/search?q=${encodeURIComponent(q)}&limit=${limit}`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; data: SearchResultItem }>(res, 'Failed to perform global search');
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: SearchResultItem }>(`/search?q=${encodeURIComponent(q)}&limit=${limit}`, { headers });
   },
 };

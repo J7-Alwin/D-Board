@@ -1,4 +1,4 @@
-import { API_BASE_URL, safeParseJson } from './client';
+import { apiClient } from './client';
 
 export type CalendarEventType = 'MEETING' | 'MILESTONE' | 'RELEASE' | 'DEADLINE' | 'OTHER';
 
@@ -110,7 +110,8 @@ export interface UpdateCalendarEventPayload {
 
 export const calendarApi = {
   getCalendarItems: async (
-    params?: CalendarQueryParams
+    params?: CalendarQueryParams,
+    workspaceId?: string
   ): Promise<{ success: boolean; data: CalendarResponse }> => {
     const query = new URLSearchParams();
     if (params?.start) query.append('start', params.start);
@@ -120,12 +121,9 @@ export const calendarApi = {
     if (params?.search) query.append('search', params.search);
 
     const qs = query.toString();
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/calendar/events${qs ? `?${qs}` : ''}`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; data: CalendarResponse }>(res, 'Failed to fetch calendar items');
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: CalendarResponse }>(`/calendar/events${qs ? `?${qs}` : ''}`, { headers });
   },
 
   getProjectCalendarItems: async (
@@ -139,26 +137,17 @@ export const calendarApi = {
     if (params?.search) query.append('search', params.search);
 
     const qs = query.toString();
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/calendar/events${qs ? `?${qs}` : ''}`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-    return safeParseJson<{ success: boolean; data: CalendarResponse }>(res, 'Failed to fetch project calendar');
+    return apiClient<{ success: boolean; data: CalendarResponse }>(`/projects/${projectId}/calendar/events${qs ? `?${qs}` : ''}`);
   },
 
   createCalendarEvent: async (
     projectId: string,
     payload: CreateCalendarEventPayload
   ): Promise<{ success: boolean; message: string; data: { event: any } }> => {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/calendar/events`, {
+    return apiClient<{ success: boolean; message: string; data: { event: any } }>(`/projects/${projectId}/calendar/events`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify(payload),
     });
-    return safeParseJson<{ success: boolean; message: string; data: { event: any } }>(res, 'Failed to create calendar event');
   },
 
   updateCalendarEvent: async (
@@ -166,62 +155,40 @@ export const calendarApi = {
     eventId: string,
     payload: UpdateCalendarEventPayload
   ): Promise<{ success: boolean; message: string; data: { event: any } }> => {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/calendar/events/${eventId}`, {
+    return apiClient<{ success: boolean; message: string; data: { event: any } }>(`/projects/${projectId}/calendar/events/${eventId}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify(payload),
     });
-    return safeParseJson<{ success: boolean; message: string; data: { event: any } }>(res, 'Failed to update calendar event');
   },
 
   deleteCalendarEvent: async (
     projectId: string,
     eventId: string
   ): Promise<{ success: boolean; message: string }> => {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-    const res = await fetch(`${base}/projects/${projectId}/calendar/events/${eventId}`, {
+    return apiClient<{ success: boolean; message: string }>(`/projects/${projectId}/calendar/events/${eventId}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
     });
-    return safeParseJson<{ success: boolean; message: string }>(res, 'Failed to delete calendar event');
   },
 
   createFeedToken: async (
     projectId?: string
   ): Promise<{ success: boolean; data: { token: string; feedUrl: string }; message: string }> => {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
     const endpoint = projectId
-      ? `${base}/projects/${projectId}/calendar/feed/token`
-      : `${base}/calendar/feed/token`;
-    const res = await fetch(endpoint, {
+      ? `/projects/${projectId}/calendar/feed/token`
+      : `/calendar/feed/token`;
+    return apiClient<{ success: boolean; data: { token: string; feedUrl: string }; message: string }>(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
     });
-    return safeParseJson<{ success: boolean; data: { token: string; feedUrl: string }; message: string }>(
-      res,
-      'Failed to generate calendar feed token'
-    );
   },
 
   revokeFeedToken: async (
     projectId?: string
   ): Promise<{ success: boolean; message: string }> => {
-    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
     const endpoint = projectId
-      ? `${base}/projects/${projectId}/calendar/feed/token`
-      : `${base}/calendar/feed/token`;
-    const res = await fetch(endpoint, {
+      ? `/projects/${projectId}/calendar/feed/token`
+      : `/calendar/feed/token`;
+    return apiClient<{ success: boolean; message: string }>(endpoint, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
     });
-    return safeParseJson<{ success: boolean; message: string }>(
-      res,
-      'Failed to revoke calendar feed token'
-    );
   },
 };

@@ -45,6 +45,7 @@ export class FileService {
         name: true,
         createdById: true,
         status: true,
+        visibility: true,
         workspaceId: true,
         workspace: {
           select: {
@@ -76,7 +77,8 @@ export class FileService {
 
     const isWsOwner = project.workspace.ownerId === userId;
     const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
-    const isMember = !!membership || isWsOwner || isWsAdmin;
+    const isWsMember = project.workspace.members.length > 0;
+    const isMember = !!membership || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember);
 
     if (!isMember) {
       throw new AppError('You are not authorized to access this project files', 403);

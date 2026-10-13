@@ -45234,9 +45234,337 @@ a.footer-contact-row:hover .footer-contact-value {
   }
 }
 
+/* ==========================================================================
+   DEDICATED PROJECTS PAGE STYLING
+   ========================================================================== */
+.projects-page-container {
+  padding: 2rem 2.5rem;
+  max-width: 1440px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
 
+.projects-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-light, #E2E8F0);
+  border-radius: var(--radius-lg, 14px);
+  padding: 1.15rem 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 1.75rem;
+  flex-wrap: wrap;
+}
 
+.is-night .projects-page-header {
+  background-color: #1E293B;
+  border-color: #334155;
+}
 
+.is-night .projects-header-title {
+  color: #F8FAFC;
+}
+
+.is-night .projects-header-subtitle {
+  color: #94A3B8;
+}
+
+.is-night .projects-header-icon-box {
+  background: #0F172A;
+  border-color: #334155;
+  color: #F8FAFC;
+}
+
+.projects-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 280px;
+}
+
+.projects-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.projects-header-icon-box {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--bg-cream, #F4F6EE);
+  border: 1px solid var(--border-light, #E2E8F0);
+  color: #18181B;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.projects-header-title {
+  font-size: 1.875rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: var(--text-primary, #0F172A);
+  margin: 0;
+}
+
+.projects-header-subtitle {
+  font-size: 0.875rem;
+  color: var(--text-secondary, #64748B);
+  margin: 0;
+  max-width: 600px;
+  line-height: 1.5;
+}
+
+.projects-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.projects-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.projects-toolbar-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+  flex-wrap: wrap;
+}
+
+.projects-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.projects-controls-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.projects-grid-3-col {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem;
+  width: 100%;
+}
+
+.proj-key-pill {
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: #F1F5F9;
+  color: #475569;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+
+.proj-workspace-attribution-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #475569;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 6px;
+  padding: 0.18rem 0.5rem;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.is-night .proj-workspace-attribution-pill {
+  background: #1E293B;
+  border-color: #334155;
+  color: #94A3B8;
+}
+
+.proj-visibility-pill {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  letter-spacing: 0.02em;
+}
+
+.proj-visibility-pill.visibility-workspace {
+  background: #ECFDF5;
+  color: #065F46;
+  border: 1px solid #A7F3D0;
+}
+
+.proj-visibility-pill.visibility-restricted {
+  background: #FFFBEB;
+  color: #92400E;
+  border: 1px solid #FDE68A;
+}
+
+.proj-progress-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.75rem 0;
+}
+
+.proj-progress-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+}
+
+.proj-progress-task-count {
+  color: #64748B;
+  font-weight: 500;
+}
+
+.proj-progress-percentage {
+  color: #0F172A;
+  font-weight: 700;
+}
+
+.proj-progress-bar-track {
+  width: 100%;
+  height: 6px;
+  background: #E2E8F0;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.proj-progress-bar-fill {
+  height: 100%;
+  background: #22C55E;
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+.proj-deadline-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: #64748B;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.proj-list-progress-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+.proj-list-progress-txt {
+  font-size: 0.75rem;
+  color: #64748B;
+  font-weight: 500;
+}
+
+.projects-pagination-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #E2E8F0;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.projects-pagination-info {
+  font-size: 0.8125rem;
+  color: #64748B;
+}
+
+.projects-pagination-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.projects-page-number-btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #E2E8F0;
+  background: #FFFFFF;
+  color: #334155;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.projects-page-number-btn:hover {
+  background: #F8FAFC;
+  border-color: #CBD5E1;
+}
+
+.projects-page-number-btn.active {
+  background: #0F172A;
+  color: #FFFFFF;
+  border-color: #0F172A;
+}
+
+@media (max-width: 1200px) {
+  .projects-grid-3-col {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .projects-stats-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .projects-page-container {
+    padding: 1.25rem 1rem 2.5rem;
+  }
+  .projects-grid-3-col {
+    grid-template-columns: 1fr;
+  }
+  .projects-stats-row {
+    grid-template-columns: 1fr;
+  }
+  .projects-toolbar-container {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .projects-controls-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .projects-pagination-container {
+    flex-direction: column;
+    align-items: center;
+  }
+}
 
 
 

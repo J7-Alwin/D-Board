@@ -5,6 +5,7 @@ import { workspaceAuditService } from './workspaceAudit.service.js';
 import { cacheService } from '../redis/cache.service.js';
 import type {
   CreateWorkspaceInput,
+  UpdateWorkspaceInput,
   WorkspaceAdminPermissions,
   UpdateWorkspaceAdminPermissionsInput,
 } from '../schemas/workspace.schema.js';
@@ -18,6 +19,7 @@ export interface WorkspaceSummaryDto {
   avatarUrl: string | null;
   ownerId: string;
   isPersonal: boolean;
+  maxMembers?: number | null;
   isOwner: boolean;
   userRole: WorkspaceRole;
   memberCount: number;
@@ -121,6 +123,7 @@ export class WorkspaceService {
           avatarUrl: ws.avatarUrl,
           ownerId: ws.ownerId,
           isPersonal: ws.isPersonal,
+          maxMembers: ws.maxMembers,
           isOwner,
           userRole: m.role,
           memberCount,
@@ -225,6 +228,7 @@ export class WorkspaceService {
       avatarUrl: ws.avatarUrl,
       ownerId: ws.ownerId,
       isPersonal: ws.isPersonal,
+      maxMembers: ws.maxMembers,
       isOwner,
       userRole: membership.role,
       memberCount,
@@ -259,6 +263,7 @@ export class WorkspaceService {
           name: trimmedName,
           slug,
           avatarUrl: data.avatarUrl || null,
+          maxMembers: data.maxMembers ?? null,
           ownerId: userId,
           isPersonal: false,
         },
@@ -290,6 +295,7 @@ export class WorkspaceService {
       avatarUrl: created.avatarUrl,
       ownerId: created.ownerId,
       isPersonal: created.isPersonal,
+      maxMembers: created.maxMembers,
       isOwner: true,
       userRole: 'OWNER',
       memberCount: 1,
@@ -297,6 +303,111 @@ export class WorkspaceService {
       createdAt: created.createdAt,
       updatedAt: created.updatedAt,
       owner: created.owner,
+    };
+  }
+
+  /**
+   * Update workspace details and active member limit (Strictly Workspace Owner only).
+   */
+  async updateWorkspace(
+    workspaceId: string,
+    userId: string,
+    data: UpdateWorkspaceInput,
+    reqMeta?: { ipAddress?: string; userAgent?: string }
+  ): Promise<WorkspaceSummaryDto> {
+    if (!workspaceId || typeof workspaceId !== 'string') {
+      throw new AppError('Invalid workspace ID', 400);
+    }
+
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: {
+        owner: { select: { id: true, fullName: true, username: true, avatarUrl: true } },
+        _count: { select: { members: true, projects: true } },
+      },
+    });
+
+    if (!ws) throw new AppError('Workspace not found', 404);
+    if (ws.deletedAt) throw new AppError('Cannot update a deleted workspace', 400);
+
+    if (ws.ownerId !== userId) {
+      throw new AppError('Only the workspace owner can modify workspace settings', 403);
+    }
+
+    if (ws.isPersonal && data.maxMembers !== undefined && data.maxMembers !== null) {
+      throw new AppError('Personal workspaces do not support member limits', 400);
+    }
+
+    if (data.maxMembers !== undefined && data.maxMembers !== null) {
+      const activeMemberCount = await prisma.workspaceMember.count({
+        where: { workspaceId },
+      });
+      if (data.maxMembers < activeMemberCount) {
+        throw new AppError(
+          `Cannot set member limit to ${data.maxMembers}. The workspace currently has ${activeMemberCount} active members.`,
+          400
+        );
+      }
+    }
+
+    const updateData: any = {};
+    if (data.name !== undefined) {
+      const trimmed = data.name.trim();
+      if (trimmed.length < 2) {
+        throw new AppError('Workspace name must be at least 2 characters', 400);
+      }
+      updateData.name = trimmed;
+    }
+    if (data.avatarUrl !== undefined) {
+      updateData.avatarUrl = data.avatarUrl;
+    }
+    if (data.maxMembers !== undefined) {
+      updateData.maxMembers = data.maxMembers;
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const res = await tx.workspace.update({
+        where: { id: workspaceId },
+        data: updateData,
+        include: {
+          owner: { select: { id: true, fullName: true, username: true, avatarUrl: true } },
+          _count: { select: { members: true, projects: true } },
+        },
+      });
+
+      await workspaceAuditService.logAuditEvent(tx, {
+        workspaceId,
+        actorId: userId,
+        action: 'WORKSPACE_UPDATED',
+        targetType: 'WORKSPACE',
+        targetId: workspaceId,
+        metadata: {
+          updatedFields: Object.keys(updateData),
+          maxMembers: updateData.maxMembers,
+        },
+        ipAddress: reqMeta?.ipAddress,
+        userAgent: reqMeta?.userAgent,
+      });
+
+      return res;
+    });
+
+    return {
+      id: updated.id,
+      name: updated.name,
+      slug: updated.slug,
+      avatarUrl: updated.avatarUrl,
+      ownerId: updated.ownerId,
+      isPersonal: updated.isPersonal,
+      maxMembers: updated.maxMembers,
+      isOwner: true,
+      userRole: 'OWNER',
+      memberCount: updated._count.members,
+      projectCount: updated._count.projects,
+      adminPermissions: resolveAdminPermissions(updated),
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+      owner: updated.owner,
     };
   }
 

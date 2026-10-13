@@ -84,7 +84,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     setSearchLoading(true);
     const timer = setTimeout(async () => {
       try {
-        const res = await searchApi.searchGlobal(q);
+        const res = await searchApi.searchGlobal(q, 8, activeWorkspace?.id);
         if (res.success && res.data) {
           setSearchResults(res.data);
           setSearchOpen(true);
@@ -97,12 +97,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, activeWorkspace?.id]);
 
   const refreshCountsAndProjects = () => {
     if (!user) return;
     projectsApi
-      .getUserProjects()
+      .getUserProjects(activeWorkspace?.id)
       .then((res) => {
         if (res.success && res.data) {
           setProjects({
@@ -123,7 +123,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     }).catch(() => {});
 
     notificationsApi
-      .getUnreadCount()
+      .getUnreadCount(activeWorkspace?.id)
       .then((res) => {
         if (res.success && res.data) {
           setUnreadNotificationCount(res.data.count || 0);
@@ -152,7 +152,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     };
 
     const handleNotificationRead = () => {
-      notificationsApi.getUnreadCount().then((res) => {
+      notificationsApi.getUnreadCount(activeWorkspace?.id).then((res) => {
         if (res.success && res.data) setUnreadNotificationCount(res.data.count || 0);
       });
     };
@@ -162,7 +162,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     };
 
     const handleMemberUpdated = () => {
-      projectsApi.getUserProjects().then((res) => {
+      projectsApi.getUserProjects(activeWorkspace?.id).then((res) => {
         if (res.success && res.data) {
           setProjects({
             owned: res.data.owned || [],

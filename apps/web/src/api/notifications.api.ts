@@ -103,7 +103,7 @@ export const notificationsApi = {
   /**
    * Get paginated notifications for current user with category filtering.
    */
-  async getNotifications(params: NotificationQueryParams = {}): Promise<{ success: boolean; data: NotificationListResponse }> {
+  async getNotifications(params: NotificationQueryParams = {}, workspaceId?: string): Promise<{ success: boolean; data: NotificationListResponse }> {
     const query = new URLSearchParams();
     if (params.category && params.category !== 'ALL') query.append('category', params.category);
     if (params.unreadOnly) query.append('unreadOnly', 'true');
@@ -111,14 +111,18 @@ export const notificationsApi = {
     if (params.limit) query.append('limit', params.limit.toString());
 
     const qs = query.toString() ? `?${query.toString()}` : '';
-    return apiClient<{ success: boolean; data: NotificationListResponse }>(`/notifications${qs}`);
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: NotificationListResponse }>(`/notifications${qs}`, { headers });
   },
 
   /**
    * Get unread notification count.
    */
-  async getUnreadCount(): Promise<{ success: boolean; data: { count: number } }> {
-    return apiClient<{ success: boolean; data: { count: number } }>('/notifications/unread-count');
+  async getUnreadCount(workspaceId?: string): Promise<{ success: boolean; data: { count: number } }> {
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: { count: number } }>('/notifications/unread-count', { headers });
   },
 
   /**

@@ -286,6 +286,7 @@ model Workspace {
   ownerId          String
   owner            User                  @relation("OwnedWorkspaces", fields: [ownerId], references: [id], onDelete: Restrict)
   isPersonal       Boolean               @default(false)
+  maxMembers       Int?
   adminPermissions Json?                 @default("{\"canInviteMembers\":true,\"canRemoveMembers\":false,\"canCreateProjects\":true,\"canManageRoles\":false}")
   deletedAt        DateTime?
   deletedById      String?

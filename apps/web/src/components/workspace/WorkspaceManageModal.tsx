@@ -92,6 +92,11 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
   const [isSavingPermissions, setIsSavingPermissions] = useState(false);
   const [permissionsFeedback, setPermissionsFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Member Limit State (Phase 3 Owner-controlled)
+  const [maxMembersInput, setMaxMembersInput] = useState<string>('');
+  const [isSavingLimit, setIsSavingLimit] = useState(false);
+  const [limitFeedback, setLimitFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
   // Transfers Tab State (Phase 4)
   const [incomingTransfers, setIncomingTransfers] = useState<ProjectTransfer[]>([]);
   const [outgoingTransfers, setOutgoingTransfers] = useState<ProjectTransfer[]>([]);
@@ -635,6 +640,48 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
     }
   };
 
+  useEffect(() => {
+    if (activeWorkspace) {
+      setMaxMembersInput(activeWorkspace.maxMembers != null ? String(activeWorkspace.maxMembers) : '');
+      setLimitFeedback(null);
+    }
+  }, [activeWorkspace?.id, activeWorkspace?.maxMembers]);
+
+  // Handle Save Member Limit (Phase 3 Owner-controlled)
+  const handleSaveMemberLimit = async () => {
+    if (!activeWorkspace || !isOwner) return;
+    try {
+      setIsSavingLimit(true);
+      setLimitFeedback(null);
+      const trimmed = maxMembersInput.trim();
+      let parsedLimit: number | null = null;
+      if (trimmed !== '') {
+        parsedLimit = parseInt(trimmed, 10);
+        if (isNaN(parsedLimit) || parsedLimit < 1) {
+          setLimitFeedback({ type: 'error', message: 'Member limit must be a positive number' });
+          setIsSavingLimit(false);
+          return;
+        }
+      }
+      const res = await workspacesApi.updateWorkspace(activeWorkspace.id, {
+        maxMembers: parsedLimit,
+      });
+      if (res.success) {
+        setLimitFeedback({
+          type: 'success',
+          message: parsedLimit
+            ? `Workspace member limit set to ${parsedLimit}`
+            : 'Workspace member limit removed (unlimited membership)',
+        });
+        await refreshWorkspaces();
+      }
+    } catch (err: any) {
+      setLimitFeedback({ type: 'error', message: err.message || 'Failed to update member limit' });
+    } finally {
+      setIsSavingLimit(false);
+    }
+  };
+
   if (!isOpen || !activeWorkspace) return null;
 
   const initials = activeWorkspace.name
@@ -916,51 +963,90 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
               )}
 
               {/* Invite Form */}
-              {canInvite && (
-                <form onSubmit={handleInviteSubmit} className="wmm-invite-box">
-                  <h3 className="wmm-invite-title">
-                    <PlusIcon size={16} />
-                    <span>Invite New Member</span>
-                  </h3>
-                  <div className="wmm-invite-grid">
-                    <div>
-                      <input
-                        type="email"
-                        placeholder="colleague@example.com"
-                        value={inviteEmail}
-                        onChange={(e) => setInviteEmail(e.target.value)}
-                        required
-                        disabled={isInviting}
-                        className="wmm-search-box"
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                    <div>
-                      <select
-                        className="wmm-filter-select"
-                        value={inviteRole}
-                        onChange={(e) => setInviteRole(e.target.value as WorkspaceRole)}
-                        disabled={isInviting}
-                        style={{ width: '100%' }}
+              {canInvite && (() => {
+                const pendingCount = invitations.filter((i) => i.status === 'PENDING').length;
+                const activeCount = totalMembers || activeWorkspace.memberCount;
+                const isLimitReached =
+                  activeWorkspace.maxMembers != null && activeCount + pendingCount >= activeWorkspace.maxMembers;
+
+                return (
+                  <>
+                    {activeWorkspace.maxMembers != null && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '0.625rem 0.875rem',
+                          borderRadius: '8px',
+                          backgroundColor: isLimitReached ? 'rgba(239, 68, 68, 0.12)' : 'rgba(59, 130, 246, 0.1)',
+                          border: `1px solid ${
+                            isLimitReached ? 'rgba(239, 68, 68, 0.25)' : 'rgba(59, 130, 246, 0.2)'
+                          }`,
+                          marginBottom: '1rem',
+                          fontSize: '0.8125rem',
+                        }}
                       >
-                        <option value="WORKSPACE_MEMBER">Workspace Member</option>
-                        {isOwner && <option value="WORKSPACE_ADMIN">Workspace Admin</option>}
-                      </select>
-                    </div>
-                    <div>
-                      <Button
-                        type="submit"
-                        variant="primary"
-                        size="md"
-                        isLoading={isInviting}
-                        leftIcon={<MailIcon size={16} />}
-                      >
-                        Send Invite
-                      </Button>
-                    </div>
-                  </div>
-                </form>
-              )}
+                        <span style={{ color: isLimitReached ? '#fca5a5' : '#93c5fd' }}>
+                          Capacity: <strong>{activeCount + pendingCount}</strong> /{' '}
+                          <strong>{activeWorkspace.maxMembers}</strong> spots committed ({activeCount} active,{' '}
+                          {pendingCount} reserved)
+                        </span>
+                        {isLimitReached && (
+                          <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.75rem' }}>
+                            Limit reached
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    <form onSubmit={handleInviteSubmit} className="wmm-invite-box">
+                      <h3 className="wmm-invite-title">
+                        <PlusIcon size={16} />
+                        <span>Invite New Member</span>
+                      </h3>
+                      <div className="wmm-invite-grid">
+                        <div>
+                          <input
+                            type="email"
+                            placeholder="colleague@example.com"
+                            value={inviteEmail}
+                            onChange={(e) => setInviteEmail(e.target.value)}
+                            required
+                            disabled={isInviting || isLimitReached}
+                            className="wmm-search-box"
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+                        <div>
+                          <select
+                            className="wmm-filter-select"
+                            value={inviteRole}
+                            onChange={(e) => setInviteRole(e.target.value as WorkspaceRole)}
+                            disabled={isInviting || isLimitReached}
+                            style={{ width: '100%' }}
+                          >
+                            <option value="WORKSPACE_MEMBER">Workspace Member</option>
+                            {isOwner && <option value="WORKSPACE_ADMIN">Workspace Admin</option>}
+                          </select>
+                        </div>
+                        <div>
+                          <Button
+                            type="submit"
+                            variant="primary"
+                            size="md"
+                            isLoading={isInviting}
+                            disabled={isInviting || isLimitReached}
+                            leftIcon={<MailIcon size={16} />}
+                          >
+                            {isLimitReached ? 'Capacity Full' : 'Send Invite'}
+                          </Button>
+                        </div>
+                      </div>
+                    </form>
+                  </>
+                );
+              })()}
 
               {/* Invitations List */}
               <div className="wmm-toolbar" style={{ marginTop: '1rem', marginBottom: '0.75rem' }}>
@@ -1040,6 +1126,91 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
             <div className="wmm-permissions-view">
               <div className="wmm-permissions-intro">
                 Customize delegated permissions for Workspace Administrators. These controls grant or restrict privileged capabilities in this team workspace.
+              </div>
+
+              {/* Member Capacity Settings (Owner only) */}
+              <div
+                style={{
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '10px',
+                  padding: '1.25rem',
+                  marginBottom: '1.25rem',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    marginBottom: '0.75rem',
+                  }}
+                >
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: '#f4f4f5' }}>
+                      Active Member Limit
+                    </h4>
+                    <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: '#a1a1aa' }}>
+                      Configure an active-member limit for this workspace. Pending invitations reserve capacity. Leave
+                      blank for unlimited members.
+                    </p>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '0.75rem',
+                      padding: '0.25rem 0.625rem',
+                      borderRadius: '6px',
+                      backgroundColor: activeWorkspace.maxMembers
+                        ? 'rgba(59, 130, 246, 0.15)'
+                        : 'rgba(16, 185, 129, 0.15)',
+                      color: activeWorkspace.maxMembers ? '#60a5fa' : '#34d399',
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {activeWorkspace.maxMembers ? `${activeWorkspace.maxMembers} Max Members` : 'Unlimited'}
+                  </span>
+                </div>
+
+                {limitFeedback && (
+                  <div
+                    className={`wmm-feedback-banner ${
+                      limitFeedback.type === 'success' ? 'wmm-feedback-success' : 'wmm-feedback-error'
+                    }`}
+                    style={{ marginBottom: '0.75rem' }}
+                  >
+                    {limitFeedback.type === 'success' ? <CheckIcon size={16} /> : <AlertCircleIcon size={16} />}
+                    <span>{limitFeedback.message}</span>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <input
+                    type="number"
+                    min={totalMembers || activeWorkspace.memberCount || 1}
+                    placeholder="e.g. 15 (leave blank for unlimited)"
+                    value={maxMembersInput}
+                    onChange={(e) => setMaxMembersInput(e.target.value)}
+                    className="wmm-search-box"
+                    style={{ maxWidth: '280px', flex: 1 }}
+                    disabled={isSavingLimit}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="md"
+                    isLoading={isSavingLimit}
+                    onClick={handleSaveMemberLimit}
+                  >
+                    Update Limit
+                  </Button>
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#71717a', marginTop: '0.5rem' }}>
+                  Current usage: {totalMembers || activeWorkspace.memberCount} active member
+                  {(totalMembers || activeWorkspace.memberCount) === 1 ? '' : 's'}
+                  {invitations.filter((i) => i.status === 'PENDING').length > 0 &&
+                    ` • ${invitations.filter((i) => i.status === 'PENDING').length} pending reservation(s)`}
+                </div>
               </div>
 
               {permissionsFeedback && (

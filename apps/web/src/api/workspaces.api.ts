@@ -21,6 +21,7 @@ export interface WorkspaceSummary {
   userRole: WorkspaceRole;
   memberCount: number;
   projectCount: number;
+  maxMembers?: number | null;
   adminPermissions?: WorkspaceAdminPermissions;
   createdAt: string;
   updatedAt: string;
@@ -120,6 +121,14 @@ export interface CreateWorkspaceInput {
   name: string;
   description?: string;
   avatarUrl?: string;
+  maxMembers?: number | null;
+}
+
+export interface UpdateWorkspaceInput {
+  name?: string;
+  description?: string;
+  avatarUrl?: string;
+  maxMembers?: number | null;
 }
 
 export interface CreateWorkspaceInvitationInput {
@@ -149,6 +158,19 @@ export const workspacesApi = {
   async createWorkspace(input: CreateWorkspaceInput): Promise<ApiResponse<{ workspace: WorkspaceDetail }>> {
     return apiClient('/workspaces', {
       method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+
+  /**
+   * Update workspace details and settings (Owner only for maxMembers).
+   */
+  async updateWorkspace(
+    workspaceId: string,
+    input: UpdateWorkspaceInput
+  ): Promise<ApiResponse<{ workspace: WorkspaceSummary }>> {
+    return apiClient(`/workspaces/${workspaceId}`, {
+      method: 'PATCH',
       body: JSON.stringify(input),
     });
   },

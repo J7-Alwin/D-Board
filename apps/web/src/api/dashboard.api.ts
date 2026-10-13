@@ -5,6 +5,11 @@ export interface DashboardStats {
   joinedProjectsCount: number;
   myOpenWorkCount: number;
   upcomingDeadlinesCount: number;
+  overdueWorkCount?: number;
+  blockedWorkCount?: number;
+  completedWorkCount?: number;
+  totalWorkCount?: number;
+  completionRate?: number;
 }
 
 export interface DashboardData {

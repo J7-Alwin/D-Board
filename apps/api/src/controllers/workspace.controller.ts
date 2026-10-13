@@ -7,6 +7,7 @@ import { workspaceOwnershipTransferService } from '../services/workspaceOwnershi
 import { workspaceAuditService } from '../services/workspaceAudit.service.js';
 import {
   createWorkspaceSchema,
+  updateWorkspaceSchema,
   createWorkspaceInvitationSchema,
   updateWorkspaceAdminPermissionsSchema,
   requestOwnershipTransferSchema,
@@ -65,6 +66,29 @@ export class WorkspaceController {
       res.status(201).json({
         success: true,
         message: 'Workspace created successfully',
+        data: { workspace },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * PATCH /api/workspaces/:workspaceId
+   * Update workspace settings or member limit (Owner only)
+   */
+  async updateWorkspace(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+      const input = updateWorkspaceSchema.parse(req.body);
+      const workspace = await workspaceService.updateWorkspace(workspaceId, req.user.userId, input, {
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+      res.status(200).json({
+        success: true,
+        message: 'Workspace updated successfully',
         data: { workspace },
       });
     } catch (err) {

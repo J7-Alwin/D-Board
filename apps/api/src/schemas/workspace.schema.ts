@@ -7,6 +7,20 @@ export const createWorkspaceSchema = z.object({
     .min(2, 'Workspace name must be at least 2 characters')
     .max(100, 'Workspace name must not exceed 100 characters'),
   avatarUrl: z.string().url('Invalid avatar URL').optional().nullable(),
+  maxMembers: z.number().int().min(1, 'Member limit must be at least 1').nullable().optional(),
+});
+
+export const updateWorkspaceSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, 'Workspace name must be at least 2 characters')
+    .max(100, 'Workspace name must not exceed 100 characters')
+    .optional(),
+  avatarUrl: z.string().url('Invalid avatar URL').optional().nullable(),
+  maxMembers: z.number().int().min(1, 'Member limit must be at least 1').nullable().optional(),
+}).refine((data) => Object.keys(data).length > 0, {
+  message: 'At least one field to update must be provided',
 });
 
 export const workspaceQuerySchema = z.object({
@@ -14,6 +28,7 @@ export const workspaceQuerySchema = z.object({
 });
 
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>;
+export type UpdateWorkspaceInput = z.infer<typeof updateWorkspaceSchema>;
 
 /**
  * Owner-controlled Admin permission configuration schema and defaults.

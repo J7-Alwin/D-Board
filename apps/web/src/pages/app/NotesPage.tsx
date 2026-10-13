@@ -174,7 +174,7 @@ export const NotesPage: React.FC<NotesPageProps> = ({
       .getUserProjects(activeWsId)
       .then((res) => {
         if (res.success && res.data) {
-          const all = [...(res.data.owned || []), ...(res.data.joined || [])];
+          const all = res.data.all || [...(res.data.owned || []), ...(res.data.joined || [])];
           setAccessibleProjects(all);
           if (all.length > 0 && !formProjectId) {
             setFormProjectId(activeProjectId || all[0].id);

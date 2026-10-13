@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from '../../router/Router';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import {
   notificationsApi,
   type NotificationItem,
@@ -27,6 +28,7 @@ import { NotificationsHeaderAtmosphere } from '../../components/common/HeaderAtm
 
 export const NotificationsPage: React.FC = () => {
   const { navigate } = useRouter();
+  const { activeWorkspace } = useWorkspace();
   const [activeTab, setActiveTab] = useState<NotificationCategory>('ALL');
   const [sortOrder, setSortOrder] = useState<'latest' | 'oldest' | 'unread'>('latest');
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -41,11 +43,14 @@ export const NotificationsPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await notificationsApi.getNotifications({
-        category: activeTab,
-        page,
-        limit: 25,
-      });
+      const res = await notificationsApi.getNotifications(
+        {
+          category: activeTab,
+          page,
+          limit: 25,
+        },
+        activeWorkspace?.id
+      );
 
       if (res.success && res.data) {
         setNotifications(res.data.notifications);

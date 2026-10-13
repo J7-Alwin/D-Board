@@ -6,6 +6,7 @@ export interface MyWorkSummary {
   inProgress: number;
   dueSoon: number;
   overdue: number;
+  blocked?: number;
   completed: number;
 }
 
@@ -23,7 +24,7 @@ export interface MyWorkResponse {
 }
 
 export interface MyWorkFilterParams {
-  tab?: 'my-work' | 'created-work' | 'overdue' | 'due-soon' | 'completed' | 'all';
+  tab?: 'my-work' | 'created-work' | 'overdue' | 'due-soon' | 'completed' | 'blocked' | 'all';
   status?: WorkItemStatus | string;
   priority?: WorkItemPriority | string;
   type?: WorkItemType | string;

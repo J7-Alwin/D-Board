@@ -54,6 +54,11 @@ router.get('/:workspaceId', (req, res, next) =>
   workspaceController.getWorkspaceById(req, res, next)
 );
 
+// Update workspace settings and member limit (Owner only)
+router.patch('/:workspaceId', (req, res, next) =>
+  workspaceController.updateWorkspace(req, res, next)
+);
+
 // ===========================================================================
 // Workspace Member Management Endpoints
 // ===========================================================================

@@ -59,7 +59,7 @@ export const MyWorkPage: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Filters
-  const [activeTab, setActiveTab] = useState<'my-work' | 'created-work' | 'overdue' | 'due-soon' | 'completed' | 'all'>('my-work');
+  const [activeTab, setActiveTab] = useState<'my-work' | 'created-work' | 'overdue' | 'due-soon' | 'completed' | 'blocked' | 'all'>('my-work');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('');
@@ -67,6 +67,23 @@ export const MyWorkPage: React.FC = () => {
   const [selectedType, setSelectedType] = useState<string>('');
   const [selectedSort, setSelectedSort] = useState<'recentlyCreated' | 'recentlyUpdated' | 'dueDate' | 'priority'>('recentlyCreated');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Sync initial tab and filters from URL parameters for direct metric drilldowns
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
+    if (tabParam && ['my-work', 'created-work', 'overdue', 'due-soon', 'completed', 'blocked', 'all'].includes(tabParam)) {
+      setActiveTab(tabParam as any);
+    }
+    const statusParam = params.get('status');
+    if (statusParam) {
+      setSelectedStatus(statusParam);
+    }
+    const projectParam = params.get('projectId');
+    if (projectParam) {
+      setSelectedProjectId(projectParam);
+    }
+  }, []);
 
   // Calendar widget month navigation
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date());
@@ -267,7 +284,7 @@ export const MyWorkPage: React.FC = () => {
         return (
           <span className="mywork-status-pill status-blocked">
             <span className="mywork-status-dot dot-blocked" />
-            <span>Canceled</span>
+            <span>Blocked</span>
           </span>
         );
       case 'IN_PROGRESS':
@@ -423,7 +440,16 @@ export const MyWorkPage: React.FC = () => {
         </div>
 
         {/* In Progress */}
-        <div className="mywork-summary-card card-in-progress">
+        <div
+          className="mywork-summary-card card-in-progress cursor-pointer"
+          onClick={() => {
+            setActiveTab('my-work');
+            setCurrentPage(1);
+          }}
+          tabIndex={0}
+          role="button"
+          onKeyDown={(e) => e.key === 'Enter' && (setActiveTab('my-work'), setCurrentPage(1))}
+        >
           <div className="summary-card-top">
             <div className="summary-icon-pill icon-in-progress">
               <ActivityIcon size={16} />
@@ -437,7 +463,16 @@ export const MyWorkPage: React.FC = () => {
         </div>
 
         {/* Due Soon */}
-        <div className="mywork-summary-card card-due-soon">
+        <div
+          className="mywork-summary-card card-due-soon cursor-pointer"
+          onClick={() => {
+            setActiveTab('due-soon');
+            setCurrentPage(1);
+          }}
+          tabIndex={0}
+          role="button"
+          onKeyDown={(e) => e.key === 'Enter' && (setActiveTab('due-soon'), setCurrentPage(1))}
+        >
           <div className="summary-card-top">
             <div className="summary-icon-pill icon-due-soon">
               <CalendarIcon size={16} />
@@ -451,7 +486,16 @@ export const MyWorkPage: React.FC = () => {
         </div>
 
         {/* Overdue */}
-        <div className="mywork-summary-card card-overdue">
+        <div
+          className="mywork-summary-card card-overdue cursor-pointer"
+          onClick={() => {
+            setActiveTab('overdue');
+            setCurrentPage(1);
+          }}
+          tabIndex={0}
+          role="button"
+          onKeyDown={(e) => e.key === 'Enter' && (setActiveTab('overdue'), setCurrentPage(1))}
+        >
           <div className="summary-card-top">
             <div className="summary-icon-pill icon-overdue">
               <AlertCircleIcon size={16} />
@@ -466,8 +510,42 @@ export const MyWorkPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Blocked */}
+        <div
+          className="mywork-summary-card card-blocked cursor-pointer"
+          onClick={() => {
+            setActiveTab('blocked');
+            setCurrentPage(1);
+          }}
+          tabIndex={0}
+          role="button"
+          onKeyDown={(e) => e.key === 'Enter' && (setActiveTab('blocked'), setCurrentPage(1))}
+        >
+          <div className="summary-card-top">
+            <div className="summary-icon-pill icon-blocked">
+              <ClockIcon size={16} />
+            </div>
+            <span className="summary-label">Blocked</span>
+          </div>
+          <div className="summary-card-bottom">
+            <div className={`summary-value ${data && (data.summary.blocked || 0) > 0 ? 'text-amber' : 'text-neutral'}`}>
+              {data?.summary.blocked || 0}
+            </div>
+            <div className="summary-sub">Blocked items</div>
+          </div>
+        </div>
+
         {/* Completed */}
-        <div className="mywork-summary-card card-completed">
+        <div
+          className="mywork-summary-card card-completed cursor-pointer"
+          onClick={() => {
+            setActiveTab('completed');
+            setCurrentPage(1);
+          }}
+          tabIndex={0}
+          role="button"
+          onKeyDown={(e) => e.key === 'Enter' && (setActiveTab('completed'), setCurrentPage(1))}
+        >
           <div className="summary-card-top">
             <div className="summary-icon-pill icon-completed">
               <CheckCircleIcon size={16} />
@@ -522,6 +600,16 @@ export const MyWorkPage: React.FC = () => {
           }}
         >
           Due Soon ({data?.summary.dueSoon || 0})
+        </button>
+        <button
+          type="button"
+          className={`mywork-tab ${activeTab === 'blocked' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('blocked');
+            setCurrentPage(1);
+          }}
+        >
+          Blocked ({data?.summary.blocked || 0})
         </button>
         <button
           type="button"

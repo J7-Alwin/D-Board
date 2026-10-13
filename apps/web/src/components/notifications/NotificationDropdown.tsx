@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from '../../router/Router';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { notificationsApi, type NotificationItem } from '../../api/notifications.api';
 import {
   BellIcon,
@@ -21,6 +22,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
   unreadCount,
   onUnreadCountChange,
 }) => {
+  const { activeWorkspace } = useWorkspace();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -31,7 +33,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
   const loadRecentNotifications = async () => {
     setLoading(true);
     try {
-      const res = await notificationsApi.getNotifications({ page: 1, limit: 8 });
+      const res = await notificationsApi.getNotifications({ page: 1, limit: 8 }, activeWorkspace?.id);
       if (res.success && res.data) {
         setNotifications(res.data.notifications);
         if (res.data.pagination.unreadCount > 0) {

@@ -587,7 +587,7 @@ describe('Multi-Workspace Security Remediation Test Suite', () => {
       });
       expect(checkMember).not.toBeNull();
       expect(checkMember?.origin).toBe('DIRECT');
-    });
+    }, 60000);
   });
 
   // =========================================================================

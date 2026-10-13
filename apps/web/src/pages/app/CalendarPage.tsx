@@ -131,7 +131,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         .getUserProjects(activeWsId)
         .then((res) => {
           if (res.success && res.data) {
-            const all = [...(res.data.owned || []), ...(res.data.joined || [])];
+            const all = res.data.all || [...(res.data.owned || []), ...(res.data.joined || [])];
             setAccessibleProjects(all);
           }
         })

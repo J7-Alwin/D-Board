@@ -110,7 +110,28 @@ export class WorkspaceInvitationService {
       throw new AppError('A pending invitation has already been sent to this email address', 409);
     }
 
-    // 4. Generate high-entropy token and hash (32 bytes)
+    // 4. Enforce Workspace Active Member Limit & Capacity Reservation
+    if (workspace.maxMembers !== null && workspace.maxMembers !== undefined) {
+      const activeMembersCount = await prisma.workspaceMember.count({
+        where: { workspaceId },
+      });
+      const pendingInvitationsCount = await prisma.workspaceInvitation.count({
+        where: {
+          workspaceId,
+          status: 'PENDING',
+          expiresAt: { gt: new Date() },
+        },
+      });
+
+      if (activeMembersCount + pendingInvitationsCount >= workspace.maxMembers) {
+        throw new AppError(
+          `Workspace member limit reached. This workspace is limited to ${workspace.maxMembers} members (${activeMembersCount} active members and ${pendingInvitationsCount} pending invitations).`,
+          400
+        );
+      }
+    }
+
+    // 5. Generate high-entropy token and hash (32 bytes)
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
@@ -280,6 +301,30 @@ export class WorkspaceInvitationService {
 
     if (invitation.status === 'REVOKED') {
       throw new AppError('Cannot resend a revoked invitation. Please send a new invitation.', 400);
+    }
+
+    // Check member limit if resending an expired invitation
+    if (workspace.maxMembers !== null && workspace.maxMembers !== undefined) {
+      const isAlreadyActivePending = invitation.status === 'PENDING' && new Date(invitation.expiresAt) > new Date();
+      if (!isAlreadyActivePending) {
+        const activeMembersCount = await prisma.workspaceMember.count({
+          where: { workspaceId },
+        });
+        const pendingInvitationsCount = await prisma.workspaceInvitation.count({
+          where: {
+            workspaceId,
+            status: 'PENDING',
+            expiresAt: { gt: new Date() },
+            id: { not: invitationId },
+          },
+        });
+        if (activeMembersCount + pendingInvitationsCount >= workspace.maxMembers) {
+          throw new AppError(
+            `Workspace member limit reached. Cannot resend invitation because the workspace is limited to ${workspace.maxMembers} members (${activeMembersCount} active members and ${pendingInvitationsCount} pending invitations).`,
+            400
+          );
+        }
+      }
     }
 
     // Refresh token and 7-day expiration
@@ -534,6 +579,25 @@ export class WorkspaceInvitationService {
           data: { status: 'EXPIRED' },
         });
         throw new AppError('This invitation has expired', 400);
+      }
+
+      // Check Workspace Active Member Limit atomically within transaction
+      const ws = await tx.workspace.findUnique({
+        where: { id: invitation.workspaceId },
+        select: { maxMembers: true },
+      });
+
+      if (ws?.maxMembers !== null && ws?.maxMembers !== undefined) {
+        const activeMembersCount = await tx.workspaceMember.count({
+          where: { workspaceId: invitation.workspaceId },
+        });
+
+        if (activeMembersCount >= ws.maxMembers) {
+          throw new AppError(
+            `Workspace member limit reached. Cannot accept invitation because the workspace has reached its limit of ${ws.maxMembers} active members.`,
+            400
+          );
+        }
       }
 
       // Create WorkspaceMember with origin DIRECT

@@ -6,6 +6,7 @@ import { AppError } from '../middlewares/error.middleware.js';
 import { publishToProject } from '../realtime/realtime.service.js';
 import { scheduleWorkItemDeadlines, cancelDeadlineJobs } from '../jobs/queues.js';
 import { cacheService } from '../redis/cache.service.js';
+import { projectService } from './project.service.js';
 
 export class WorkService {
   /**
@@ -601,7 +602,7 @@ export class WorkService {
   async getMyWorkItems(
     userId: string,
     params?: {
-      tab?: 'my-work' | 'created-work' | 'overdue' | 'due-soon' | 'completed' | 'all';
+      tab?: 'my-work' | 'created-work' | 'overdue' | 'due-soon' | 'completed' | 'blocked' | 'all';
       status?: string;
       priority?: string;
       type?: string;
@@ -613,28 +614,14 @@ export class WorkService {
     },
     workspaceId?: string
   ) {
-    const projectWhere: any = {
-      OR: [
-        { createdById: userId },
-        { members: { some: { userId } } },
-      ],
-    };
-    if (workspaceId) {
-      projectWhere.workspaceId = workspaceId;
-    }
-
-    // 1. Fetch all project IDs where user is creator or member in the active workspace
-    const userProjects = await prisma.project.findMany({
-      where: projectWhere,
-      select: { id: true },
-    });
-
-    const projectIds = userProjects.map((p) => p.id);
+    // 1. Fetch all project IDs accessible to the user in the active workspace
+    const { all } = await projectService.getUserProjects(userId, workspaceId);
+    const projectIds = all.map((p) => p.id);
 
     if (projectIds.length === 0) {
       return {
         workItems: [],
-        summary: { total: 0, createdTotal: 0, inProgress: 0, dueSoon: 0, overdue: 0, completed: 0 },
+        summary: { total: 0, createdTotal: 0, inProgress: 0, dueSoon: 0, overdue: 0, blocked: 0, completed: 0 },
         pagination: { page: 1, limit: params?.limit || 10, total: 0, totalPages: 0 },
       };
     }
@@ -682,6 +669,7 @@ export class WorkService {
         if (!i.dueDate || i.status === 'COMPLETED') return false;
         return new Date(i.dueDate) < now;
       }).length,
+      blocked: userAssignedItems.filter((i) => i.status === 'BLOCKED').length,
       completed: userAssignedItems.filter((i) => i.status === 'COMPLETED').length,
     };
 
@@ -712,6 +700,9 @@ export class WorkService {
     } else if (tab === 'completed') {
       where.assignedToId = userId;
       where.status = 'COMPLETED';
+    } else if (tab === 'blocked') {
+      where.assignedToId = userId;
+      where.status = 'BLOCKED';
     } else if (tab === 'all') {
       // All items in user's accessible projects
     }

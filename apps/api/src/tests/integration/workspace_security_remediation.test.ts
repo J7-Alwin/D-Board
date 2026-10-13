@@ -115,13 +115,13 @@ describe('Multi-Workspace Security Remediation Test Suite', () => {
   afterAll(async () => {
     const userIds = [ownerId, memberId, outsiderId, ...dynamicUserIds].filter(Boolean);
     if (userIds.length > 0) {
-      await prisma.calendarFeedToken.deleteMany({ where: { userId: { in: userIds } } }).catch(() => {});
-      await prisma.projectMember.deleteMany({ where: { userId: { in: userIds } } }).catch(() => {});
-      await prisma.project.deleteMany({ where: { createdById: { in: userIds } } }).catch(() => {});
-      await prisma.workspaceMember.deleteMany({ where: { userId: { in: userIds } } }).catch(() => {});
-      await prisma.workspace.deleteMany({ where: { ownerId: { in: userIds } } }).catch(() => {});
-      await prisma.session.deleteMany({ where: { userId: { in: userIds } } }).catch(() => {});
-      await prisma.user.deleteMany({ where: { id: { in: userIds } } }).catch(() => {});
+      await prisma.calendarFeedToken.deleteMany({ where: { userId: { in: userIds } } }).catch(() => { });
+      await prisma.projectMember.deleteMany({ where: { userId: { in: userIds } } }).catch(() => { });
+      await prisma.project.deleteMany({ where: { createdById: { in: userIds } } }).catch(() => { });
+      await prisma.workspaceMember.deleteMany({ where: { userId: { in: userIds } } }).catch(() => { });
+      await prisma.workspace.deleteMany({ where: { ownerId: { in: userIds } } }).catch(() => { });
+      await prisma.session.deleteMany({ where: { userId: { in: userIds } } }).catch(() => { });
+      await prisma.user.deleteMany({ where: { id: { in: userIds } } }).catch(() => { });
     }
   });
 
@@ -262,10 +262,10 @@ describe('Multi-Workspace Security Remediation Test Suite', () => {
       expect(pmCount).toBe(1);
 
       // Cleanup
-      await prisma.projectMember.deleteMany({ where: { userId: cUser.id } }).catch(() => {});
-      await prisma.workspaceMember.deleteMany({ where: { userId: cUser.id } }).catch(() => {});
-      await prisma.invitation.deleteMany({ where: { id: invConcurrent.id } }).catch(() => {});
-      await prisma.user.delete({ where: { id: cUser.id } }).catch(() => {});
+      await prisma.projectMember.deleteMany({ where: { userId: cUser.id } }).catch(() => { });
+      await prisma.workspaceMember.deleteMany({ where: { userId: cUser.id } }).catch(() => { });
+      await prisma.invitation.deleteMany({ where: { id: invConcurrent.id } }).catch(() => { });
+      await prisma.user.delete({ where: { id: cUser.id } }).catch(() => { });
     });
   });
 
@@ -589,6 +589,7 @@ describe('Multi-Workspace Security Remediation Test Suite', () => {
       expect(checkMember?.origin).toBe('DIRECT');
     }, 60000);
   });
+
 
   // =========================================================================
   // 3. High: External iCal Feed Isolation

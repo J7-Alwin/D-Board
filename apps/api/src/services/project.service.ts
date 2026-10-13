@@ -26,10 +26,10 @@ export class ProjectService {
       const wsAccess = await workspaceService.verifyWorkspaceAccess(targetWorkspaceId, userId);
       const ws = await prisma.workspace.findUnique({
         where: { id: targetWorkspaceId },
-        select: { id: true, isPersonal: true, ownerId: true, name: true, adminPermissions: true },
+        select: { id: true, isPersonal: true, ownerId: true, name: true, adminPermissions: true, deletedAt: true },
       });
 
-      if (!ws) {
+      if (!ws || ws.deletedAt) {
         throw new AppError('Workspace not found', 404);
       }
 
@@ -64,6 +64,15 @@ export class ProjectService {
     }> = [];
 
     const fullProject = await prisma.$transaction(async (tx) => {
+      // Re-verify target workspace is not deleted inside the transaction
+      const targetWs = await tx.workspace.findUnique({
+        where: { id: targetWorkspaceId },
+        select: { id: true, deletedAt: true },
+      });
+      if (!targetWs || targetWs.deletedAt) {
+        throw new AppError('Workspace not found', 404);
+      }
+
       const rawVis = data.visibility ? String(data.visibility).toUpperCase() : 'WORKSPACE';
       const normVisibility: 'WORKSPACE' | 'RESTRICTED' = rawVis === 'RESTRICTED' ? 'RESTRICTED' : 'WORKSPACE';
 
@@ -432,13 +441,18 @@ export class ProjectService {
       throw new AppError('Project not found', 404);
     }
 
-    const member = project.members.find((m) => m.userId === userId);
     const ws = await prisma.workspace.findUnique({
       where: { id: project.workspaceId },
       include: { members: { where: { userId } } },
     });
-    const isWsOwner = ws?.ownerId === userId;
-    const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+
+    if (!ws || ws.deletedAt) {
+      throw new AppError('Project not found', 404);
+    }
+
+    const member = project.members.find((m) => m.userId === userId);
+    const isWsOwner = ws.ownerId === userId;
+    const isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
     const isAdmin = member?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
 
     if (!isAdmin) {
@@ -451,39 +465,49 @@ export class ProjectService {
       normVisibility = rawVis === 'RESTRICTED' ? 'RESTRICTED' : 'WORKSPACE';
     }
 
-    const updated = await prisma.project.update({
-      where: { id: projectId },
-      data: {
-        name: data.name !== undefined ? data.name : undefined,
-        key: data.key !== undefined ? (data.key ? data.key.toUpperCase() : null) : undefined,
-        description: data.description !== undefined ? data.description : undefined,
-        category: data.category !== undefined ? data.category : undefined,
-        technologyStack: data.technologyStack !== undefined ? data.technologyStack : undefined,
-        startDate: data.startDate !== undefined ? (data.startDate ? new Date(data.startDate) : null) : undefined,
-        endDate: data.endDate !== undefined ? (data.endDate ? new Date(data.endDate) : null) : undefined,
-        repositoryUrl: data.repositoryUrl !== undefined ? data.repositoryUrl : undefined,
-        liveUrl: data.liveUrl !== undefined ? data.liveUrl : undefined,
-        avatarUrl: data.avatarUrl !== undefined ? data.avatarUrl : undefined,
-        visibility: normVisibility,
-      },
-      include: {
-        createdBy: {
-          select: { id: true, fullName: true, username: true, avatarUrl: true },
+    return await prisma.$transaction(async (tx) => {
+      const freshWs = await tx.workspace.findUnique({
+        where: { id: project.workspaceId },
+        select: { deletedAt: true },
+      });
+      if (!freshWs || freshWs.deletedAt) {
+        throw new AppError('Project not found', 404);
+      }
+
+      const updated = await tx.project.update({
+        where: { id: projectId },
+        data: {
+          name: data.name !== undefined ? data.name : undefined,
+          key: data.key !== undefined ? (data.key ? data.key.toUpperCase() : null) : undefined,
+          description: data.description !== undefined ? data.description : undefined,
+          category: data.category !== undefined ? data.category : undefined,
+          technologyStack: data.technologyStack !== undefined ? data.technologyStack : undefined,
+          startDate: data.startDate !== undefined ? (data.startDate ? new Date(data.startDate) : null) : undefined,
+          endDate: data.endDate !== undefined ? (data.endDate ? new Date(data.endDate) : null) : undefined,
+          repositoryUrl: data.repositoryUrl !== undefined ? data.repositoryUrl : undefined,
+          liveUrl: data.liveUrl !== undefined ? data.liveUrl : undefined,
+          avatarUrl: data.avatarUrl !== undefined ? data.avatarUrl : undefined,
+          visibility: normVisibility,
         },
-        members: {
-          include: {
-            user: {
-              select: { id: true, fullName: true, username: true, avatarUrl: true },
+        include: {
+          createdBy: {
+            select: { id: true, fullName: true, username: true, avatarUrl: true },
+          },
+          members: {
+            include: {
+              user: {
+                select: { id: true, fullName: true, username: true, avatarUrl: true },
+              },
             },
           },
         },
-      },
-    });
+      });
 
-    return {
-      ...updated,
-      visibility: updated.visibility === 'RESTRICTED' ? 'Restricted' : 'Workspace',
-    };
+      return {
+        ...updated,
+        visibility: updated.visibility === 'RESTRICTED' ? 'Restricted' : 'Workspace',
+      };
+    });
   }
 
   /**
@@ -499,13 +523,18 @@ export class ProjectService {
       throw new AppError('Project not found', 404);
     }
 
-    const member = project.members.find((m) => m.userId === userId);
     const ws = await prisma.workspace.findUnique({
       where: { id: project.workspaceId },
       include: { members: { where: { userId } } },
     });
-    const isWsOwner = ws?.ownerId === userId;
-    const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+
+    if (!ws || ws.deletedAt) {
+      throw new AppError('Project not found', 404);
+    }
+
+    const member = project.members.find((m) => m.userId === userId);
+    const isWsOwner = ws.ownerId === userId;
+    const isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
     const isAdmin = member?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
 
     if (!isAdmin) {
@@ -516,20 +545,30 @@ export class ProjectService {
       return project;
     }
 
-    const updated = await prisma.project.update({
-      where: { id: projectId },
-      data: {
-        status: 'ARCHIVED',
-        archivedAt: new Date(),
-      },
-      include: {
-        createdBy: {
-          select: { id: true, fullName: true, username: true, avatarUrl: true },
-        },
-      },
-    });
+    return await prisma.$transaction(async (tx) => {
+      const freshWs = await tx.workspace.findUnique({
+        where: { id: project.workspaceId },
+        select: { deletedAt: true },
+      });
+      if (!freshWs || freshWs.deletedAt) {
+        throw new AppError('Project not found', 404);
+      }
 
-    return updated;
+      const updated = await tx.project.update({
+        where: { id: projectId },
+        data: {
+          status: 'ARCHIVED',
+          archivedAt: new Date(),
+        },
+        include: {
+          createdBy: {
+            select: { id: true, fullName: true, username: true, avatarUrl: true },
+          },
+        },
+      });
+
+      return updated;
+    });
   }
 
   /**
@@ -545,33 +584,48 @@ export class ProjectService {
       throw new AppError('Project not found', 404);
     }
 
-    const member = project.members.find((m) => m.userId === userId);
     const ws = await prisma.workspace.findUnique({
       where: { id: project.workspaceId },
       include: { members: { where: { userId } } },
     });
-    const isWsOwner = ws?.ownerId === userId;
-    const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+
+    if (!ws || ws.deletedAt) {
+      throw new AppError('Project not found', 404);
+    }
+
+    const member = project.members.find((m) => m.userId === userId);
+    const isWsOwner = ws.ownerId === userId;
+    const isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
     const isAdmin = member?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
 
     if (!isAdmin) {
       throw new AppError('Only project administrators can unarchive this project', 403);
     }
 
-    const updated = await prisma.project.update({
-      where: { id: projectId },
-      data: {
-        status: 'ACTIVE',
-        archivedAt: null,
-      },
-      include: {
-        createdBy: {
-          select: { id: true, fullName: true, username: true, avatarUrl: true },
-        },
-      },
-    });
+    return await prisma.$transaction(async (tx) => {
+      const freshWs = await tx.workspace.findUnique({
+        where: { id: project.workspaceId },
+        select: { deletedAt: true },
+      });
+      if (!freshWs || freshWs.deletedAt) {
+        throw new AppError('Project not found', 404);
+      }
 
-    return updated;
+      const updated = await tx.project.update({
+        where: { id: projectId },
+        data: {
+          status: 'ACTIVE',
+          archivedAt: null,
+        },
+        include: {
+          createdBy: {
+            select: { id: true, fullName: true, username: true, avatarUrl: true },
+          },
+        },
+      });
+
+      return updated;
+    });
   }
 
   /**
@@ -587,13 +641,18 @@ export class ProjectService {
       throw new AppError('Project not found', 404);
     }
 
-    const member = project.members.find((m) => m.userId === userId);
     const ws = await prisma.workspace.findUnique({
       where: { id: project.workspaceId },
       include: { members: { where: { userId } } },
     });
-    const isWsOwner = ws?.ownerId === userId;
-    const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+
+    if (!ws || ws.deletedAt) {
+      throw new AppError('Project not found', 404);
+    }
+
+    const member = project.members.find((m) => m.userId === userId);
+    const isWsOwner = ws.ownerId === userId;
+    const isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
     const isAdmin = member?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
 
     if (!isAdmin) {
@@ -620,6 +679,14 @@ export class ProjectService {
 
     // 1. Collect physical keys and create durable outbox records transactionally with project deletion
     const outboxItems = await prisma.$transaction(async (tx) => {
+      const freshWs = await tx.workspace.findUnique({
+        where: { id: project.workspaceId },
+        select: { deletedAt: true },
+      });
+      if (!freshWs || freshWs.deletedAt) {
+        throw new AppError('Project not found', 404);
+      }
+
       const storedObjects = await tx.storedObject.findMany({
         where: { projectId },
         select: { storageKey: true },
@@ -685,6 +752,15 @@ export class ProjectService {
       throw new AppError('Project not found', 404);
     }
 
+    const ws = await prisma.workspace.findUnique({
+      where: { id: project.workspaceId },
+      select: { id: true, deletedAt: true },
+    });
+
+    if (!ws || ws.deletedAt) {
+      throw new AppError('Project not found', 404);
+    }
+
     if (project.createdById !== currentUserId) {
       throw new AppError('Only the current project owner can transfer ownership', 403);
     }
@@ -699,6 +775,14 @@ export class ProjectService {
     }
 
     return await prisma.$transaction(async (tx) => {
+      const freshWs = await tx.workspace.findUnique({
+        where: { id: project.workspaceId },
+        select: { deletedAt: true },
+      });
+      if (!freshWs || freshWs.deletedAt) {
+        throw new AppError('Project not found', 404);
+      }
+
       // Ensure the new owner is a PROJECT_ADMIN
       await tx.projectMember.update({
         where: { id: targetMember.id },

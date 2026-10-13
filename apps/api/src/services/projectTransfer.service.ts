@@ -50,10 +50,6 @@ export class ProjectTransferService {
       throw new AppError('Workspace not found', 404);
     }
 
-    if (ws.deletedAt) {
-      throw new AppError('Cannot transfer projects in a deleted workspace', 400);
-    }
-
     const isOwner = ws.ownerId === actorId;
     const membership = ws.members[0];
 
@@ -62,6 +58,10 @@ export class ProjectTransferService {
         'Workspace owner or administrator privileges in the workspace required to initiate or authorize project transfers',
         403
       );
+    }
+
+    if (ws.deletedAt) {
+      throw new AppError('Cannot transfer projects in a deleted workspace', 400);
     }
 
     if (!isOwner && membership?.role === 'WORKSPACE_ADMIN' && requiredPermission) {
@@ -341,6 +341,16 @@ export class ProjectTransferService {
           throw new AppError('Project is no longer in the source workspace or has already been transferred', 409);
         }
 
+        // Revalidate source workspace state inside transaction immediately before completing transfer
+        const freshSourceWs = await tx.workspace.findUnique({
+          where: { id: project.workspaceId },
+          select: { id: true, deletedAt: true },
+        });
+
+        if (!freshSourceWs || freshSourceWs.deletedAt) {
+          throw new AppError('Cannot transfer projects in a deleted workspace', 400);
+        }
+
         // Revalidate destination workspace state inside transaction immediately before completing transfer
         const freshDestWs = await tx.workspace.findUnique({
           where: { id: destinationWorkspaceId },
@@ -495,6 +505,10 @@ export class ProjectTransferService {
       throw new AppError('This transfer request has expired', 409);
     }
 
+    if (transfer.sourceWorkspace.deletedAt) {
+      throw new AppError('Cannot transfer projects in a deleted workspace', 400);
+    }
+
     if (transfer.destinationWorkspace.deletedAt) {
       throw new AppError('Destination workspace is scheduled for deletion and cannot receive projects', 400);
     }
@@ -543,6 +557,15 @@ export class ProjectTransferService {
 
       if (!currentProject || currentProject.workspaceId !== transfer.sourceWorkspaceId) {
         throw new AppError('Project is no longer in the source workspace', 409);
+      }
+
+      // Verify source workspace still exists and is not deleted
+      const sourceWorkspace = await tx.workspace.findUnique({
+        where: { id: transfer.sourceWorkspaceId },
+        select: { id: true, deletedAt: true },
+      });
+      if (!sourceWorkspace || sourceWorkspace.deletedAt) {
+        throw new AppError('Cannot transfer projects in a deleted workspace', 400);
       }
 
       // Verify destination workspace still exists and is not personal or deleted
@@ -857,8 +880,12 @@ export class ProjectTransferService {
       data: { status: 'CANCELLED', cancelledAt: new Date() },
     });
 
-    // 2. Fetch destination workspace members and owner
-    const [destWs, destMembers] = await Promise.all([
+    // 2. Fetch destination workspace members and owner, and verify neither workspace is deleted
+    const [sourceWs, destWs, destMembers] = await Promise.all([
+      tx.workspace.findUnique({
+        where: { id: sourceWorkspaceId },
+        select: { id: true, name: true, deletedAt: true },
+      }),
       tx.workspace.findUnique({
         where: { id: destinationWorkspaceId },
         select: { ownerId: true, name: true, deletedAt: true },
@@ -868,6 +895,10 @@ export class ProjectTransferService {
         select: { userId: true },
       }),
     ]);
+
+    if (!sourceWs || sourceWs.deletedAt) {
+      throw new AppError('Cannot transfer projects in a deleted workspace', 400);
+    }
 
     if (!destWs) {
       throw new AppError('Destination workspace not found', 404);
@@ -931,11 +962,6 @@ export class ProjectTransferService {
     });
 
     // 8. Record project activity
-    const sourceWs = await tx.workspace.findUnique({
-      where: { id: sourceWorkspaceId },
-      select: { name: true },
-    });
-
     try {
       await tx.activity.create({
         data: {

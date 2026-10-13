@@ -374,6 +374,100 @@ describe('Phase 5 — Complete Workspace Lifecycle Integration Tests', () => {
       expect(res.status).toBe(404);
     });
 
+    it('rejects project mutations (update, archive, unarchive, delete, transfer ownership, transfer) in soft-deleted workspace (404 / 400)', async () => {
+      // 1. Update project - Owner receives 404
+      const updateResOwner = await request(app)
+        .patch(`/api/projects/${projectId}`)
+        .set('Cookie', cookieB)
+        .send({ name: 'Attempted Update in Deleted WS' });
+      expect(updateResOwner.status).toBe(404);
+
+      // 1b. Update project - Outsider receives 404 without data leakage
+      const updateResOutsider = await request(app)
+        .patch(`/api/projects/${projectId}`)
+        .set('Cookie', cookieC)
+        .send({ name: 'Attempted Update Outsider' });
+      expect(updateResOutsider.status).toBe(404);
+
+      // 2. Archive project - Owner receives 404
+      const archiveResOwner = await request(app)
+        .post(`/api/projects/${projectId}/archive`)
+        .set('Cookie', cookieB);
+      expect(archiveResOwner.status).toBe(404);
+
+      // 2b. Archive project - Outsider receives 404
+      const archiveResOutsider = await request(app)
+        .post(`/api/projects/${projectId}/archive`)
+        .set('Cookie', cookieC);
+      expect(archiveResOutsider.status).toBe(404);
+
+      // 3. Unarchive project - Owner receives 404
+      const unarchiveResOwner = await request(app)
+        .post(`/api/projects/${projectId}/unarchive`)
+        .set('Cookie', cookieB);
+      expect(unarchiveResOwner.status).toBe(404);
+
+      // 3b. Unarchive project - Outsider receives 404
+      const unarchiveResOutsider = await request(app)
+        .post(`/api/projects/${projectId}/unarchive`)
+        .set('Cookie', cookieC);
+      expect(unarchiveResOutsider.status).toBe(404);
+
+      // 4. Delete project - Owner receives 404
+      const deleteResOwner = await request(app)
+        .delete(`/api/projects/${projectId}`)
+        .set('Cookie', cookieB);
+      expect(deleteResOwner.status).toBe(404);
+
+      // 4b. Delete project - Outsider receives 404
+      const deleteResOutsider = await request(app)
+        .delete(`/api/projects/${projectId}`)
+        .set('Cookie', cookieC);
+      expect(deleteResOutsider.status).toBe(404);
+
+      // 5. Transfer project ownership - Authorized caller receives 404
+      const transferOwnRes = await request(app)
+        .post(`/api/projects/${projectId}/transfer-ownership`)
+        .set('Cookie', cookieA)
+        .send({ targetUserId: userBId });
+      expect(transferOwnRes.status).toBe(404);
+
+      // 5b. Transfer project ownership - Outsider receives 404
+      const transferOwnOutsider = await request(app)
+        .post(`/api/projects/${projectId}/transfer-ownership`)
+        .set('Cookie', cookieC)
+        .send({ targetUserId: userBId });
+      expect(transferOwnOutsider.status).toBe(404);
+
+      // 6. Direct project creation in soft-deleted workspace receives 404
+      const createRes = await request(app)
+        .post('/api/projects')
+        .set('Cookie', cookieB)
+        .send({
+          name: 'Project in Deleted Workspace',
+          key: 'PDW',
+          description: 'Project description in deleted workspace',
+          workspaceId: teamWsId,
+        });
+      expect(createRes.status).toBe(404);
+
+      // 7. Transfer project out of soft-deleted workspace:
+      // Authorized owner receives 400 'Cannot transfer projects in a deleted workspace'
+      const transferInitRes = await request(app)
+        .post(`/api/projects/${projectId}/transfer`)
+        .set('Cookie', cookieB)
+        .send({ destinationWorkspaceId: personalWsAId });
+      expect(transferInitRes.status).toBe(400);
+      expect(transferInitRes.body.message).toMatch(/cannot transfer projects in a deleted workspace/i);
+
+      // 7b. Transfer project attempt by outsider receives 403 (does not leak deletion status)
+      const transferOutsiderRes = await request(app)
+        .post(`/api/projects/${projectId}/transfer`)
+        .set('Cookie', cookieC)
+        .send({ destinationWorkspaceId: personalWsAId });
+      expect(transferOutsiderRes.status).toBe(403);
+    });
+
     it('displays deleted workspace in /api/workspaces/deleted for authorized owner with daysRemaining', async () => {
       const res = await request(app).get('/api/workspaces/deleted').set('Cookie', cookieB);
       expect(res.status).toBe(200);
@@ -449,6 +543,42 @@ describe('Phase 5 — Complete Workspace Lifecycle Integration Tests', () => {
         .set('x-workspace-id', teamWsId);
 
       expect(projRes.status).toBe(200);
+
+      // Project mutations now succeed on recovered workspace
+      const updateRes = await request(app)
+        .patch(`/api/projects/${projectId}`)
+        .set('Cookie', cookieB)
+        .send({ name: 'Updated Project After Recovery' });
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.data.project.name).toBe('Updated Project After Recovery');
+
+      const archiveRes = await request(app)
+        .post(`/api/projects/${projectId}/archive`)
+        .set('Cookie', cookieB);
+      expect(archiveRes.status).toBe(200);
+
+      const unarchiveRes = await request(app)
+        .post(`/api/projects/${projectId}/unarchive`)
+        .set('Cookie', cookieB);
+      expect(unarchiveRes.status).toBe(200);
+
+      // Create a disposable project in recovered workspace and delete it
+      const tempProjectRes = await request(app)
+        .post('/api/projects')
+        .set('Cookie', cookieB)
+        .send({
+          name: 'Disposable Recovered Project',
+          key: 'DRP',
+          description: 'Disposable project description after recovery',
+          workspaceId: teamWsId,
+        });
+      expect(tempProjectRes.status).toBe(201);
+      const tempProjId = tempProjectRes.body.data.project.id;
+
+      const deleteTempRes = await request(app)
+        .delete(`/api/projects/${tempProjId}`)
+        .set('Cookie', cookieB);
+      expect(deleteTempRes.status).toBe(200);
     });
 
     it('recovery is safe and idempotent', async () => {
@@ -696,6 +826,43 @@ describe('Phase 5 — Complete Workspace Lifecycle Integration Tests', () => {
       // Clean up: restore bTeamWsId and cancel the pending transfer
       await prisma.workspace.update({
         where: { id: bTeamWsId },
+        data: { deletedAt: null },
+      });
+      await prisma.projectTransfer.update({
+        where: { id: transferId },
+        data: { status: 'CANCELLED' },
+      });
+    });
+
+    it('rejects cross-owner approval if source workspace was deleted after request initiation (400)', async () => {
+      // 1. User A initiates cross-owner transfer into User B's workspace bTeamWsId
+      const initRes = await request(app)
+        .post(`/api/projects/${projectId}/transfer`)
+        .set('Cookie', cookieA)
+        .send({ destinationWorkspaceId: bTeamWsId });
+
+      expect(initRes.status).toBe(201);
+      expect(initRes.body.executedImmediately).toBe(false);
+      const transferId = initRes.body.transfer.id;
+
+      // 2. Source workspace (teamWsId) deleted right before approval (simulating concurrent deletion race)
+      await prisma.workspace.update({
+        where: { id: teamWsId },
+        data: { deletedAt: new Date() },
+      });
+
+      // 3. User B attempts to approve the transfer
+      const approveRes = await request(app)
+        .post(`/api/transfers/${transferId}/approve`)
+        .set('Cookie', cookieB)
+        .send({});
+
+      expect(approveRes.status).toBe(400);
+      expect(approveRes.body.message).toMatch(/cannot transfer projects in a deleted workspace/i);
+
+      // Clean up: restore teamWsId and cancel the pending transfer
+      await prisma.workspace.update({
+        where: { id: teamWsId },
         data: { deletedAt: null },
       });
       await prisma.projectTransfer.update({

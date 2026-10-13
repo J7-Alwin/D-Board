@@ -44,6 +44,31 @@ describe('Phase 3: Workspace Member Limit & Capacity Reservation Integration Tes
   let personalWsId: string;
   let teamWsId: string;
 
+  const extraWorkspaceIds: string[] = [];
+  const extraUserIds: string[] = [];
+
+  async function createVerifiedUser(prefix: string) {
+    const uData = {
+      username: `${prefix}_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      email: `${prefix}_${Date.now()}_${Math.floor(Math.random() * 10000)}@example.com`,
+      password: 'Password123!Secure',
+      fullName: `User ${prefix}`,
+    };
+    const reg = await request(app).post('/api/auth/register').send(uData);
+    expect(reg.status).toBe(201);
+    const uid = reg.body.data.user.id;
+    extraUserIds.push(uid);
+    await prisma.user.update({ where: { id: uid }, data: { isEmailVerified: true } });
+
+    const loginRes = await request(app).post('/api/auth/login').send({
+      identifier: uData.email,
+      password: uData.password,
+    });
+    const c = loginRes.headers['set-cookie'];
+    const cookie = Array.isArray(c) ? c[0].split(';')[0] : c.split(';')[0];
+    return { id: uid, email: uData.email, cookie };
+  }
+
   beforeAll(async () => {
     // 1. Register and login owner
     const resOwner = await request(app).post('/api/auth/register').send(ownerData);
@@ -111,13 +136,14 @@ describe('Phase 3: Workspace Member Limit & Capacity Reservation Integration Tes
   });
 
   afterAll(async () => {
-    if (teamWsId) {
-      await prisma.workspaceAuditLog.deleteMany({ where: { workspaceId: teamWsId } });
-      await prisma.workspaceInvitation.deleteMany({ where: { workspaceId: teamWsId } });
-      await prisma.workspaceMember.deleteMany({ where: { workspaceId: teamWsId } });
-      await prisma.workspace.deleteMany({ where: { id: teamWsId } });
+    const allWsIds = [teamWsId, ...extraWorkspaceIds].filter(Boolean);
+    if (allWsIds.length > 0) {
+      await prisma.workspaceAuditLog.deleteMany({ where: { workspaceId: { in: allWsIds } } });
+      await prisma.workspaceInvitation.deleteMany({ where: { workspaceId: { in: allWsIds } } });
+      await prisma.workspaceMember.deleteMany({ where: { workspaceId: { in: allWsIds } } });
+      await prisma.workspace.deleteMany({ where: { id: { in: allWsIds } } });
     }
-    const userIds = [ownerId, adminId, candidateId].filter(Boolean);
+    const userIds = [ownerId, adminId, candidateId, ...extraUserIds].filter(Boolean);
     if (userIds.length > 0) {
       await prisma.workspaceMember.deleteMany({ where: { userId: { in: userIds } } });
       await prisma.workspace.deleteMany({ where: { ownerId: { in: userIds } } });
@@ -292,5 +318,337 @@ describe('Phase 3: Workspace Member Limit & Capacity Reservation Integration Tes
       .send({ email: 'extra_person@example.com', role: 'WORKSPACE_MEMBER' });
 
     expect(inviteRes.status).toBe(201);
+  });
+
+  // =========================================================================
+  // Concurrency & Capacity Race-Condition Regression Tests
+  // =========================================================================
+
+  it('Concurrency: competing invitation requests for the last available seat do not exceed limit', async () => {
+    // Create new workspace with maxMembers = 3
+    const wsRes = await request(app)
+      .post('/api/workspaces')
+      .set('Cookie', ownerCookie)
+      .send({ name: `Concurrent Invites WS ${Date.now()}` });
+    expect(wsRes.status).toBe(201);
+    const cWsId = wsRes.body.data.workspace.id;
+    extraWorkspaceIds.push(cWsId);
+
+    // Add admin as second active member (active = 2)
+    await prisma.workspaceMember.create({
+      data: {
+        workspaceId: cWsId,
+        userId: adminId,
+        role: 'WORKSPACE_ADMIN',
+        origin: 'DIRECT',
+      },
+    });
+
+    // Set maxMembers = 3 (available seats = 1)
+    const setLimRes = await request(app)
+      .patch(`/api/workspaces/${cWsId}`)
+      .set('Cookie', ownerCookie)
+      .send({ maxMembers: 3 });
+    expect(setLimRes.status).toBe(200);
+
+    // Launch 3 concurrent invitation requests competing for the single available seat
+    const emails = [
+      `compete_cand_1_${Date.now()}@example.com`,
+      `compete_cand_2_${Date.now()}@example.com`,
+      `compete_cand_3_${Date.now()}@example.com`,
+    ];
+
+    const results = await Promise.all(
+      emails.map((email) =>
+        request(app)
+          .post(`/api/workspaces/${cWsId}/invitations`)
+          .set('Cookie', ownerCookie)
+          .send({ email, role: 'WORKSPACE_MEMBER' })
+      )
+    );
+
+    const successResponses = results.filter((r) => r.status === 201);
+    const rejectedResponses = results.filter((r) => r.status === 400);
+
+    // Exactly 1 request must succeed; 2 must be rejected
+    expect(successResponses).toHaveLength(1);
+    expect(rejectedResponses).toHaveLength(2);
+
+    for (const r of rejectedResponses) {
+      expect(r.body.message).toMatch(/workspace member limit reached.*limited to 3 members/i);
+    }
+
+    // Verify DB state: activeMembers (2) + pendingInvitations (1) = exactly 3
+    const activeCount = await prisma.workspaceMember.count({ where: { workspaceId: cWsId } });
+    const pendingCount = await prisma.workspaceInvitation.count({
+      where: { workspaceId: cWsId, status: 'PENDING', expiresAt: { gt: new Date() } },
+    });
+    expect(activeCount).toBe(2);
+    expect(pendingCount).toBe(1);
+    expect(activeCount + pendingCount).toBe(3);
+  });
+
+  it('Concurrency: competing acceptance requests for the last available seat do not exceed active limit', async () => {
+    // Create new workspace with maxMembers = 3
+    const wsRes = await request(app)
+      .post('/api/workspaces')
+      .set('Cookie', ownerCookie)
+      .send({ name: `Concurrent Accept WS ${Date.now()}` });
+    expect(wsRes.status).toBe(201);
+    const cWsId = wsRes.body.data.workspace.id;
+    extraWorkspaceIds.push(cWsId);
+
+    // Add admin as second active member (active = 2)
+    await prisma.workspaceMember.create({
+      data: {
+        workspaceId: cWsId,
+        userId: adminId,
+        role: 'WORKSPACE_ADMIN',
+        origin: 'DIRECT',
+      },
+    });
+
+    // Set maxMembers = 3 (exactly 1 seat available for active members)
+    await request(app)
+      .patch(`/api/workspaces/${cWsId}`)
+      .set('Cookie', ownerCookie)
+      .send({ maxMembers: 3 });
+
+    // Register User E and User F
+    const userE = await createVerifiedUser('user_e');
+    const userF = await createVerifiedUser('user_f');
+
+    // Create 2 pending invitations in DB (e.g. issued when limit was higher or pre-existing)
+    const invE = await prisma.workspaceInvitation.create({
+      data: {
+        workspaceId: cWsId,
+        invitedEmail: userE.email,
+        invitedUserId: userE.id,
+        invitedById: ownerId,
+        role: 'WORKSPACE_MEMBER',
+        tokenHash: `tok_hash_e_${Date.now()}`,
+        status: 'PENDING',
+        expiresAt: new Date(Date.now() + 86400000),
+      },
+    });
+
+    const invF = await prisma.workspaceInvitation.create({
+      data: {
+        workspaceId: cWsId,
+        invitedEmail: userF.email,
+        invitedUserId: userF.id,
+        invitedById: ownerId,
+        role: 'WORKSPACE_MEMBER',
+        tokenHash: `tok_hash_f_${Date.now()}`,
+        status: 'PENDING',
+        expiresAt: new Date(Date.now() + 86400000),
+      },
+    });
+
+    // Concurrently attempt acceptance of both invitations for the last available seat
+    const [resE, resF] = await Promise.all([
+      request(app).post(`/api/workspaces/invitations/${invE.id}/accept`).set('Cookie', userE.cookie),
+      request(app).post(`/api/workspaces/invitations/${invF.id}/accept`).set('Cookie', userF.cookie),
+    ]);
+
+    const accepted = [resE, resF].filter((r) => r.status === 200);
+    const rejected = [resE, resF].filter((r) => r.status === 400);
+
+    expect(accepted).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+
+    expect(accepted[0].body.message).toMatch(/workspace joined successfully/i);
+    expect(rejected[0].body.message).toMatch(/workspace member limit reached.*limit of 3 active members/i);
+
+    // Verify DB state: activeMembers count must NEVER exceed 3
+    const finalActiveCount = await prisma.workspaceMember.count({ where: { workspaceId: cWsId } });
+    expect(finalActiveCount).toBe(3);
+
+    // Exactly one invitation accepted, one remains pending
+    const acceptedInvCount = await prisma.workspaceInvitation.count({
+      where: { workspaceId: cWsId, status: 'ACCEPTED' },
+    });
+    const pendingInvCount = await prisma.workspaceInvitation.count({
+      where: { workspaceId: cWsId, status: 'PENDING' },
+    });
+    expect(acceptedInvCount).toBe(1);
+    expect(pendingInvCount).toBe(1);
+  });
+
+  it('Concurrency: competing resends of expired invitations do not exceed capacity', async () => {
+    // Create new workspace with maxMembers = 3
+    const wsRes = await request(app)
+      .post('/api/workspaces')
+      .set('Cookie', ownerCookie)
+      .send({ name: `Concurrent Resend WS ${Date.now()}` });
+    expect(wsRes.status).toBe(201);
+    const cWsId = wsRes.body.data.workspace.id;
+    extraWorkspaceIds.push(cWsId);
+
+    // Active members = 2 (owner + admin), maxMembers = 3 => capacity for 1 more
+    await prisma.workspaceMember.create({
+      data: {
+        workspaceId: cWsId,
+        userId: adminId,
+        role: 'WORKSPACE_ADMIN',
+        origin: 'DIRECT',
+      },
+    });
+    await request(app)
+      .patch(`/api/workspaces/${cWsId}`)
+      .set('Cookie', ownerCookie)
+      .send({ maxMembers: 3 });
+
+    // Create 2 expired invitations
+    const exp1 = await prisma.workspaceInvitation.create({
+      data: {
+        workspaceId: cWsId,
+        invitedEmail: `expired_1_${Date.now()}@example.com`,
+        invitedById: ownerId,
+        role: 'WORKSPACE_MEMBER',
+        tokenHash: `hash_exp_1_${Date.now()}`,
+        status: 'EXPIRED',
+        expiresAt: new Date(Date.now() - 3600000),
+      },
+    });
+
+    const exp2 = await prisma.workspaceInvitation.create({
+      data: {
+        workspaceId: cWsId,
+        invitedEmail: `expired_2_${Date.now()}@example.com`,
+        invitedById: ownerId,
+        role: 'WORKSPACE_MEMBER',
+        tokenHash: `hash_exp_2_${Date.now()}`,
+        status: 'EXPIRED',
+        expiresAt: new Date(Date.now() - 3600000),
+      },
+    });
+
+    // Concurrently resend both expired invitations
+    const [resend1, resend2] = await Promise.all([
+      request(app).post(`/api/workspaces/${cWsId}/invitations/${exp1.id}/resend`).set('Cookie', ownerCookie),
+      request(app).post(`/api/workspaces/${cWsId}/invitations/${exp2.id}/resend`).set('Cookie', ownerCookie),
+    ]);
+
+    const resendSuccess = [resend1, resend2].filter((r) => r.status === 200);
+    const resendRejected = [resend1, resend2].filter((r) => r.status === 400);
+
+    expect(resendSuccess).toHaveLength(1);
+    expect(resendRejected).toHaveLength(1);
+    expect(resendRejected[0].body.message).toMatch(/workspace member limit reached/i);
+
+    // Verify DB state: active + pending = exactly 3
+    const activeCount = await prisma.workspaceMember.count({ where: { workspaceId: cWsId } });
+    const pendingCount = await prisma.workspaceInvitation.count({
+      where: { workspaceId: cWsId, status: 'PENDING', expiresAt: { gt: new Date() } },
+    });
+    expect(activeCount).toBe(2);
+    expect(pendingCount).toBe(1);
+    expect(activeCount + pendingCount).toBe(3);
+  });
+
+  it('Concurrency: competing limit reduction and invitation acceptance serialize safely', async () => {
+    // Create new workspace with maxMembers = 3, active = 2, pending = 1
+    const wsRes = await request(app)
+      .post('/api/workspaces')
+      .set('Cookie', ownerCookie)
+      .send({ name: `Concurrent Limit/Accept WS ${Date.now()}` });
+    expect(wsRes.status).toBe(201);
+    const cWsId = wsRes.body.data.workspace.id;
+    extraWorkspaceIds.push(cWsId);
+
+    await prisma.workspaceMember.create({
+      data: {
+        workspaceId: cWsId,
+        userId: adminId,
+        role: 'WORKSPACE_ADMIN',
+        origin: 'DIRECT',
+      },
+    });
+    await request(app)
+      .patch(`/api/workspaces/${cWsId}`)
+      .set('Cookie', ownerCookie)
+      .send({ maxMembers: 3 });
+
+    const userG = await createVerifiedUser('user_g');
+    const invG = await prisma.workspaceInvitation.create({
+      data: {
+        workspaceId: cWsId,
+        invitedEmail: userG.email,
+        invitedUserId: userG.id,
+        invitedById: ownerId,
+        role: 'WORKSPACE_MEMBER',
+        tokenHash: `tok_hash_g_${Date.now()}`,
+        status: 'PENDING',
+        expiresAt: new Date(Date.now() + 86400000),
+      },
+    });
+
+    // Concurrently:
+    // 1. Owner tries to reduce limit to 2 (current active members)
+    // 2. User G tries to accept the invitation
+    const [limitRes, acceptRes] = await Promise.all([
+      request(app).patch(`/api/workspaces/${cWsId}`).set('Cookie', ownerCookie).send({ maxMembers: 2 }),
+      request(app).post(`/api/workspaces/invitations/${invG.id}/accept`).set('Cookie', userG.cookie),
+    ]);
+
+    // Check consistency:
+    // If accept succeeded (200), active became 3, so owner reduction to 2 must have failed (400)
+    // If owner reduction to 2 succeeded (200), limit became 2, so accept must have failed (400)
+    if (acceptRes.status === 200) {
+      expect(limitRes.status).toBe(400);
+      expect(limitRes.body.message).toMatch(/cannot set member limit to 2/i);
+    } else {
+      expect(acceptRes.status).toBe(400);
+      expect(limitRes.status).toBe(200);
+      expect(acceptRes.body.message).toMatch(/workspace member limit reached/i);
+    }
+
+    // Active members in DB must NEVER exceed configured maxMembers
+    const wsInDb = await prisma.workspace.findUnique({ where: { id: cWsId } });
+    const activeInDb = await prisma.workspaceMember.count({ where: { workspaceId: cWsId } });
+    expect(activeInDb).toBeLessThanOrEqual(wsInDb!.maxMembers!);
+  });
+
+  it('Safe retry: duplicate concurrent acceptance for the same user is handled idempotently without duplicate membership', async () => {
+    // Create new workspace with maxMembers = 5
+    const wsRes = await request(app)
+      .post('/api/workspaces')
+      .set('Cookie', ownerCookie)
+      .send({ name: `Duplicate Accept WS ${Date.now()}` });
+    expect(wsRes.status).toBe(201);
+    const cWsId = wsRes.body.data.workspace.id;
+    extraWorkspaceIds.push(cWsId);
+
+    const userH = await createVerifiedUser('user_h');
+    const invH = await prisma.workspaceInvitation.create({
+      data: {
+        workspaceId: cWsId,
+        invitedEmail: userH.email,
+        invitedUserId: userH.id,
+        invitedById: ownerId,
+        role: 'WORKSPACE_MEMBER',
+        tokenHash: `tok_hash_h_${Date.now()}`,
+        status: 'PENDING',
+        expiresAt: new Date(Date.now() + 86400000),
+      },
+    });
+
+    // Fire 2 concurrent accept calls for the same invitation with the same user cookie
+    const [res1, res2] = await Promise.all([
+      request(app).post(`/api/workspaces/invitations/${invH.id}/accept`).set('Cookie', userH.cookie),
+      request(app).post(`/api/workspaces/invitations/${invH.id}/accept`).set('Cookie', userH.cookie),
+    ]);
+
+    // One succeeds with 200. The duplicate either returns 400 (already accepted) or 200 (already a member).
+    const statuses = [res1.status, res2.status];
+    expect(statuses).toContain(200);
+
+    // Verify DB: User H has exactly ONE membership record
+    const userHMemberships = await prisma.workspaceMember.findMany({
+      where: { workspaceId: cWsId, userId: userH.id },
+    });
+    expect(userHMemberships).toHaveLength(1);
+    expect(userHMemberships[0].role).toBe('WORKSPACE_MEMBER');
   });
 });

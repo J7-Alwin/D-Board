@@ -319,37 +319,6 @@ export class WorkspaceService {
       throw new AppError('Invalid workspace ID', 400);
     }
 
-    const ws = await prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      include: {
-        owner: { select: { id: true, fullName: true, username: true, avatarUrl: true } },
-        _count: { select: { members: true, projects: true } },
-      },
-    });
-
-    if (!ws) throw new AppError('Workspace not found', 404);
-    if (ws.deletedAt) throw new AppError('Cannot update a deleted workspace', 400);
-
-    if (ws.ownerId !== userId) {
-      throw new AppError('Only the workspace owner can modify workspace settings', 403);
-    }
-
-    if (ws.isPersonal && data.maxMembers !== undefined && data.maxMembers !== null) {
-      throw new AppError('Personal workspaces do not support member limits', 400);
-    }
-
-    if (data.maxMembers !== undefined && data.maxMembers !== null) {
-      const activeMemberCount = await prisma.workspaceMember.count({
-        where: { workspaceId },
-      });
-      if (data.maxMembers < activeMemberCount) {
-        throw new AppError(
-          `Cannot set member limit to ${data.maxMembers}. The workspace currently has ${activeMemberCount} active members.`,
-          400
-        );
-      }
-    }
-
     const updateData: any = {};
     if (data.name !== undefined) {
       const trimmed = data.name.trim();
@@ -366,6 +335,47 @@ export class WorkspaceService {
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      // Lock workspace row FOR UPDATE to serialize capacity changes and updates
+      const [ws] = await tx.$queryRaw<
+        Array<{
+          id: string;
+          name: string;
+          slug: string;
+          ownerId: string;
+          isPersonal: boolean;
+          maxMembers: number | null;
+          deletedAt: Date | null;
+        }>
+      >`
+        SELECT id, name, slug, "ownerId", "isPersonal", "maxMembers", "deletedAt"
+        FROM "Workspace"
+        WHERE id = ${workspaceId}
+        FOR UPDATE
+      `;
+
+      if (!ws) throw new AppError('Workspace not found', 404);
+      if (ws.deletedAt) throw new AppError('Cannot update a deleted workspace', 400);
+
+      if (ws.ownerId !== userId) {
+        throw new AppError('Only the workspace owner can modify workspace settings', 403);
+      }
+
+      if (ws.isPersonal && data.maxMembers !== undefined && data.maxMembers !== null) {
+        throw new AppError('Personal workspaces do not support member limits', 400);
+      }
+
+      if (data.maxMembers !== undefined && data.maxMembers !== null) {
+        const activeMemberCount = await tx.workspaceMember.count({
+          where: { workspaceId },
+        });
+        if (data.maxMembers < activeMemberCount) {
+          throw new AppError(
+            `Cannot set member limit to ${data.maxMembers}. The workspace currently has ${activeMemberCount} active members.`,
+            400
+          );
+        }
+      }
+
       const res = await tx.workspace.update({
         where: { id: workspaceId },
         data: updateData,

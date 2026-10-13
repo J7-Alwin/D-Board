@@ -9,19 +9,57 @@ import { projectTransferService } from './projectTransfer.service.js';
 import { workspaceAuditService } from './workspaceAudit.service.js';
 import type { WorkspaceRole } from '../generated/prisma/index.js';
 
+interface LockedWorkspace {
+  id: string;
+  name: string;
+  slug: string;
+  avatarUrl: string | null;
+  ownerId: string;
+  isPersonal: boolean;
+  maxMembers: number | null;
+  adminPermissions: any;
+  deletedAt: Date | null;
+}
+
 export class WorkspaceInvitationService {
   /**
-   * Helper to verify inviter's authority to send workspace invitations
+   * Helper to verify inviter's authority to send workspace invitations,
+   * optionally acquiring an exclusive row lock on the workspace for concurrency safety.
    */
-  private async verifyInviteAuthority(workspaceId: string, actorId: string) {
-    const ws = await prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      include: {
-        members: { where: { userId: actorId } },
-      },
-    });
+  private async verifyInviteAuthority(
+    workspaceId: string,
+    actorId: string,
+    tx?: any
+  ): Promise<{ workspace: LockedWorkspace; isOwner: boolean; role: WorkspaceRole }> {
+    let ws: LockedWorkspace | undefined;
 
-    if (!ws) {
+    if (tx) {
+      const rows = await tx.$queryRaw<LockedWorkspace[]>`
+        SELECT id, name, slug, "avatarUrl", "ownerId", "isPersonal", "maxMembers", "adminPermissions", "deletedAt"
+        FROM "Workspace"
+        WHERE id = ${workspaceId}
+        FOR UPDATE
+      `;
+      ws = rows[0];
+    } else {
+      const found = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          avatarUrl: true,
+          ownerId: true,
+          isPersonal: true,
+          maxMembers: true,
+          adminPermissions: true,
+          deletedAt: true,
+        },
+      });
+      if (found) ws = found as LockedWorkspace;
+    }
+
+    if (!ws || ws.deletedAt) {
       throw new AppError('Workspace not found', 404);
     }
 
@@ -30,13 +68,20 @@ export class WorkspaceInvitationService {
     }
 
     const isOwner = ws.ownerId === actorId;
-    const membership = ws.members[0];
+    let role: WorkspaceRole = 'WORKSPACE_MEMBER';
 
-    if (!isOwner && !membership) {
-      throw new AppError('You are not a member of this workspace', 403);
+    if (isOwner) {
+      role = 'OWNER';
+    } else {
+      const client = tx || prisma;
+      const membership = await client.workspaceMember.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId: actorId } },
+      });
+      if (!membership) {
+        throw new AppError('You are not a member of this workspace', 403);
+      }
+      role = membership.role;
     }
-
-    const role: WorkspaceRole = isOwner ? 'OWNER' : membership.role;
 
     if (role === 'WORKSPACE_MEMBER') {
       throw new AppError('Workspace members cannot invite other members', 403);
@@ -56,8 +101,6 @@ export class WorkspaceInvitationService {
    * Create an email invitation to a workspace
    */
   async createInvitation(workspaceId: string, actorId: string, input: CreateWorkspaceInvitationInput) {
-    const { workspace } = await this.verifyInviteAuthority(workspaceId, actorId);
-
     const normalizedEmail = input.email.toLowerCase().trim();
 
     // 1. Fetch actor details
@@ -75,100 +118,106 @@ export class WorkspaceInvitationService {
       throw new AppError('Workspace invitations cannot assign Owner role', 400);
     }
 
-    // 2. Check if a user with this email is ALREADY an active workspace member or owner
+    // 2. Fetch target user if registered
     const targetUser = await prisma.user.findUnique({
       where: { email: normalizedEmail },
       select: { id: true },
     });
 
-    if (targetUser && workspace.ownerId === targetUser.id) {
-      throw new AppError('This user is already the owner of this workspace', 400);
-    }
+    // 3. Generate high-entropy token and hash (32 bytes)
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
 
-    const existingMember = await prisma.workspaceMember.findFirst({
-      where: {
-        workspaceId,
-        user: { email: normalizedEmail },
-      },
-    });
+    // 4. Atomic transaction with FOR UPDATE row locking on Workspace
+    const { invitation, workspace } = await prisma.$transaction(async (tx) => {
+      // Locks workspace row FOR UPDATE and verifies actor authority
+      const { workspace: ws } = await this.verifyInviteAuthority(workspaceId, actorId, tx);
 
-    if (existingMember) {
-      throw new AppError('This user is already a member of this workspace', 400);
-    }
+      if (targetUser && ws.ownerId === targetUser.id) {
+        throw new AppError('This user is already the owner of this workspace', 400);
+      }
 
-    // 3. Check for existing active PENDING invitation
-    const existingPending = await prisma.workspaceInvitation.findFirst({
-      where: {
-        workspaceId,
-        invitedEmail: normalizedEmail,
-        status: 'PENDING',
-        expiresAt: { gt: new Date() },
-      },
-    });
-
-    if (existingPending) {
-      throw new AppError('A pending invitation has already been sent to this email address', 409);
-    }
-
-    // 4. Enforce Workspace Active Member Limit & Capacity Reservation
-    if (workspace.maxMembers !== null && workspace.maxMembers !== undefined) {
-      const activeMembersCount = await prisma.workspaceMember.count({
-        where: { workspaceId },
-      });
-      const pendingInvitationsCount = await prisma.workspaceInvitation.count({
+      const existingMember = await tx.workspaceMember.findFirst({
         where: {
           workspaceId,
+          user: { email: normalizedEmail },
+        },
+      });
+
+      if (existingMember) {
+        throw new AppError('This user is already a member of this workspace', 400);
+      }
+
+      // Check for existing active PENDING invitation
+      const existingPending = await tx.workspaceInvitation.findFirst({
+        where: {
+          workspaceId,
+          invitedEmail: normalizedEmail,
           status: 'PENDING',
           expiresAt: { gt: new Date() },
         },
       });
 
-      if (activeMembersCount + pendingInvitationsCount >= workspace.maxMembers) {
-        throw new AppError(
-          `Workspace member limit reached. This workspace is limited to ${workspace.maxMembers} members (${activeMembersCount} active members and ${pendingInvitationsCount} pending invitations).`,
-          400
-        );
+      if (existingPending) {
+        throw new AppError('A pending invitation has already been sent to this email address', 409);
       }
-    }
 
-    // 5. Generate high-entropy token and hash (32 bytes)
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      // Enforce Workspace Active Member Limit & Capacity Reservation
+      if (ws.maxMembers !== null && ws.maxMembers !== undefined) {
+        const activeMembersCount = await tx.workspaceMember.count({
+          where: { workspaceId },
+        });
+        const pendingInvitationsCount = await tx.workspaceInvitation.count({
+          where: {
+            workspaceId,
+            status: 'PENDING',
+            expiresAt: { gt: new Date() },
+          },
+        });
 
-    // 7-day expiration
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+        if (activeMembersCount + pendingInvitationsCount >= ws.maxMembers) {
+          throw new AppError(
+            `Workspace member limit reached. This workspace is limited to ${ws.maxMembers} members (${activeMembersCount} active members and ${pendingInvitationsCount} pending invitations).`,
+            400
+          );
+        }
+      }
 
-    const invitation = await prisma.workspaceInvitation.create({
-      data: {
-        workspaceId,
-        invitedEmail: normalizedEmail,
-        invitedUserId: targetUser?.id || null,
-        invitedById: actorId,
-        role: input.role || 'WORKSPACE_MEMBER',
-        message: input.message ? input.message.trim() : null,
-        status: 'PENDING',
-        tokenHash,
-        expiresAt,
-      },
-      include: {
-        invitedBy: {
-          select: { id: true, fullName: true, username: true },
+      const created = await tx.workspaceInvitation.create({
+        data: {
+          workspaceId,
+          invitedEmail: normalizedEmail,
+          invitedUserId: targetUser?.id || null,
+          invitedById: actorId,
+          role: input.role || 'WORKSPACE_MEMBER',
+          message: input.message ? input.message.trim() : null,
+          status: 'PENDING',
+          tokenHash,
+          expiresAt,
         },
-      },
-    });
+        include: {
+          invitedBy: {
+            select: { id: true, fullName: true, username: true },
+          },
+        },
+      });
 
-    await workspaceAuditService.logAuditEvent(null, {
-      workspaceId,
-      actorId,
-      action: 'MEMBER_INVITED',
-      targetType: 'INVITATION',
-      targetId: invitation.id,
-      metadata: {
-        invitedEmail: normalizedEmail,
-        role: invitation.role,
-        expiresAt,
-      },
+      await workspaceAuditService.logAuditEvent(tx, {
+        workspaceId,
+        actorId,
+        action: 'MEMBER_INVITED',
+        targetType: 'INVITATION',
+        targetId: created.id,
+        metadata: {
+          invitedEmail: normalizedEmail,
+          role: created.role,
+          expiresAt,
+        },
+      });
+
+      return { invitation: created, workspace: ws };
     });
 
     // 5. Dispatch email via BullMQ / fallback
@@ -215,7 +264,7 @@ export class WorkspaceInvitationService {
       expiresAt: invitation.expiresAt,
       createdAt: invitation.createdAt,
       invitedBy: invitation.invitedBy,
-      token: rawToken, // Provided once to inviter for direct sharing if needed
+      token: rawToken,
     };
   }
 
@@ -282,50 +331,10 @@ export class WorkspaceInvitationService {
    * Resend a pending or expired invitation (Owner or Admin with canInviteMembers)
    */
   async resendInvitation(workspaceId: string, invitationId: string, actorId: string) {
-    const { workspace } = await this.verifyInviteAuthority(workspaceId, actorId);
-
-    const invitation = await prisma.workspaceInvitation.findUnique({
-      where: { id: invitationId },
-      include: {
-        invitedBy: { select: { fullName: true, username: true } },
-      },
+    const actor = await prisma.user.findUnique({
+      where: { id: actorId },
+      select: { fullName: true, username: true },
     });
-
-    if (!invitation || invitation.workspaceId !== workspaceId) {
-      throw new AppError('Invitation not found', 404);
-    }
-
-    if (invitation.status === 'ACCEPTED') {
-      throw new AppError('Cannot resend an already accepted invitation', 400);
-    }
-
-    if (invitation.status === 'REVOKED') {
-      throw new AppError('Cannot resend a revoked invitation. Please send a new invitation.', 400);
-    }
-
-    // Check member limit if resending an expired invitation
-    if (workspace.maxMembers !== null && workspace.maxMembers !== undefined) {
-      const isAlreadyActivePending = invitation.status === 'PENDING' && new Date(invitation.expiresAt) > new Date();
-      if (!isAlreadyActivePending) {
-        const activeMembersCount = await prisma.workspaceMember.count({
-          where: { workspaceId },
-        });
-        const pendingInvitationsCount = await prisma.workspaceInvitation.count({
-          where: {
-            workspaceId,
-            status: 'PENDING',
-            expiresAt: { gt: new Date() },
-            id: { not: invitationId },
-          },
-        });
-        if (activeMembersCount + pendingInvitationsCount >= workspace.maxMembers) {
-          throw new AppError(
-            `Workspace member limit reached. Cannot resend invitation because the workspace is limited to ${workspace.maxMembers} members (${activeMembersCount} active members and ${pendingInvitationsCount} pending invitations).`,
-            400
-          );
-        }
-      }
-    }
 
     // Refresh token and 7-day expiration
     const rawToken = crypto.randomBytes(32).toString('hex');
@@ -333,23 +342,69 @@ export class WorkspaceInvitationService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    const updated = await prisma.workspaceInvitation.update({
-      where: { id: invitationId },
-      data: {
-        tokenHash,
-        status: 'PENDING',
-        expiresAt,
-        updatedAt: new Date(),
-      },
-      include: {
-        invitedBy: { select: { id: true, fullName: true, username: true } },
-      },
+    const { updated, workspace } = await prisma.$transaction(async (tx) => {
+      // Lock workspace row FOR UPDATE and verify authority
+      const { workspace: ws } = await this.verifyInviteAuthority(workspaceId, actorId, tx);
+
+      const invitation = await tx.workspaceInvitation.findUnique({
+        where: { id: invitationId },
+        include: {
+          invitedBy: { select: { fullName: true, username: true } },
+        },
+      });
+
+      if (!invitation || invitation.workspaceId !== workspaceId) {
+        throw new AppError('Invitation not found', 404);
+      }
+
+      if (invitation.status === 'ACCEPTED') {
+        throw new AppError('Cannot resend an already accepted invitation', 400);
+      }
+
+      if (invitation.status === 'REVOKED') {
+        throw new AppError('Cannot resend a revoked invitation. Please send a new invitation.', 400);
+      }
+
+      // Check member limit if resending an expired (or not currently active pending) invitation
+      if (ws.maxMembers !== null && ws.maxMembers !== undefined) {
+        const isAlreadyActivePending = invitation.status === 'PENDING' && new Date(invitation.expiresAt) > new Date();
+        if (!isAlreadyActivePending) {
+          const activeMembersCount = await tx.workspaceMember.count({
+            where: { workspaceId },
+          });
+          const pendingInvitationsCount = await tx.workspaceInvitation.count({
+            where: {
+              workspaceId,
+              status: 'PENDING',
+              expiresAt: { gt: new Date() },
+              id: { not: invitationId },
+            },
+          });
+          if (activeMembersCount + pendingInvitationsCount >= ws.maxMembers) {
+            throw new AppError(
+              `Workspace member limit reached. Cannot resend invitation because the workspace is limited to ${ws.maxMembers} members (${activeMembersCount} active members and ${pendingInvitationsCount} pending invitations).`,
+              400
+            );
+          }
+        }
+      }
+
+      const res = await tx.workspaceInvitation.update({
+        where: { id: invitationId },
+        data: {
+          tokenHash,
+          status: 'PENDING',
+          expiresAt,
+          updatedAt: new Date(),
+        },
+        include: {
+          invitedBy: { select: { id: true, fullName: true, username: true } },
+        },
+      });
+
+      return { updated: res, workspace: ws };
     });
 
-    const actor = await prisma.user.findUnique({
-      where: { id: actorId },
-      select: { fullName: true, username: true },
-    });
     const inviterName = actor?.fullName || actor?.username || 'A team member';
 
     await enqueueEmailJob({
@@ -559,11 +614,30 @@ export class WorkspaceInvitationService {
       };
     }
 
-    // Atomic transaction: Re-verify status + create DIRECT WorkspaceMember
+    // Atomic transaction with FOR UPDATE row locking on Workspace
     const result = await prisma.$transaction(async (tx) => {
+      // 1. Lock workspace row FOR UPDATE to serialize concurrent joins for the last seat
+      const [lockedWs] = await tx.$queryRaw<
+        Array<{
+          id: string;
+          maxMembers: number | null;
+          deletedAt: Date | null;
+        }>
+      >`
+        SELECT id, "maxMembers", "deletedAt"
+        FROM "Workspace"
+        WHERE id = ${invitation.workspaceId}
+        FOR UPDATE
+      `;
+
+      if (!lockedWs || lockedWs.deletedAt) {
+        throw new AppError('Workspace not found', 404);
+      }
+
+      // 2. Re-verify invitation status under lock
       const fresh = await tx.workspaceInvitation.findUnique({
         where: { id: invitation.id },
-        select: { status: true, expiresAt: true },
+        select: { status: true, expiresAt: true, role: true },
       });
 
       if (!fresh || fresh.status !== 'PENDING') {
@@ -581,36 +655,53 @@ export class WorkspaceInvitationService {
         throw new AppError('This invitation has expired', 400);
       }
 
-      // Check Workspace Active Member Limit atomically within transaction
-      const ws = await tx.workspace.findUnique({
-        where: { id: invitation.workspaceId },
-        select: { maxMembers: true },
+      // 3. Re-verify if user is already an active member within transaction
+      const existingTxMember = await tx.workspaceMember.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId: invitation.workspaceId,
+            userId,
+          },
+        },
       });
 
-      if (ws?.maxMembers !== null && ws?.maxMembers !== undefined) {
+      if (existingTxMember) {
+        await tx.workspaceInvitation.update({
+          where: { id: invitation.id },
+          data: { status: 'ACCEPTED', acceptedAt: new Date(), invitedUserId: userId },
+        });
+        return {
+          member: existingTxMember,
+          alreadyMember: true,
+          role: existingTxMember.role,
+        };
+      }
+
+      // 4. Check Workspace Active Member Limit atomically within transaction
+      if (lockedWs.maxMembers !== null && lockedWs.maxMembers !== undefined) {
         const activeMembersCount = await tx.workspaceMember.count({
           where: { workspaceId: invitation.workspaceId },
         });
 
-        if (activeMembersCount >= ws.maxMembers) {
+        if (activeMembersCount >= lockedWs.maxMembers) {
           throw new AppError(
-            `Workspace member limit reached. Cannot accept invitation because the workspace has reached its limit of ${ws.maxMembers} active members.`,
+            `Workspace member limit reached. Cannot accept invitation because the workspace has reached its limit of ${lockedWs.maxMembers} active members.`,
             400
           );
         }
       }
 
-      // Create WorkspaceMember with origin DIRECT
+      // 5. Create WorkspaceMember with origin DIRECT
       const member = await tx.workspaceMember.create({
         data: {
           workspaceId: invitation.workspaceId,
           userId,
-          role: invitation.role,
+          role: fresh.role,
           origin: 'DIRECT',
         },
       });
 
-      // Mark invitation accepted
+      // 6. Mark invitation accepted
       await tx.workspaceInvitation.update({
         where: { id: invitation.id },
         data: {
@@ -620,7 +711,7 @@ export class WorkspaceInvitationService {
         },
       });
 
-      // Restore eligible historical project roles from completed transfers into this workspace (Requirement 6)
+      // 7. Restore eligible historical project roles from completed transfers into this workspace (Requirement 6)
       await projectTransferService.restoreEligibleProjectRolesForUser(tx, invitation.workspaceId, userId);
 
       await workspaceAuditService.logAuditEvent(tx, {
@@ -631,12 +722,25 @@ export class WorkspaceInvitationService {
         targetId: member.id,
         metadata: {
           userId,
-          role: invitation.role,
+          role: fresh.role,
         },
       });
 
-      return member;
+      return {
+        member,
+        alreadyMember: false,
+        role: member.role,
+      };
     });
+
+    if (result.alreadyMember) {
+      return {
+        success: true,
+        message: 'You are already a member of this workspace',
+        workspace: invitation.workspace,
+        role: result.role,
+      };
+    }
 
     publishToUser(userId, 'WORKSPACE_MEMBER_JOINED', {
       workspaceId: invitation.workspaceId,

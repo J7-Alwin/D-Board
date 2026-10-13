@@ -36,8 +36,12 @@ export type RealtimeEventType =
   | 'INVITATION_CREATED'
   | 'INVITATION_ACCEPTED'
   | 'INVITATION_DECLINED'
+  // Workspace & Project Transfer Events
   | 'WORKSPACE_INVITATION_RECEIVED'
   | 'WORKSPACE_MEMBER_JOINED'
+  | 'PROJECT_TRANSFERRED'
+  | 'PROJECT_TRANSFER_REQUESTED'
+  | 'PROJECT_TRANSFER_REJECTED'
   // Activity Events
   | 'ACTIVITY_CREATED'
   // Notification Events

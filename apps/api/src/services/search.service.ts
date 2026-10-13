@@ -56,14 +56,27 @@ export class SearchService {
 
     const maxLimit = Math.min(Math.max(limit, 1), 20);
 
-    const projectWhere: any = {
-      OR: [
-        { createdById: userId },
-        { members: { some: { userId } } },
-      ],
-    };
+    let projectWhere: any;
     if (workspaceId) {
-      projectWhere.workspaceId = workspaceId;
+      const ws = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        include: { members: { where: { userId } } },
+      });
+      const isWsOwner = ws?.ownerId === userId;
+      const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+
+      if (isWsOwner || isWsAdmin) {
+        projectWhere = { workspaceId };
+      } else {
+        projectWhere = {
+          workspaceId,
+          members: { some: { userId } },
+        };
+      }
+    } else {
+      projectWhere = {
+        members: { some: { userId } },
+      };
     }
 
     // 1. Fetch user's accessible projects in the active workspace

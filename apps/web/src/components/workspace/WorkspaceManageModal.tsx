@@ -19,14 +19,19 @@ import {
   AlertCircleIcon,
   PlusIcon,
   RefreshCwIcon,
+  ArrowRightIcon,
 } from '../ui/Icons';
 import { Button } from '../ui/Button';
+import {
+  projectTransferApi,
+  type ProjectTransfer,
+} from '../../api/projectTransfer.api';
 import './WorkspaceManageModal.css';
 
 export interface WorkspaceManageModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'members' | 'invitations' | 'permissions';
+  initialTab?: 'members' | 'invitations' | 'permissions' | 'transfers';
 }
 
 export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
@@ -37,7 +42,7 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
   const { user } = useAuth();
   const { activeWorkspace, activeRole, refreshWorkspaces } = useWorkspace();
 
-  const [activeTab, setActiveTab] = useState<'members' | 'invitations' | 'permissions'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'members' | 'invitations' | 'permissions' | 'transfers'>(initialTab);
 
   // Members Tab State
   const [members, setMembers] = useState<WorkspaceMemberItem[]>([]);
@@ -84,10 +89,25 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
   const [isSavingPermissions, setIsSavingPermissions] = useState(false);
   const [permissionsFeedback, setPermissionsFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Transfers Tab State (Phase 4)
+  const [incomingTransfers, setIncomingTransfers] = useState<ProjectTransfer[]>([]);
+  const [outgoingTransfers, setOutgoingTransfers] = useState<ProjectTransfer[]>([]);
+  const [transfersLoading, setTransfersLoading] = useState(false);
+  const [transfersError, setTransfersError] = useState<string | null>(null);
+  const [transferToApprove, setTransferToApprove] = useState<ProjectTransfer | null>(null);
+  const [transferToReject, setTransferToReject] = useState<ProjectTransfer | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [isProcessingTransfer, setIsProcessingTransfer] = useState(false);
+  const [transferFeedback, setTransferFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
   // Authority Flags
   const isOwner = useMemo(() => {
     return activeRole === 'OWNER' || activeWorkspace?.isOwner === true;
   }, [activeRole, activeWorkspace]);
+
+  const canTransfer = useMemo(() => {
+    return isOwner || activeRole === 'WORKSPACE_ADMIN';
+  }, [isOwner, activeRole]);
 
   const canInvite = useMemo(() => {
     if (isOwner) return true;
@@ -162,6 +182,24 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
     }
   }, [activeWorkspace, isOwner]);
 
+  // Load Project Transfers (Phase 4)
+  const loadTransfers = useCallback(async () => {
+    if (!activeWorkspace || activeWorkspace.isPersonal) return;
+    try {
+      setTransfersLoading(true);
+      setTransfersError(null);
+      const res = await projectTransferApi.getWorkspacePendingTransfers(activeWorkspace.id);
+      if (res.success && res.data) {
+        setIncomingTransfers(res.data.incoming || []);
+        setOutgoingTransfers(res.data.outgoing || []);
+      }
+    } catch (err: any) {
+      setTransfersError(err.message || 'Failed to load project transfers');
+    } finally {
+      setTransfersLoading(false);
+    }
+  }, [activeWorkspace]);
+
   // Trigger loads on open and tab changes
   useEffect(() => {
     if (!isOpen || !activeWorkspace) return;
@@ -171,8 +209,72 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
       loadInvitations();
     } else if (activeTab === 'permissions') {
       loadPermissions();
+    } else if (activeTab === 'transfers') {
+      loadTransfers();
     }
-  }, [isOpen, activeWorkspace?.id, activeTab, loadMembers, loadInvitations, loadPermissions]);
+    // Pre-fetch transfers on modal open to populate badge counter if authorized
+    if (canTransfer && !activeWorkspace.isPersonal) {
+      loadTransfers();
+    }
+  }, [isOpen, activeWorkspace?.id, activeTab, loadMembers, loadInvitations, loadPermissions, loadTransfers, canTransfer]);
+
+  // Handle Approve Transfer
+  const confirmApproveTransfer = async () => {
+    if (!activeWorkspace || !transferToApprove) return;
+    try {
+      setIsProcessingTransfer(true);
+      setTransferFeedback(null);
+      const res = await projectTransferApi.approveTransfer(transferToApprove.id);
+      if (res.success) {
+        setTransferFeedback({ type: 'success', message: 'Project transfer approved! Project added to workspace.' });
+        setTransferToApprove(null);
+        await loadTransfers();
+        await refreshWorkspaces();
+      }
+    } catch (err: any) {
+      setTransferFeedback({ type: 'error', message: err.message || 'Failed to approve transfer' });
+    } finally {
+      setIsProcessingTransfer(false);
+    }
+  };
+
+  // Handle Reject Transfer
+  const confirmRejectTransfer = async () => {
+    if (!activeWorkspace || !transferToReject) return;
+    try {
+      setIsProcessingTransfer(true);
+      setTransferFeedback(null);
+      const res = await projectTransferApi.rejectTransfer(transferToReject.id, rejectReason.trim() || undefined);
+      if (res.success) {
+        setTransferFeedback({ type: 'success', message: 'Project transfer rejected.' });
+        setTransferToReject(null);
+        setRejectReason('');
+        await loadTransfers();
+      }
+    } catch (err: any) {
+      setTransferFeedback({ type: 'error', message: err.message || 'Failed to reject transfer' });
+    } finally {
+      setIsProcessingTransfer(false);
+    }
+  };
+
+  // Handle Cancel Outgoing Transfer
+  const handleCancelOutgoingTransfer = async (transferId: string) => {
+    if (!activeWorkspace) return;
+    try {
+      setIsProcessingTransfer(true);
+      setTransferFeedback(null);
+      const res = await projectTransferApi.cancelTransfer(transferId);
+      if (res.success) {
+        setTransferFeedback({ type: 'success', message: 'Transfer request cancelled.' });
+        await loadTransfers();
+      }
+    } catch (err: any) {
+      setTransferFeedback({ type: 'error', message: err.message || 'Failed to cancel transfer request' });
+    } finally {
+      setIsProcessingTransfer(false);
+    }
+  };
 
   // Reset tab on open if not permitted
   useEffect(() => {
@@ -392,6 +494,22 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
             >
               <ShieldIcon size={16} />
               <span>Admin Permissions</span>
+            </button>
+          )}
+
+          {canTransfer && !activeWorkspace.isPersonal && (
+            <button
+              type="button"
+              className={`wmm-tab-btn ${activeTab === 'transfers' ? 'is-active' : ''}`}
+              onClick={() => setActiveTab('transfers')}
+            >
+              <ArrowRightIcon size={16} />
+              <span>Transfers</span>
+              {incomingTransfers.length > 0 && (
+                <span className="wmm-tab-badge" style={{ backgroundColor: '#f59e0b', color: '#000000', fontWeight: 'bold' }}>
+                  {incomingTransfers.length}
+                </span>
+              )}
             </button>
           )}
         </div>
@@ -775,6 +893,145 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* 4. Project Transfers Tab (Phase 4) */}
+          {activeTab === 'transfers' && (
+            <div className="wmm-transfers-section">
+              {transferFeedback && (
+                <div
+                  className={`wmm-alert ${
+                    transferFeedback.type === 'success' ? 'wmm-alert-success' : 'wmm-alert-error'
+                  }`}
+                  style={{
+                    padding: '0.75rem 1rem',
+                    borderRadius: '8px',
+                    marginBottom: '1rem',
+                    backgroundColor:
+                      transferFeedback.type === 'success' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                    color: transferFeedback.type === 'success' ? '#34d399' : '#f87171',
+                    border: `1px solid ${
+                      transferFeedback.type === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'
+                    }`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    fontSize: '0.8125rem',
+                  }}
+                >
+                  {transferFeedback.type === 'success' ? <CheckIcon size={16} /> : <AlertCircleIcon size={16} />}
+                  <span>{transferFeedback.message}</span>
+                </div>
+              )}
+
+              {transfersLoading ? (
+                <div className="wmm-empty-state">
+                  <RefreshCwIcon size={24} className="wmm-spin" />
+                  <p>Loading project transfers...</p>
+                </div>
+              ) : transfersError ? (
+                <div className="wmm-empty-state">
+                  <AlertCircleIcon size={24} style={{ color: '#ef4444' }} />
+                  <p>{transfersError}</p>
+                </div>
+              ) : (
+                <>
+                  {/* Incoming Transfer Requests */}
+                  <div className="wmm-transfers-group">
+                    <h3 className="wmm-transfers-title">
+                      Incoming Transfer Requests ({incomingTransfers.length})
+                    </h3>
+                    {incomingTransfers.length === 0 ? (
+                      <div className="wmm-empty-state" style={{ padding: '1.5rem', minHeight: 'unset' }}>
+                        <p style={{ margin: 0, fontSize: '0.8125rem' }}>No incoming project transfer requests for this workspace.</p>
+                      </div>
+                    ) : (
+                      <div className="wmm-transfers-list">
+                        {incomingTransfers.map((item) => (
+                          <div key={item.id} className="wmm-transfer-card">
+                            <div className="wmm-transfer-card-info">
+                              <span className="wmm-transfer-project-name">
+                                {item.project?.name || item.projectName || 'Project'}
+                              </span>
+                              <div className="wmm-transfer-meta">
+                                <span>From: <strong>{item.sourceWorkspace?.name}</strong></span>
+                                <span>•</span>
+                                <span>By: {item.initiatedBy?.fullName || item.initiatedBy?.username}</span>
+                                <span>•</span>
+                                <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                            <div className="wmm-transfer-actions">
+                              <button
+                                type="button"
+                                className="wmm-btn-reject"
+                                onClick={() => {
+                                  setTransferToReject(item);
+                                  setRejectReason('');
+                                }}
+                                disabled={isProcessingTransfer}
+                              >
+                                Reject
+                              </button>
+                              <button
+                                type="button"
+                                className="wmm-btn-approve"
+                                onClick={() => setTransferToApprove(item)}
+                                disabled={isProcessingTransfer}
+                              >
+                                <CheckIcon size={14} />
+                                <span>Approve</span>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Outgoing Transfer Requests */}
+                  <div className="wmm-transfers-group" style={{ marginTop: '1rem' }}>
+                    <h3 className="wmm-transfers-title">
+                      Outgoing Transfer Requests ({outgoingTransfers.length})
+                    </h3>
+                    {outgoingTransfers.length === 0 ? (
+                      <div className="wmm-empty-state" style={{ padding: '1.5rem', minHeight: 'unset' }}>
+                        <p style={{ margin: 0, fontSize: '0.8125rem' }}>No outgoing project transfer requests.</p>
+                      </div>
+                    ) : (
+                      <div className="wmm-transfers-list">
+                        {outgoingTransfers.map((item) => (
+                          <div key={item.id} className="wmm-transfer-card">
+                            <div className="wmm-transfer-card-info">
+                              <span className="wmm-transfer-project-name">
+                                {item.project?.name || item.projectName || 'Project'}
+                              </span>
+                              <div className="wmm-transfer-meta">
+                                <span>To: <strong>{item.destinationWorkspace?.name}</strong></span>
+                                <span>•</span>
+                                <span>Status: Pending destination approval</span>
+                                <span>•</span>
+                                <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                            <div className="wmm-transfer-actions">
+                              <button
+                                type="button"
+                                className="wmm-btn-cancel-transfer"
+                                onClick={() => handleCancelOutgoingTransfer(item.id)}
+                                disabled={isProcessingTransfer}
+                              >
+                                Cancel Request
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Confirmation Overlay: Role Change */}
@@ -877,6 +1134,98 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                   onClick={confirmRevokeInvitation}
                 >
                   Revoke Invitation
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirmation Overlay: Approve Transfer (Phase 4) */}
+        {transferToApprove && (
+          <div className="wmm-confirm-backdrop">
+            <div className="wmm-confirm-box">
+              <h4 className="wmm-confirm-title">Approve Project Transfer?</h4>
+              <p className="wmm-confirm-desc">
+                Accept project <strong>{transferToApprove.project?.name || transferToApprove.projectName}</strong> from{' '}
+                <strong>{transferToApprove.sourceWorkspace?.name}</strong> into this workspace?
+                <br /><br />
+                All tasks, comments, files, and notes will be transferred as one logical unit. Existing project members not in this workspace will lose project access, and their assigned tasks will be unassigned.
+              </p>
+              <div className="wmm-confirm-actions">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setTransferToApprove(null)}
+                  disabled={isProcessingTransfer}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  style={{ backgroundColor: '#10b981', borderColor: '#059669' }}
+                  isLoading={isProcessingTransfer}
+                  onClick={confirmApproveTransfer}
+                >
+                  Approve & Transfer
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirmation Overlay: Reject Transfer (Phase 4) */}
+        {transferToReject && (
+          <div className="wmm-confirm-backdrop">
+            <div className="wmm-confirm-box">
+              <h4 className="wmm-confirm-title" style={{ color: '#f87171' }}>Reject Project Transfer?</h4>
+              <p className="wmm-confirm-desc">
+                Decline the transfer request for <strong>{transferToReject.project?.name || transferToReject.projectName}</strong>.
+              </p>
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ fontSize: '0.75rem', color: '#a1a1aa', display: 'block', marginBottom: '0.375rem' }}>
+                  Rejection Reason (optional)
+                </label>
+                <textarea
+                  style={{
+                    width: '100%',
+                    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    borderRadius: '6px',
+                    color: '#ffffff',
+                    padding: '0.5rem',
+                    fontSize: '0.8125rem',
+                    resize: 'vertical',
+                    minHeight: '60px',
+                    boxSizing: 'border-box',
+                  }}
+                  placeholder="e.g. Incompatible workspace, redundant project..."
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  disabled={isProcessingTransfer}
+                />
+              </div>
+              <div className="wmm-confirm-actions">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setTransferToReject(null)}
+                  disabled={isProcessingTransfer}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}
+                  isLoading={isProcessingTransfer}
+                  onClick={confirmRejectTransfer}
+                >
+                  Reject Request
                 </Button>
               </div>
             </div>

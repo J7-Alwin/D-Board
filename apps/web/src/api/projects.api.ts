@@ -38,6 +38,7 @@ export interface Project {
   liveUrl: string | null;
   avatarUrl: string | null;
   status: 'ACTIVE' | 'ARCHIVED' | 'COMPLETED';
+  workspaceId?: string;
   createdById: string;
   createdBy?: ProjectMemberUser;
   userRole?: 'PROJECT_ADMIN' | 'PROJECT_MEMBER';

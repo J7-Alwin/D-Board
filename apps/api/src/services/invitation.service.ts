@@ -16,6 +16,13 @@ export class InvitationService {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
+        workspace: {
+          select: {
+            id: true,
+            ownerId: true,
+            members: { where: { userId } },
+          },
+        },
         members: { where: { userId } },
         createdBy: { select: { id: true, fullName: true, username: true } },
       },
@@ -25,10 +32,11 @@ export class InvitationService {
       throw new AppError('Project not found', 404);
     }
 
-    const isOwner = project.createdById === userId;
+    const isWsOwner = project.workspace.ownerId === userId;
+    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
     const membership = project.members[0];
 
-    if (!isOwner && membership?.role !== 'PROJECT_ADMIN') {
+    if (!isWsOwner && !isWsAdmin && membership?.role !== 'PROJECT_ADMIN') {
       throw new AppError('Only project administrators can manage invitations', 403);
     }
 
@@ -67,10 +75,7 @@ export class InvitationService {
       },
     });
 
-    if (
-      (existingMemberUser && existingMemberUser.memberships.length > 0) ||
-      project.createdById === existingMemberUser?.id
-    ) {
+    if (existingMemberUser && existingMemberUser.memberships.length > 0) {
       throw new AppError('This user is already a member of this project', 400);
     }
 
@@ -356,14 +361,14 @@ export class InvitationService {
       throw new AppError('Invitation not found', 404);
     }
 
-    // Verify email match
-    if (invitation.invitedEmail.toLowerCase() !== user.email.toLowerCase()) {
-      throw new AppError('This invitation was sent to a different email address', 403);
-    }
-
     // Verify status is PENDING
     if (invitation.status !== 'PENDING') {
       throw new AppError(`This invitation has already been ${invitation.status.toLowerCase()}`, 400);
+    }
+
+    // Verify email match
+    if (invitation.invitedEmail.toLowerCase() !== user.email.toLowerCase()) {
+      throw new AppError('This invitation was sent to a different email address', 403);
     }
 
     // Verify not expired

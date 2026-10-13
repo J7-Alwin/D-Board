@@ -13,7 +13,19 @@ export class NoteService {
   private async getMembershipAndProject(projectId: string, userId: string) {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      select: { id: true, name: true, createdById: true },
+      select: {
+        id: true,
+        name: true,
+        createdById: true,
+        workspaceId: true,
+        workspace: {
+          select: {
+            id: true,
+            ownerId: true,
+            members: { where: { userId } },
+          },
+        },
+      },
     });
 
     if (!project) {
@@ -29,14 +41,15 @@ export class NoteService {
       },
     });
 
-    const isOwner = project.createdById === userId;
-    const isMember = !!membership || isOwner;
+    const isWsOwner = project.workspace.ownerId === userId;
+    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
+    const isMember = !!membership || isWsOwner || isWsAdmin;
 
     if (!isMember) {
       throw new AppError('You are not a member of this project', 403);
     }
 
-    const isAdmin = isOwner || membership?.role === 'PROJECT_ADMIN';
+    const isAdmin = membership?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
 
     return { project, membership, isAdmin };
   }
@@ -538,15 +551,7 @@ export class NoteService {
           where: { projectId, userId: { not: userId } },
           select: { userId: true },
         });
-        const proj = await tx.project.findUnique({
-          where: { id: projectId },
-          select: { createdById: true },
-        });
-
         const recipientIds = new Set(members.map((m) => m.userId));
-        if (proj?.createdById && proj.createdById !== userId) {
-          recipientIds.add(proj.createdById);
-        }
 
         for (const recipientId of recipientIds) {
           await notificationService.createNotification(

@@ -12,6 +12,13 @@ export class MemberService {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
+        workspace: {
+          select: {
+            id: true,
+            ownerId: true,
+            members: { where: { userId } },
+          },
+        },
         members: { where: { userId } },
       },
     });
@@ -20,17 +27,19 @@ export class MemberService {
       throw new AppError('Project not found', 404);
     }
 
-    const isOwner = project.createdById === userId;
+    const isWsOwner = project.workspace.ownerId === userId;
+    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
     const membership = project.members[0];
 
-    if (!isOwner && !membership) {
+    if (!membership && !isWsOwner && !isWsAdmin) {
       throw new AppError('You are not a member of this project', 403);
     }
 
-    const role: ProjectRole = isOwner ? 'PROJECT_ADMIN' : membership.role;
+    const role: ProjectRole = membership?.role || (isWsOwner || isWsAdmin ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER');
     const isAdmin = role === 'PROJECT_ADMIN';
+    const isOwner = isWsOwner;
 
-    return { project, isOwner, membership, role, isAdmin };
+    return { project, isOwner, membership, role, isAdmin, isWsOwner, isWsAdmin };
   }
 
   /**
@@ -110,7 +119,7 @@ export class MemberService {
     newRole: ProjectRole,
     actorId: string
   ) {
-    const { project, isAdmin } = await this.verifyProjectAccess(projectId, actorId);
+    const { project, isAdmin, isWsOwner, isWsAdmin } = await this.verifyProjectAccess(projectId, actorId);
 
     if (!isAdmin) {
       throw new AppError('Only project administrators can modify member roles', 403);
@@ -125,13 +134,13 @@ export class MemberService {
       throw new AppError('Member not found in this project', 404);
     }
 
-    // Protect project creator
-    if (targetMember.userId === project.createdById && newRole !== 'PROJECT_ADMIN') {
+    // Protect project creator (unless workspace owner/admin)
+    if (targetMember.userId === project.createdById && newRole !== 'PROJECT_ADMIN' && !isWsOwner && !isWsAdmin) {
       throw new AppError('Cannot demote the project creator from administrator role', 400);
     }
 
-    // If demoting from ADMIN to MEMBER, ensure at least one other admin exists
-    if (targetMember.role === 'PROJECT_ADMIN' && newRole === 'PROJECT_MEMBER') {
+    // If demoting from ADMIN to MEMBER, ensure at least one other admin exists or workspace owner/admin
+    if (targetMember.role === 'PROJECT_ADMIN' && newRole === 'PROJECT_MEMBER' && !isWsOwner && !isWsAdmin) {
       const adminCount = await prisma.projectMember.count({
         where: { projectId, role: 'PROJECT_ADMIN' },
       });
@@ -174,7 +183,7 @@ export class MemberService {
    * Remove a member from the project (Admin only)
    */
   static async removeMember(projectId: string, targetMemberId: string, actorId: string) {
-    const { project, isAdmin } = await this.verifyProjectAccess(projectId, actorId);
+    const { project, isAdmin, isWsOwner, isWsAdmin } = await this.verifyProjectAccess(projectId, actorId);
 
     if (!isAdmin) {
       throw new AppError('Only project administrators can remove members', 403);
@@ -189,13 +198,13 @@ export class MemberService {
       throw new AppError('Member not found in this project', 404);
     }
 
-    // Cannot remove project creator
-    if (targetMember.userId === project.createdById) {
+    // Cannot remove project creator (unless workspace owner/admin)
+    if (targetMember.userId === project.createdById && !isWsOwner && !isWsAdmin) {
       throw new AppError('Cannot remove the project creator from the project', 400);
     }
 
-    // If target is admin, make sure there is another admin
-    if (targetMember.role === 'PROJECT_ADMIN') {
+    // If target is admin, make sure there is another admin or workspace owner/admin
+    if (targetMember.role === 'PROJECT_ADMIN' && !isWsOwner && !isWsAdmin) {
       const adminCount = await prisma.projectMember.count({
         where: { projectId, role: 'PROJECT_ADMIN' },
       });

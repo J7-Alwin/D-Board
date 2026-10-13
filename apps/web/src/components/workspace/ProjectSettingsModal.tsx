@@ -13,7 +13,9 @@ import {
   FileTextIcon,
   LayersIcon,
   AlertCircleIcon,
+  ArrowRightIcon,
 } from '../ui/Icons';
+import { ProjectTransferModal } from './ProjectTransferModal';
 
 interface ProjectSettingsModalProps {
   project: Project;
@@ -23,7 +25,7 @@ interface ProjectSettingsModalProps {
   onDeleted?: () => void;
 }
 
-type TabKey = 'general' | 'branding' | 'tech' | 'danger';
+type TabKey = 'general' | 'branding' | 'tech' | 'transfer' | 'danger';
 
 const CATEGORY_OPTIONS = [
   'Web Application',
@@ -164,6 +166,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteInputName, setDeleteInputName] = useState('');
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
 
   // Category custom dropdown state
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
@@ -337,6 +340,15 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
           >
             <LayersIcon size={15} />
             <span>Links & Tech Stack</span>
+          </button>
+
+          <button
+            type="button"
+            className={`psm-nav-pill ${activeTab === 'transfer' ? 'active' : ''}`}
+            onClick={() => setActiveTab('transfer')}
+          >
+            <ArrowRightIcon size={15} />
+            <span>Transfer Project</span>
           </button>
 
           <button
@@ -682,6 +694,60 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
             </div>
           )}
 
+          {/* TAB: TRANSFER PROJECT (Phase 4) */}
+          {activeTab === 'transfer' && (
+            <div className="psm-tab-content">
+              <div className="psm-danger-box" style={{ borderColor: 'rgba(59, 130, 246, 0.3)', background: 'rgba(59, 130, 246, 0.03)' }}>
+                <div className="psm-danger-head">
+                  <div className="psm-danger-icon-badge" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
+                    <ArrowRightIcon size={18} />
+                  </div>
+                  <div>
+                    <h4 className="psm-danger-title" style={{ color: '#0f172a' }}>Transfer Project Between Workspaces</h4>
+                    <p className="psm-danger-desc">
+                      Relocate <strong>{project.name}</strong> to another team workspace.
+                      All work items, tasks, sprints, files, folders, notes, and calendar events are preserved intact.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div style={{ fontSize: '0.8125rem', color: '#475569', lineHeight: '1.5' }}>
+                    <p style={{ margin: '0 0 0.5rem 0' }}>
+                      • <strong>Same-owner transfer:</strong> If you own both workspaces, the project transfers immediately upon confirmation.
+                    </p>
+                    <p style={{ margin: 0 }}>
+                      • <strong>Cross-owner transfer:</strong> If transferring to a workspace owned by someone else, an approval request is dispatched to the destination workspace administrators.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    style={{
+                      marginTop: '0.5rem',
+                      alignSelf: 'flex-start',
+                      padding: '0.625rem 1.25rem',
+                      borderRadius: '0.5rem',
+                      backgroundColor: '#3b82f6',
+                      color: '#ffffff',
+                      border: 'none',
+                      fontSize: '0.875rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                    }}
+                    onClick={() => setIsTransferModalOpen(true)}
+                  >
+                    <ArrowRightIcon size={16} />
+                    <span>Launch Transfer Wizard...</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* TAB 4: DELETE PROJECT (Renamed from Danger Zone) */}
           {activeTab === 'danger' && (
             <div className="psm-tab-content">
@@ -749,7 +815,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
           )}
 
           {/* Footer Actions */}
-          {activeTab !== 'danger' && (
+          {activeTab !== 'danger' && activeTab !== 'transfer' && (
             <div className="psm-footer-row">
               <button
                 type="button"
@@ -770,6 +836,18 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
             </div>
           )}
         </form>
+
+        {/* Project Transfer Wizard Modal (Phase 4) */}
+        <ProjectTransferModal
+          isOpen={isTransferModalOpen}
+          onClose={() => setIsTransferModalOpen(false)}
+          project={project}
+          onTransferred={() => {
+            setIsTransferModalOpen(false);
+            onClose();
+            window.location.href = '/app/dashboard';
+          }}
+        />
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import { resolveAdminPermissions, type CreateWorkspaceInvitationInput } from '..
 import { enqueueEmailJob } from '../jobs/queues.js';
 import { notificationService } from './notification.service.js';
 import { publishToUser } from '../realtime/realtime.service.js';
+import { projectTransferService } from './projectTransfer.service.js';
 import type { WorkspaceRole } from '../generated/prisma/index.js';
 
 export class WorkspaceInvitationService {
@@ -540,6 +541,9 @@ export class WorkspaceInvitationService {
           invitedUserId: userId,
         },
       });
+
+      // Restore eligible historical project roles from completed transfers into this workspace (Requirement 6)
+      await projectTransferService.restoreEligibleProjectRolesForUser(tx, invitation.workspaceId, userId);
 
       return member;
     });

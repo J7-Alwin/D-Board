@@ -259,42 +259,48 @@ export class WorkspaceController {
   }
 
   /**
-   * POST /api/workspaces/invitations/:invitationIdOrToken/accept
+   * POST /api/workspaces/invitations/:invitationIdOrToken/accept or POST /api/workspaces/invitations/accept
    */
-  async acceptInvitation(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      if (!req.user) throw new AppError('Authentication required', 401);
-      const invitationIdOrToken = req.params.invitationIdOrToken as string;
+   async acceptInvitation(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+     try {
+       if (!req.user) throw new AppError('Authentication required', 401);
+       const invitationIdOrToken = (req.params.invitationIdOrToken || req.body?.token || req.body?.invitationId) as string;
+       if (!invitationIdOrToken) {
+         throw new AppError('Invitation ID or token is required', 400);
+       }
 
-      const result = await workspaceInvitationService.acceptInvitation(
-        invitationIdOrToken,
-        req.user.userId
-      );
+       const result = await workspaceInvitationService.acceptInvitation(
+         invitationIdOrToken,
+         req.user.userId
+       );
 
-      res.status(200).json(result);
-    } catch (err) {
-      next(err);
-    }
-  }
+       res.status(200).json(result);
+     } catch (err) {
+       next(err);
+     }
+   }
 
   /**
-   * POST /api/workspaces/invitations/:invitationIdOrToken/decline
+   * POST /api/workspaces/invitations/:invitationIdOrToken/decline or POST /api/workspaces/invitations/decline
    */
-  async declineInvitation(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      if (!req.user) throw new AppError('Authentication required', 401);
-      const invitationIdOrToken = req.params.invitationIdOrToken as string;
+   async declineInvitation(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+     try {
+       if (!req.user) throw new AppError('Authentication required', 401);
+       const invitationIdOrToken = (req.params.invitationIdOrToken || req.body?.token || req.body?.invitationId) as string;
+       if (!invitationIdOrToken) {
+         throw new AppError('Invitation ID or token is required', 400);
+       }
 
-      const result = await workspaceInvitationService.declineInvitation(
-        invitationIdOrToken,
-        req.user.userId
-      );
+       const result = await workspaceInvitationService.declineInvitation(
+         invitationIdOrToken,
+         req.user.userId
+       );
 
-      res.status(200).json(result);
-    } catch (err) {
-      next(err);
-    }
-  }
+       res.status(200).json(result);
+     } catch (err) {
+       next(err);
+     }
+   }
 
   // =========================================================================
   // Owner-Controlled Admin Permissions Endpoints

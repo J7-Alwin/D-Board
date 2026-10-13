@@ -43,6 +43,9 @@ export async function runWorkspacesBackfill(): Promise<BackfillSummary> {
 
       try {
         const created = await prisma.$transaction(async (tx) => {
+          const userExists = await tx.user.findUnique({ where: { id: user.id }, select: { id: true } });
+          if (!userExists) return null;
+
           const ws = await tx.workspace.create({
             data: {
               name,
@@ -69,6 +72,10 @@ export async function runWorkspacesBackfill(): Promise<BackfillSummary> {
 
           return ws;
         });
+
+        if (!created) {
+          continue;
+        }
 
         personalWorkspaceId = created.id;
         summary.personalWorkspacesCreated++;
@@ -109,6 +116,9 @@ export async function runWorkspacesBackfill(): Promise<BackfillSummary> {
           } else {
             throw err;
           }
+        } else if (err.code === 'P2003' || err.message?.includes('Foreign key constraint')) {
+          console.warn(`[Backfill] User ${user.id} no longer exists or was removed concurrently. Skipping.`);
+          continue;
         } else {
           throw err;
         }

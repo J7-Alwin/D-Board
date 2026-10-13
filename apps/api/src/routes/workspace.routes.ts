@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { workspaceController } from '../controllers/workspace.controller.js';
+import { projectTransferController } from '../controllers/projectTransfer.controller.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
 import { validateBody } from '../middlewares/validate.middleware.js';
 import { createWorkspaceSchema } from '../schemas/workspace.schema.js';
@@ -17,12 +18,18 @@ router.get('/invitations/pending', (req, res, next) =>
   workspaceController.getUserPendingInvitations(req, res, next)
 );
 
-// Accept invitation by ID or Token
+// Accept invitation by ID or Token (via body or param)
+router.post('/invitations/accept', (req, res, next) =>
+  workspaceController.acceptInvitation(req, res, next)
+);
 router.post('/invitations/:invitationIdOrToken/accept', (req, res, next) =>
   workspaceController.acceptInvitation(req, res, next)
 );
 
-// Decline invitation by ID or Token
+// Decline invitation by ID or Token (via body or param)
+router.post('/invitations/decline', (req, res, next) =>
+  workspaceController.declineInvitation(req, res, next)
+);
 router.post('/invitations/:invitationIdOrToken/decline', (req, res, next) =>
   workspaceController.declineInvitation(req, res, next)
 );
@@ -99,6 +106,15 @@ router.get('/:workspaceId/admin-permissions', (req, res, next) =>
 // Update admin permissions (Owner only)
 router.patch('/:workspaceId/admin-permissions', (req, res, next) =>
   workspaceController.updateAdminPermissions(req, res, next)
+);
+
+// ===========================================================================
+// Workspace Project Transfer Endpoints (Phase 4)
+// ===========================================================================
+
+// Get incoming and outgoing pending project transfers for workspace
+router.get('/:workspaceId/transfers/pending', (req, res, next) =>
+  projectTransferController.getWorkspacePendingTransfers(req as any, res, next)
 );
 
 export default router;

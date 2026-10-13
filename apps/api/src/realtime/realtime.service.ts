@@ -113,19 +113,32 @@ export function initRealtime(httpServer: HTTPServer): SocketIOServer {
           return;
         }
 
-        // Authorize: Check if user is owner or active member
-        const hasAccess = await prisma.project.findFirst({
-          where: {
-            id: projectId,
-            OR: [
-              { createdById: userId },
-              { members: { some: { userId } } },
-            ],
+        // Authorize: Check if user is active member or workspace owner/admin
+        const project = await prisma.project.findUnique({
+          where: { id: projectId },
+          select: {
+            id: true,
+            workspaceId: true,
+            workspace: {
+              select: {
+                ownerId: true,
+                members: { where: { userId } },
+              },
+            },
+            members: { where: { userId } },
           },
-          select: { id: true },
         });
 
-        if (!hasAccess) {
+        if (!project) {
+          if (callback) callback({ success: false, error: 'Project not found' });
+          return;
+        }
+
+        const isMember = project.members.length > 0;
+        const isWsOwner = project.workspace.ownerId === userId;
+        const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
+
+        if (!isMember && !isWsOwner && !isWsAdmin) {
           if (callback) callback({ success: false, error: 'Unauthorized to join project room' });
           return;
         }

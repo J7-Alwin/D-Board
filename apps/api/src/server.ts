@@ -19,6 +19,7 @@ import notificationRoutes from "./routes/notification.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import { globalActivityRoutes } from "./routes/globalActivity.routes.js";
 import { searchRoutes } from "./routes/search.routes.js";
+import { projectTransferRoutes } from "./routes/projectTransfer.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { requestIdMiddleware } from "./middlewares/requestId.middleware.js";
 import { csrfProtection } from "./middlewares/csrf.middleware.js";
@@ -129,6 +130,7 @@ app.use("/api/notifications", apiRateLimiter, notificationRoutes);
 app.use("/api/user", apiRateLimiter, userRoutes);
 app.use("/api/activities", apiRateLimiter, globalActivityRoutes);
 app.use("/api/search", apiRateLimiter, searchRoutes);
+app.use("/api/transfers", apiRateLimiter, projectTransferRoutes);
 
 // Centralized error handler
 app.use(errorHandler);

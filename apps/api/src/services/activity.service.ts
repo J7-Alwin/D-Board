@@ -46,32 +46,36 @@ export class ActivityService {
     }
   ) {
     // 1. Verify project access
-    const membership = await prisma.projectMember.findUnique({
-      where: {
-        projectId_userId: {
-          projectId,
-          userId,
-        },
-      },
-    });
-
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      select: { createdById: true },
+      select: {
+        id: true,
+        workspaceId: true,
+        createdById: true,
+        workspace: {
+          select: {
+            ownerId: true,
+            members: { where: { userId } },
+          },
+        },
+        members: { where: { userId } },
+      },
     });
 
     if (!project) {
       throw new AppError('Project not found', 404);
     }
 
-    const isOwner = project.createdById === userId;
-    const isMember = !!membership || isOwner;
+    const membership = project.members[0];
+    const isWsOwner = project.workspace.ownerId === userId;
+    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
+    const isMember = !!membership || isWsOwner || isWsAdmin;
 
     if (!isMember) {
       throw new AppError('You are not authorized to view this project activity', 403);
     }
 
-    const isAdmin = isOwner || membership?.role === 'PROJECT_ADMIN';
+    const isAdmin = isWsOwner || isWsAdmin || membership?.role === 'PROJECT_ADMIN';
 
     // 2. Build where filter
     const where: any = { projectId };
@@ -272,20 +276,33 @@ export class ActivityService {
     },
     workspaceId?: string
   ) {
-    const projectWhere: any = {
-      OR: [
-        { createdById: userId },
-        { members: { some: { userId } } },
-      ],
-    };
+    let projectWhere: any;
     if (workspaceId) {
-      projectWhere.workspaceId = workspaceId;
+      const ws = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        include: { members: { where: { userId } } },
+      });
+      const isWsOwner = ws?.ownerId === userId;
+      const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+
+      if (isWsOwner || isWsAdmin) {
+        projectWhere = { workspaceId };
+      } else {
+        projectWhere = {
+          workspaceId,
+          members: { some: { userId } },
+        };
+      }
+    } else {
+      projectWhere = {
+        members: { some: { userId } },
+      };
     }
 
     // 1. Find all projects accessible to the user in the active workspace
     const userProjects = await prisma.project.findMany({
       where: projectWhere,
-      select: { id: true, createdById: true },
+      select: { id: true, createdById: true, members: { where: { userId } } },
     });
 
     if (userProjects.length === 0) {
@@ -298,7 +315,11 @@ export class ActivityService {
     }
 
     const projectIds = userProjects.map((p) => p.id);
-    const ownedProjectIds = new Set(userProjects.filter((p) => p.createdById === userId).map((p) => p.id));
+    const ownedProjectIds = new Set(
+      userProjects
+        .filter((p) => p.members[0]?.role === 'PROJECT_ADMIN')
+        .map((p) => p.id)
+    );
 
     // 2. Build where filter
     const where: any = {

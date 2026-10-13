@@ -223,17 +223,33 @@ export class ProjectService {
    * Get all projects for an authenticated user (categorized into owned and joined)
    */
   async getUserProjects(userId: string, workspaceId?: string) {
-    const where: any = {
-      OR: [
-        { createdById: userId },
-        { members: { some: { userId } } },
-      ],
-    };
+    let where: any;
+    let isWsOwner = false;
+    let isWsAdmin = false;
+
     if (workspaceId) {
-      where.workspaceId = workspaceId;
+      const ws = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        include: { members: { where: { userId } } },
+      });
+      isWsOwner = ws?.ownerId === userId;
+      isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+
+      if (isWsOwner || isWsAdmin) {
+        where = { workspaceId };
+      } else {
+        where = {
+          workspaceId,
+          members: { some: { userId } },
+        };
+      }
+    } else {
+      where = {
+        members: { some: { userId } },
+      };
     }
 
-    // Projects where user is a member or creator in this workspace
+    // Projects where user is a member or workspace admin/owner in this workspace
     const projects = await prisma.project.findMany({
       where,
       include: {
@@ -256,7 +272,7 @@ export class ProjectService {
 
     const formatted = projects.map((p) => {
       const userMember = p.members.find((m) => m.userId === userId);
-      const isOwner = p.createdById === userId || userMember?.role === 'PROJECT_ADMIN';
+      const userRole = userMember ? userMember.role : (isWsOwner || isWsAdmin) ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
       return {
         id: p.id,
         name: p.name,
@@ -272,7 +288,7 @@ export class ProjectService {
         status: p.status,
         createdById: p.createdById,
         createdBy: p.createdBy,
-        userRole: userMember ? userMember.role : isOwner ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER',
+        userRole,
         memberCount: p._count.members,
         members: p.members.map((m) => ({
           id: m.id,
@@ -286,8 +302,8 @@ export class ProjectService {
       };
     });
 
-    const owned = formatted.filter((p) => p.createdById === userId || p.userRole === 'PROJECT_ADMIN');
-    const joined = formatted.filter((p) => p.createdById !== userId && p.userRole !== 'PROJECT_ADMIN');
+    const owned = formatted.filter((p) => p.userRole === 'PROJECT_ADMIN');
+    const joined = formatted.filter((p) => p.userRole !== 'PROJECT_ADMIN');
 
     return {
       all: formatted,
@@ -333,13 +349,18 @@ export class ProjectService {
     }
 
     const membership = project.members.find((m) => m.userId === userId);
-    const isCreator = project.createdById === userId;
+    const ws = await prisma.workspace.findUnique({
+      where: { id: project.workspaceId },
+      include: { members: { where: { userId } } },
+    });
+    const isWsOwner = ws?.ownerId === userId;
+    const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
 
-    if (!membership && !isCreator) {
+    if (!membership && !isWsOwner && !isWsAdmin) {
       throw new AppError('You are not authorized to view this project', 403);
     }
 
-    const userRole = membership ? membership.role : isCreator ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
+    const userRole = membership ? membership.role : (isWsOwner || isWsAdmin) ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
     const isAdmin = userRole === 'PROJECT_ADMIN';
 
     return {
@@ -364,9 +385,15 @@ export class ProjectService {
     }
 
     const member = project.members.find((m) => m.userId === userId);
-    const isCreator = project.createdById === userId;
+    const ws = await prisma.workspace.findUnique({
+      where: { id: project.workspaceId },
+      include: { members: { where: { userId } } },
+    });
+    const isWsOwner = ws?.ownerId === userId;
+    const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+    const isAdmin = member?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
 
-    if (!isCreator && member?.role !== 'PROJECT_ADMIN') {
+    if (!isAdmin) {
       throw new AppError('Only project administrators can update project details', 403);
     }
 
@@ -402,7 +429,7 @@ export class ProjectService {
   }
 
   /**
-   * Archive project (Project Admin or Creator only)
+   * Archive project (Project Admin or Workspace Owner/Admin only)
    */
   async archiveProject(projectId: string, userId: string) {
     const project = await prisma.project.findUnique({
@@ -414,9 +441,14 @@ export class ProjectService {
       throw new AppError('Project not found', 404);
     }
 
-    const isCreator = project.createdById === userId;
     const member = project.members.find((m) => m.userId === userId);
-    const isAdmin = isCreator || member?.role === 'PROJECT_ADMIN';
+    const ws = await prisma.workspace.findUnique({
+      where: { id: project.workspaceId },
+      include: { members: { where: { userId } } },
+    });
+    const isWsOwner = ws?.ownerId === userId;
+    const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+    const isAdmin = member?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
 
     if (!isAdmin) {
       throw new AppError('Only project administrators can archive this project', 403);
@@ -443,7 +475,7 @@ export class ProjectService {
   }
 
   /**
-   * Unarchive project (Project Admin or Creator only)
+   * Unarchive project (Project Admin or Workspace Owner/Admin only)
    */
   async unarchiveProject(projectId: string, userId: string) {
     const project = await prisma.project.findUnique({
@@ -455,9 +487,14 @@ export class ProjectService {
       throw new AppError('Project not found', 404);
     }
 
-    const isCreator = project.createdById === userId;
     const member = project.members.find((m) => m.userId === userId);
-    const isAdmin = isCreator || member?.role === 'PROJECT_ADMIN';
+    const ws = await prisma.workspace.findUnique({
+      where: { id: project.workspaceId },
+      include: { members: { where: { userId } } },
+    });
+    const isWsOwner = ws?.ownerId === userId;
+    const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+    const isAdmin = member?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
 
     if (!isAdmin) {
       throw new AppError('Only project administrators can unarchive this project', 403);
@@ -480,7 +517,7 @@ export class ProjectService {
   }
 
   /**
-   * Delete project (Project Admin or Creator only, requires exact project name confirmation if provided)
+   * Delete project (Project Admin or Workspace Owner/Admin only)
    */
   async deleteProject(projectId: string, userId: string, confirmProjectName?: string) {
     const project = await prisma.project.findUnique({
@@ -492,9 +529,14 @@ export class ProjectService {
       throw new AppError('Project not found', 404);
     }
 
-    const isCreator = project.createdById === userId;
     const member = project.members.find((m) => m.userId === userId);
-    const isAdmin = isCreator || member?.role === 'PROJECT_ADMIN';
+    const ws = await prisma.workspace.findUnique({
+      where: { id: project.workspaceId },
+      include: { members: { where: { userId } } },
+    });
+    const isWsOwner = ws?.ownerId === userId;
+    const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+    const isAdmin = member?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
 
     if (!isAdmin) {
       throw new AppError('Only project administrators can delete this project', 403);

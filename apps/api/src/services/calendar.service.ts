@@ -19,7 +19,20 @@ export class CalendarService {
   private async getMembershipAndProject(projectId: string, userId: string) {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      select: { id: true, name: true, createdById: true, status: true },
+      select: {
+        id: true,
+        name: true,
+        createdById: true,
+        status: true,
+        workspaceId: true,
+        workspace: {
+          select: {
+            id: true,
+            ownerId: true,
+            members: { where: { userId } },
+          },
+        },
+      },
     });
 
     if (!project) {
@@ -35,14 +48,15 @@ export class CalendarService {
       },
     });
 
-    const isOwner = project.createdById === userId;
-    const isMember = !!membership || isOwner;
+    const isWsOwner = project.workspace.ownerId === userId;
+    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
+    const isMember = !!membership || isWsOwner || isWsAdmin;
 
     if (!isMember) {
       throw new AppError('You are not authorized to access this project calendar', 403);
     }
 
-    const isAdmin = isOwner || membership?.role === 'PROJECT_ADMIN';
+    const isAdmin = membership?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
 
     return { project, membership, isAdmin };
   }
@@ -56,10 +70,20 @@ export class CalendarService {
 
     const uniqueAttendeeIds = Array.from(new Set(attendeeIds));
 
-    // Fetch the project to check creator/owner
+    // Fetch the project to check workspace authority
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      select: { createdById: true },
+      include: {
+        workspace: {
+          select: {
+            ownerId: true,
+            members: {
+              where: { userId: { in: uniqueAttendeeIds }, role: 'WORKSPACE_ADMIN' },
+              select: { userId: true },
+            },
+          },
+        },
+      },
     });
 
     if (!project) {
@@ -86,14 +110,25 @@ export class CalendarService {
       }
     }
 
-    // Check project creator/owner if included
-    if (uniqueAttendeeIds.includes(project.createdById)) {
+    // Check workspace owner if included
+    if (uniqueAttendeeIds.includes(project.workspace.ownerId)) {
       const owner = await prisma.user.findUnique({
-        where: { id: project.createdById },
+        where: { id: project.workspace.ownerId },
         select: { id: true, isDeactivated: true },
       });
       if (owner && !owner.isDeactivated) {
         validMemberUserIds.add(owner.id);
+      }
+    }
+
+    // Check workspace admins if included
+    for (const wsAdmin of project.workspace.members) {
+      const adminUser = await prisma.user.findUnique({
+        where: { id: wsAdmin.userId },
+        select: { id: true, isDeactivated: true },
+      });
+      if (adminUser && !adminUser.isDeactivated) {
+        validMemberUserIds.add(adminUser.id);
       }
     }
 
@@ -118,7 +153,24 @@ export class CalendarService {
     }
 
     // 1. Determine accessible projects in the active workspace
-    const [memberships, ownedProjects] = await Promise.all([
+    let isWsOwnerOrAdmin = false;
+    if (targetWorkspaceId) {
+      const ws = await prisma.workspace.findUnique({
+        where: { id: targetWorkspaceId },
+        select: {
+          ownerId: true,
+          members: {
+            where: { userId },
+            select: { role: true },
+          },
+        },
+      });
+      if (ws && (ws.ownerId === userId || ws.members[0]?.role === 'WORKSPACE_ADMIN')) {
+        isWsOwnerOrAdmin = true;
+      }
+    }
+
+    const [memberships, wsProjects] = await Promise.all([
       prisma.projectMember.findMany({
         where: {
           userId,
@@ -126,32 +178,30 @@ export class CalendarService {
         },
         select: { projectId: true },
       }),
-      prisma.project.findMany({
-        where: {
-          createdById: userId,
-          ...(targetWorkspaceId ? { workspaceId: targetWorkspaceId } : {}),
-        },
-        select: { id: true },
-      }),
+      isWsOwnerOrAdmin && targetWorkspaceId
+        ? prisma.project.findMany({
+            where: { workspaceId: targetWorkspaceId },
+            select: { id: true },
+          })
+        : Promise.resolve([]),
     ]);
 
     const accessibleProjectIds = Array.from(
       new Set([
         ...memberships.map((m) => m.projectId),
-        ...ownedProjects.map((p) => p.id),
+        ...wsProjects.map((p) => p.id),
       ])
     );
 
-    if (accessibleProjectIds.length === 0) {
-      return { items: [], range: { start: '', end: '' } };
-    }
-
-    let targetProjectIds = accessibleProjectIds;
+    let targetProjectIds: string[] = [];
     if (params.projectId) {
-      if (!accessibleProjectIds.includes(params.projectId)) {
-        throw new AppError('You are not authorized to view this project calendar', 403);
-      }
+      await this.getMembershipAndProject(params.projectId, userId);
       targetProjectIds = [params.projectId];
+    } else {
+      if (accessibleProjectIds.length === 0) {
+        return { items: [], range: { start: '', end: '' } };
+      }
+      targetProjectIds = accessibleProjectIds;
     }
 
     // 2. Determine date range
@@ -1007,7 +1057,6 @@ export class CalendarService {
         throw new AppError('Project not found', 404);
       }
 
-      const isOwner = project.createdById === feedToken.userId;
       const membership = await prisma.projectMember.findUnique({
         where: {
           projectId_userId: {
@@ -1017,7 +1066,15 @@ export class CalendarService {
         },
       });
 
-      if (!isOwner && !membership) {
+      const ws = await prisma.workspace.findUnique({
+        where: { id: project.workspaceId },
+        include: { members: { where: { userId: feedToken.userId } } },
+      });
+      const isWsOwner = ws?.ownerId === feedToken.userId;
+      const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+      const isAuthorized = !!membership || isWsOwner || isWsAdmin;
+
+      if (!isAuthorized) {
         throw new AppError('User is no longer an active member of this project', 403);
       }
 
@@ -1032,7 +1089,6 @@ export class CalendarService {
         throw new AppError('Project not found', 404);
       }
 
-      const isOwner = project.createdById === feedToken.userId;
       const membership = await prisma.projectMember.findUnique({
         where: {
           projectId_userId: {
@@ -1042,7 +1098,15 @@ export class CalendarService {
         },
       });
 
-      if (!isOwner && !membership) {
+      const ws = await prisma.workspace.findUnique({
+        where: { id: project.workspaceId },
+        include: { members: { where: { userId: feedToken.userId } } },
+      });
+      const isWsOwner = ws?.ownerId === feedToken.userId;
+      const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+      const isAuthorized = !!membership || isWsOwner || isWsAdmin;
+
+      if (!isAuthorized) {
         throw new AppError('User is no longer an active member of this project', 403);
       }
 

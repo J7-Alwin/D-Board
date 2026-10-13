@@ -12,6 +12,7 @@ import { FilesPage } from './FilesPage';
 import { CreateWorkItemModal } from '../../components/workspace/CreateWorkItemModal';
 import { ProjectSettingsModal } from '../../components/workspace/ProjectSettingsModal';
 import { InviteMemberModal } from '../../components/workspace/InviteMemberModal';
+import { ProjectTransferModal } from '../../components/workspace/ProjectTransferModal';
 import { AlertCircleIcon } from '../../components/ui/Icons';
 import { Button } from '../../components/ui/Button';
 
@@ -28,6 +29,7 @@ export const ProjectWorkspaceShell: React.FC = () => {
   const [createWorkModalOpen, setCreateWorkModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Determine current active tab from the URL path
@@ -98,6 +100,7 @@ export const ProjectWorkspaceShell: React.FC = () => {
         onOpenCreateWorkModal={() => setCreateWorkModalOpen(true)}
         onOpenSettingsModal={() => setSettingsModalOpen(true)}
         onOpenInviteModal={() => setInviteModalOpen(true)}
+        onOpenTransferModal={() => setTransferModalOpen(true)}
       />
 
       {/* 
@@ -174,6 +177,19 @@ export const ProjectWorkspaceShell: React.FC = () => {
             setInviteModalOpen(false);
             loadProject();
             setRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
+
+      {/* Global Workspace Project Transfer Modal (Phase 4) */}
+      {transferModalOpen && (
+        <ProjectTransferModal
+          project={project}
+          isOpen={transferModalOpen}
+          onClose={() => setTransferModalOpen(false)}
+          onTransferred={() => {
+            setTransferModalOpen(false);
+            navigate('/app/dashboard');
           }}
         />
       )}

@@ -15,6 +15,13 @@ export class WorkService {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
+        workspace: {
+          select: {
+            id: true,
+            ownerId: true,
+            members: { where: { userId } },
+          },
+        },
         members: { where: { userId } },
       },
     });
@@ -23,14 +30,16 @@ export class WorkService {
       throw new AppError('Project not found', 404);
     }
 
-    const isCreator = project.createdById === userId;
     const member = project.members[0];
+    const isWsOwner = project.workspace.ownerId === userId;
+    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
+    const isMember = !!member || isWsOwner || isWsAdmin;
 
-    if (!isCreator && !member) {
+    if (!isMember) {
       throw new AppError('You are not a member of this project', 403);
     }
 
-    const role = member ? member.role : isCreator ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
+    const role = member ? member.role : (isWsOwner || isWsAdmin) ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
     return { project, role, isAdmin: role === 'PROJECT_ADMIN' };
   }
 
@@ -41,6 +50,13 @@ export class WorkService {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
+        workspace: {
+          select: {
+            id: true,
+            ownerId: true,
+            members: { where: { userId: assignedToId } },
+          },
+        },
         members: { where: { userId: assignedToId } },
       },
     });
@@ -49,10 +65,11 @@ export class WorkService {
       throw new AppError('Project not found', 404);
     }
 
-    const isCreator = project.createdById === assignedToId;
     const isMember = project.members.length > 0;
+    const isWsOwner = project.workspace.ownerId === assignedToId;
+    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
 
-    if (!isCreator && !isMember) {
+    if (!isMember && !isWsOwner && !isWsAdmin) {
       throw new AppError('The assigned user is not a member of this project', 400);
     }
   }

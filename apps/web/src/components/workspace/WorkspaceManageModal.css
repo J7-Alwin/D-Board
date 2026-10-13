@@ -737,3 +737,126 @@
   justify-content: flex-end;
   gap: 0.75rem;
 }
+
+/* ==========================================================================
+   Project Transfers View (Phase 4)
+   ========================================================================== */
+
+.wmm-transfers-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.wmm-transfers-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.wmm-transfers-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wmm-transfers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.wmm-transfer-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  gap: 1rem;
+}
+
+.wmm-transfer-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.wmm-transfer-project-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.wmm-transfer-meta {
+  font-size: 0.75rem;
+  color: #a1a1aa;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.wmm-transfer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wmm-btn-approve {
+  background: #10b981;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  transition: background 0.15s ease;
+}
+
+.wmm-btn-approve:hover:not(:disabled) {
+  background: #059669;
+}
+
+.wmm-btn-reject {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.wmm-btn-reject:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+}
+
+.wmm-btn-cancel-transfer {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e4e4e7;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.wmm-btn-cancel-transfer:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+

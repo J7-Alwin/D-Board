@@ -11,29 +11,36 @@ export class CommentService {
    * Helper to verify if user has access to the project
    */
   private static async verifyAccess(userId: string, projectId: string) {
-    const membership = await prisma.projectMember.findUnique({
-      where: {
-        projectId_userId: {
-          projectId,
-          userId,
-        },
-      },
-    });
-
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      select: { createdById: true },
+      select: {
+        id: true,
+        workspaceId: true,
+        createdById: true,
+        workspace: {
+          select: {
+            id: true,
+            ownerId: true,
+            members: { where: { userId } },
+          },
+        },
+        members: { where: { userId } },
+      },
     });
 
     if (!project) {
       throw new AppError('Project not found', 404);
     }
 
-    if (!membership && project.createdById !== userId) {
+    const membership = project.members[0];
+    const isWsOwner = project.workspace.ownerId === userId;
+    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
+
+    if (!membership && !isWsOwner && !isWsAdmin) {
       throw new AppError('You are not authorized to access this project', 403);
     }
 
-    const role = project.createdById === userId ? 'PROJECT_ADMIN' : membership?.role;
+    const role = membership?.role || (isWsOwner || isWsAdmin ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER');
     return { project, role };
   }
 

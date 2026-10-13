@@ -11,6 +11,7 @@ import {
   CalendarIcon,
   ActivityIcon,
   SettingsIcon,
+  ArrowRightIcon,
 } from '../ui/Icons';
 import { ProjectOverviewHeaderAtmosphere } from '../common/HeaderAtmosphereArt';
 import { ApplicationCategoryIcon } from '../common/ApplicationCategoryIcon';
@@ -22,6 +23,7 @@ interface ProjectWorkspaceHeaderProps {
   onOpenCreateWorkModal?: () => void;
   onOpenSettingsModal?: () => void;
   onOpenInviteModal?: () => void;
+  onOpenTransferModal?: () => void;
   showHeroCard?: boolean;
 }
 
@@ -31,6 +33,7 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
   onOpenCreateWorkModal,
   onOpenSettingsModal,
   onOpenInviteModal,
+  onOpenTransferModal,
   showHeroCard,
 }) => {
   const monogram = project.name ? project.name.trim()[0].toUpperCase() : 'P';
@@ -149,6 +152,19 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
                     <UsersIcon size={14} />
                     <span>Team Members</span>
                   </Link>
+                )}
+                {onOpenTransferModal && (
+                  <button
+                    type="button"
+                    className="po-more-dropdown-item"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      onOpenTransferModal();
+                    }}
+                  >
+                    <ArrowRightIcon size={14} />
+                    <span>Transfer Project</span>
+                  </button>
                 )}
                 <Link
                   to={`/app/projects/${project.id}/board`}

@@ -40,7 +40,20 @@ export class FileService {
   private async getMembershipAndProject(projectId: string, userId: string) {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      select: { id: true, name: true, createdById: true, status: true },
+      select: {
+        id: true,
+        name: true,
+        createdById: true,
+        status: true,
+        workspaceId: true,
+        workspace: {
+          select: {
+            id: true,
+            ownerId: true,
+            members: { where: { userId } },
+          },
+        },
+      },
     });
 
     if (!project) {
@@ -56,14 +69,15 @@ export class FileService {
       },
     });
 
-    const isOwner = project.createdById === userId;
-    const isMember = !!membership || isOwner;
+    const isWsOwner = project.workspace.ownerId === userId;
+    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
+    const isMember = !!membership || isWsOwner || isWsAdmin;
 
     if (!isMember) {
       throw new AppError('You are not authorized to access this project files', 403);
     }
 
-    const isAdmin = isOwner || membership?.role === 'PROJECT_ADMIN';
+    const isAdmin = membership?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
 
     return { project, membership, isAdmin };
   }

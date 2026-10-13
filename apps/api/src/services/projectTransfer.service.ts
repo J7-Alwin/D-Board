@@ -50,6 +50,10 @@ export class ProjectTransferService {
       throw new AppError('Workspace not found', 404);
     }
 
+    if (ws.deletedAt) {
+      throw new AppError('Cannot transfer projects in a deleted workspace', 400);
+    }
+
     const isOwner = ws.ownerId === actorId;
     const membership = ws.members[0];
 
@@ -108,6 +112,7 @@ export class ProjectTransferService {
         workspace: {
           isPersonal: false, // Cannot transfer to personal workspaces
           id: { not: project.workspaceId }, // Cannot transfer to current workspace
+          deletedAt: null, // Cannot transfer to deleted workspaces
         },
       },
       include: {
@@ -133,6 +138,7 @@ export class ProjectTransferService {
         ownerId: actorId,
         isPersonal: false,
         id: { not: project.workspaceId },
+        deletedAt: null,
       },
       select: {
         id: true,
@@ -267,6 +273,10 @@ export class ProjectTransferService {
       throw new AppError('Destination workspace not found', 404);
     }
 
+    if (destWs.deletedAt) {
+      throw new AppError('Destination workspace is scheduled for deletion and cannot receive projects', 400);
+    }
+
     if (destWs.isPersonal) {
       throw new AppError('Projects cannot be transferred into personal workspaces', 400);
     }
@@ -329,6 +339,24 @@ export class ProjectTransferService {
 
         if (!freshProject || freshProject.workspaceId !== project.workspaceId) {
           throw new AppError('Project is no longer in the source workspace or has already been transferred', 409);
+        }
+
+        // Revalidate destination workspace state inside transaction immediately before completing transfer
+        const freshDestWs = await tx.workspace.findUnique({
+          where: { id: destinationWorkspaceId },
+          select: { id: true, isPersonal: true, deletedAt: true },
+        });
+
+        if (!freshDestWs) {
+          throw new AppError('Destination workspace not found', 404);
+        }
+
+        if (freshDestWs.deletedAt) {
+          throw new AppError('Destination workspace is scheduled for deletion and cannot receive projects', 400);
+        }
+
+        if (freshDestWs.isPersonal) {
+          throw new AppError('Projects cannot be transferred into personal workspaces', 400);
         }
 
         // Create completed transfer record
@@ -467,6 +495,10 @@ export class ProjectTransferService {
       throw new AppError('This transfer request has expired', 409);
     }
 
+    if (transfer.destinationWorkspace.deletedAt) {
+      throw new AppError('Destination workspace is scheduled for deletion and cannot receive projects', 400);
+    }
+
     // Validate destination authority and require canCreateProjects permission
     await this.verifyWorkspaceTransferAuthority(transfer.destinationWorkspaceId, actorId, 'canCreateProjects');
 
@@ -513,13 +545,16 @@ export class ProjectTransferService {
         throw new AppError('Project is no longer in the source workspace', 409);
       }
 
-      // Verify destination workspace still exists and is not personal
+      // Verify destination workspace still exists and is not personal or deleted
       const destWorkspace = await tx.workspace.findUnique({
         where: { id: transfer.destinationWorkspaceId },
-        select: { id: true, isPersonal: true, ownerId: true },
+        select: { id: true, isPersonal: true, ownerId: true, deletedAt: true },
       });
       if (!destWorkspace || destWorkspace.isPersonal) {
         throw new AppError('Destination workspace is invalid or no longer eligible for transfers', 400);
+      }
+      if (destWorkspace.deletedAt) {
+        throw new AppError('Destination workspace is scheduled for deletion and cannot receive projects', 400);
       }
 
       const result = await this.executeProjectTransferInternal(
@@ -826,13 +861,21 @@ export class ProjectTransferService {
     const [destWs, destMembers] = await Promise.all([
       tx.workspace.findUnique({
         where: { id: destinationWorkspaceId },
-        select: { ownerId: true, name: true },
+        select: { ownerId: true, name: true, deletedAt: true },
       }),
       tx.workspaceMember.findMany({
         where: { workspaceId: destinationWorkspaceId },
         select: { userId: true },
       }),
     ]);
+
+    if (!destWs) {
+      throw new AppError('Destination workspace not found', 404);
+    }
+
+    if (destWs.deletedAt) {
+      throw new AppError('Destination workspace is scheduled for deletion and cannot receive projects', 400);
+    }
 
     const destUserIds = new Set<string>(destMembers.map((m: any) => m.userId));
     if (destWs?.ownerId) {

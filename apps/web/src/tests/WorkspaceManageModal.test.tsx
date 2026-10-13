@@ -140,6 +140,46 @@ describe('WorkspaceManageModal Component Tests', () => {
         },
       },
     });
+
+    vi.spyOn(workspacesApi, 'getPendingOwnershipTransfer').mockResolvedValue({
+      success: true,
+      data: {
+        transfer: null,
+      },
+    });
+
+    vi.spyOn(workspacesApi, 'getAuditLogs').mockResolvedValue({
+      success: true,
+      data: {
+        logs: [
+          {
+            id: 'log-1',
+            workspaceId: 'ws-team-1',
+            actorId: 'user-owner',
+            action: 'OWNERSHIP_TRANSFERRED',
+            targetType: 'WORKSPACE',
+            targetId: 'ws-team-1',
+            metadata: { formerOwner: 'alexdev' },
+            ipAddress: null,
+            userAgent: null,
+            createdAt: new Date().toISOString(),
+            actor: {
+              id: 'user-owner',
+              fullName: 'Alex Dev',
+              username: 'alexdev',
+              email: 'alex@example.com',
+              avatarUrl: null,
+            },
+          },
+        ],
+        pagination: {
+          page: 1,
+          limit: 15,
+          total: 1,
+          totalPages: 1,
+        },
+      },
+    });
   });
 
   it('renders modal when open and displays members tab with member details', async () => {
@@ -209,5 +249,72 @@ describe('WorkspaceManageModal Component Tests', () => {
     expect(
       screen.getByText(/This will immediately revoke their workspace access and all project memberships/i)
     ).toBeInTheDocument();
+  });
+
+  it('renders Ownership Transfer tab with form for Owner', async () => {
+    render(<WorkspaceManageModal isOpen={true} onClose={vi.fn()} initialTab="ownership" />);
+
+    expect(screen.getByText('Ownership')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText('Workspace Ownership Lifecycle')).toBeInTheDocument();
+      expect(screen.getByText('Initiate Transfer Request')).toBeInTheDocument();
+      expect(screen.getByText('Your Resulting Role After Transfer')).toBeInTheDocument();
+    });
+  });
+
+  it('renders Audit Trail tab and displays audit events', async () => {
+    render(<WorkspaceManageModal isOpen={true} onClose={vi.fn()} initialTab="audit" />);
+
+    expect(screen.getByText('Audit Trail')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText('Filter Action:')).toBeInTheDocument();
+      expect(screen.getByText('OWNERSHIP TRANSFERRED')).toBeInTheDocument();
+    });
+  });
+
+  it('renders Danger Zone tab and opens confirmation dialog requiring workspace name', async () => {
+    render(<WorkspaceManageModal isOpen={true} onClose={vi.fn()} initialTab="danger" />);
+
+    expect(screen.getByText('Danger Zone')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete Workspace')).toBeInTheDocument();
+      expect(screen.getByText(/Soft-deletes/i)).toBeInTheDocument();
+    });
+
+    const deleteBtn = screen.getByRole('button', { name: /delete this workspace/i });
+    fireEvent.click(deleteBtn);
+
+    expect(screen.getByText('Delete Workspace?')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Acme Studio')).toBeInTheDocument();
+  });
+
+  it('protects personal workspace in Danger Zone tab', async () => {
+    const personalWs = {
+      ...mockTeamWorkspace,
+      id: 'ws-personal',
+      name: 'Personal Space',
+      isPersonal: true,
+    };
+
+    vi.spyOn(WorkspaceContextModule, 'useWorkspace').mockReturnValue({
+      workspaces: { owned: [personalWs], joined: [] },
+      activeWorkspace: personalWs,
+      activeRole: 'OWNER',
+      isLoading: false,
+      error: null,
+      setActiveWorkspaceId: vi.fn(),
+      createWorkspace: vi.fn(),
+      refreshWorkspaces: mockRefreshWorkspaces,
+    });
+
+    render(<WorkspaceManageModal isOpen={true} onClose={vi.fn()} initialTab="danger" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Personal Workspace Protected')).toBeInTheDocument();
+      expect(screen.getByText(/cannot be deleted/i)).toBeInTheDocument();
+    });
   });
 });

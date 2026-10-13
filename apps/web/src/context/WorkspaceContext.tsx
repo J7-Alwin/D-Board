@@ -5,6 +5,7 @@ import {
   type WorkspaceSummary,
   type WorkspaceRole,
   type CreateWorkspaceInput,
+  type DeletedWorkspaceItem,
 } from '../api/workspaces.api';
 import { setActiveWorkspaceHeader } from '../api/client';
 
@@ -15,13 +16,16 @@ interface WorkspaceContextType {
     owned: WorkspaceSummary[];
     joined: WorkspaceSummary[];
   };
+  deletedWorkspaces: DeletedWorkspaceItem[];
   activeWorkspace: WorkspaceSummary | null;
   activeRole: WorkspaceRole | null;
   isLoading: boolean;
   error: string | null;
   setActiveWorkspaceId: (id: string) => void;
   createWorkspace: (input: CreateWorkspaceInput) => Promise<WorkspaceSummary>;
+  recoverWorkspace: (workspaceId: string) => Promise<void>;
   refreshWorkspaces: () => Promise<void>;
+  refreshDeletedWorkspaces: () => Promise<void>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -113,9 +117,22 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [isAuthenticated]);
 
-  useEffect(() => {
-    refreshWorkspaces();
-  }, [refreshWorkspaces, user?.id]);
+  const [deletedWorkspaces, setDeletedWorkspaces] = useState<DeletedWorkspaceItem[]>([]);
+
+  const refreshDeletedWorkspaces = useCallback(async () => {
+    if (!isAuthenticated) {
+      setDeletedWorkspaces([]);
+      return;
+    }
+    try {
+      const res = await workspacesApi.getDeletedWorkspaces();
+      if (res.success && res.data) {
+        setDeletedWorkspaces(res.data.workspaces || []);
+      }
+    } catch {
+      // Ignore background refresh errors
+    }
+  }, [isAuthenticated]);
 
   const setActiveWorkspaceId = useCallback(
     (id: string) => {
@@ -134,6 +151,24 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     },
     [allWorkspaces]
   );
+
+  const recoverWorkspace = useCallback(
+    async (workspaceId: string) => {
+      const res = await workspacesApi.recoverWorkspace(workspaceId);
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to recover workspace');
+      }
+      await refreshWorkspaces();
+      await refreshDeletedWorkspaces();
+      setActiveWorkspaceId(workspaceId);
+    },
+    [refreshWorkspaces, refreshDeletedWorkspaces, setActiveWorkspaceId]
+  );
+
+  useEffect(() => {
+    refreshWorkspaces();
+    refreshDeletedWorkspaces();
+  }, [refreshWorkspaces, refreshDeletedWorkspaces, user?.id]);
 
   const createWorkspace = useCallback(
     async (input: CreateWorkspaceInput): Promise<WorkspaceSummary> => {
@@ -154,13 +189,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     <WorkspaceContext.Provider
       value={{
         workspaces,
+        deletedWorkspaces,
         activeWorkspace,
         activeRole,
         isLoading,
         error,
         setActiveWorkspaceId,
         createWorkspace,
+        recoverWorkspace,
         refreshWorkspaces,
+        refreshDeletedWorkspaces,
       }}
     >
       {children}
@@ -205,6 +243,7 @@ const defaultWorkspaceContext: WorkspaceContextType = {
     owner: { id: 'user-default', fullName: 'User', username: 'user', avatarUrl: null },
   },
   activeRole: 'OWNER',
+  deletedWorkspaces: [],
   isLoading: false,
   error: null,
   setActiveWorkspaceId: () => {},
@@ -223,7 +262,9 @@ const defaultWorkspaceContext: WorkspaceContextType = {
     updatedAt: new Date().toISOString(),
     owner: { id: 'user-default', fullName: 'User', username: 'user', avatarUrl: null },
   }),
+  recoverWorkspace: async () => {},
   refreshWorkspaces: async () => {},
+  refreshDeletedWorkspaces: async () => {},
 };
 
 export const useWorkspace = () => {

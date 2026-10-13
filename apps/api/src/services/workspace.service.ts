@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import prisma from '../prisma.js';
 import { AppError } from '../middlewares/error.middleware.js';
+import { workspaceAuditService } from './workspaceAudit.service.js';
+import { cacheService } from '../redis/cache.service.js';
 import type {
   CreateWorkspaceInput,
   WorkspaceAdminPermissions,
@@ -21,6 +23,8 @@ export interface WorkspaceSummaryDto {
   memberCount: number;
   projectCount: number;
   adminPermissions?: WorkspaceAdminPermissions;
+  deletedAt?: Date | null;
+  deletionScheduledAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
   owner: {
@@ -31,17 +35,32 @@ export interface WorkspaceSummaryDto {
   };
 }
 
+export interface DeletedWorkspaceDto {
+  id: string;
+  name: string;
+  slug: string;
+  ownerId: string;
+  isPersonal: boolean;
+  deletedAt: Date;
+  deletionScheduledAt: Date;
+  daysRemaining: number;
+}
+
 export class WorkspaceService {
   /**
    * Get all workspaces the authenticated user has access to,
    * categorized into 'owned' (My Workspaces) and 'joined' (Team Workspaces).
+   * Soft-deleted workspaces are strictly excluded from normal listings.
    */
   async getUserWorkspaces(userId: string): Promise<{
     owned: WorkspaceSummaryDto[];
     joined: WorkspaceSummaryDto[];
   }> {
     const memberships = await prisma.workspaceMember.findMany({
-      where: { userId },
+      where: {
+        userId,
+        workspace: { deletedAt: null },
+      },
       include: {
         workspace: {
           include: {
@@ -158,6 +177,10 @@ export class WorkspaceService {
 
     if (!membership) {
       throw new AppError('You are not authorized to access this workspace', 403);
+    }
+
+    if (membership.workspace.deletedAt) {
+      throw new AppError('Workspace not found', 404);
     }
 
     const ws = membership.workspace;
@@ -294,12 +317,16 @@ export class WorkspaceService {
         workspaceId_userId: { workspaceId, userId },
       },
       include: {
-        workspace: { select: { id: true, ownerId: true } },
+        workspace: { select: { id: true, ownerId: true, deletedAt: true } },
       },
     });
 
     if (!member) {
       throw new AppError('You do not have access to this workspace', 403);
+    }
+
+    if (member.workspace.deletedAt) {
+      throw new AppError('This workspace has been deleted', 404);
     }
 
     return {
@@ -331,13 +358,15 @@ export class WorkspaceService {
   async updateAdminPermissions(
     workspaceId: string,
     userId: string,
-    input: UpdateWorkspaceAdminPermissionsInput
+    input: UpdateWorkspaceAdminPermissionsInput,
+    reqMeta?: { ipAddress?: string; userAgent?: string }
   ): Promise<WorkspaceAdminPermissions> {
     const ws = await prisma.workspace.findUnique({
       where: { id: workspaceId },
     });
 
     if (!ws) throw new AppError('Workspace not found', 404);
+    if (ws.deletedAt) throw new AppError('Cannot update permissions on a deleted workspace', 400);
 
     if (ws.isPersonal) {
       throw new AppError('Personal workspaces do not support administrator delegation', 400);
@@ -355,12 +384,285 @@ export class WorkspaceService {
       canManageRoles: input.canManageRoles !== undefined ? input.canManageRoles : current.canManageRoles,
     };
 
-    await prisma.workspace.update({
-      where: { id: workspaceId },
-      data: { adminPermissions: updated },
+    await prisma.$transaction(async (tx) => {
+      await tx.workspace.update({
+        where: { id: workspaceId },
+        data: { adminPermissions: updated },
+      });
+
+      await workspaceAuditService.logAuditEvent(tx, {
+        workspaceId,
+        actorId: userId,
+        action: 'ADMIN_PERMISSIONS_UPDATED',
+        targetType: 'PERMISSIONS',
+        targetId: workspaceId,
+        metadata: {
+          previousPermissions: current,
+          updatedPermissions: updated,
+        },
+        ipAddress: reqMeta?.ipAddress,
+        userAgent: reqMeta?.userAgent,
+      });
     });
 
     return updated;
+  }
+
+  /**
+   * Soft-delete workspace with 30-day recovery deadline (Owner only).
+   * Personal workspaces are permanently protected from deletion.
+   * Cancels/revokes pending transfers and invitations transactionally.
+   */
+  async deleteWorkspace(
+    workspaceId: string,
+    userId: string,
+    confirmationName: string,
+    reqMeta?: { ipAddress?: string; userAgent?: string }
+  ): Promise<{ success: boolean; message: string; deletionScheduledAt: Date }> {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+    });
+
+    if (!ws) throw new AppError('Workspace not found', 404);
+    if (ws.deletedAt) throw new AppError('Workspace is already scheduled for deletion', 400);
+
+    if (ws.isPersonal) {
+      throw new AppError(
+        'Personal workspaces cannot be deleted to preserve core user workspace invariants.',
+        400
+      );
+    }
+
+    if (ws.ownerId !== userId) {
+      throw new AppError('Only the workspace owner can schedule workspace deletion', 403);
+    }
+
+    if (!confirmationName || confirmationName.trim().toLowerCase() !== ws.name.trim().toLowerCase()) {
+      throw new AppError('Confirmation name does not match workspace name', 400);
+    }
+
+    const deletedAt = new Date();
+    const deletionScheduledAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    await prisma.$transaction(async (tx) => {
+      // Acquire pessimistic row lock
+      await tx.$executeRaw`SELECT id FROM "Workspace" WHERE id = ${workspaceId} FOR UPDATE;`;
+
+      const currentWs = await tx.workspace.findUnique({
+        where: { id: workspaceId },
+      });
+
+      if (!currentWs) throw new AppError('Workspace not found', 404);
+      if (currentWs.deletedAt) throw new AppError('Workspace is already scheduled for deletion', 400);
+
+      // 1. Soft delete the workspace
+      await tx.workspace.update({
+        where: { id: workspaceId },
+        data: {
+          deletedAt,
+          deletedById: userId,
+          deletionScheduledAt,
+        },
+      });
+
+      // 2. Transactionally cancel pending project transfers referencing this workspace
+      await tx.projectTransfer.updateMany({
+        where: {
+          status: 'PENDING',
+          OR: [
+            { sourceWorkspaceId: workspaceId },
+            { destinationWorkspaceId: workspaceId },
+          ],
+        },
+        data: {
+          status: 'CANCELLED',
+        },
+      });
+
+      // 3. Transactionally cancel pending ownership transfers
+      await tx.workspaceOwnershipTransfer.updateMany({
+        where: {
+          workspaceId,
+          status: 'PENDING',
+        },
+        data: {
+          status: 'CANCELLED',
+          cancelledAt: deletedAt,
+        },
+      });
+
+      // 4. Transactionally revoke pending workspace invitations
+      await tx.workspaceInvitation.updateMany({
+        where: {
+          workspaceId,
+          status: 'PENDING',
+        },
+        data: {
+          status: 'REVOKED',
+          revokedAt: deletedAt,
+        },
+      });
+
+      // 5. Append audit event
+      await workspaceAuditService.logAuditEvent(tx, {
+        workspaceId,
+        actorId: userId,
+        action: 'WORKSPACE_DELETION_SCHEDULED',
+        targetType: 'WORKSPACE',
+        targetId: workspaceId,
+        metadata: {
+          deletedAt,
+          deletionScheduledAt,
+        },
+        ipAddress: reqMeta?.ipAddress,
+        userAgent: reqMeta?.userAgent,
+      });
+    }, { timeout: 30000 });
+
+    // Safe post-commit cache invalidation
+    try {
+      await Promise.allSettled([
+        cacheService.delPattern(`*ws:${workspaceId}:*`),
+        cacheService.invalidateUser(userId),
+        cacheService.del(`user:${userId}:workspaces`),
+      ]);
+    } catch (cacheErr) {
+      console.warn(`[Workspace Deletion] Cache invalidation warning for workspace ${workspaceId}:`, cacheErr);
+    }
+
+    return {
+      success: true,
+      message: 'Workspace scheduled for deletion. It can be restored within 30 days.',
+      deletionScheduledAt,
+    };
+  }
+
+  /**
+   * Restore a soft-deleted workspace within the 30-day window (Owner only).
+   */
+  async recoverWorkspace(
+    workspaceId: string,
+    userId: string,
+    reqMeta?: { ipAddress?: string; userAgent?: string }
+  ): Promise<{ success: boolean; message: string }> {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+    });
+
+    if (!ws) throw new AppError('Workspace not found', 404);
+
+    if (!ws.deletedAt) {
+      throw new AppError('This workspace is not deleted', 400);
+    }
+
+    // Owner authorization
+    if (ws.ownerId !== userId && ws.deletedById !== userId) {
+      throw new AppError('Only the workspace owner can recover this workspace', 403);
+    }
+
+    // Server-side 30-day recovery deadline enforcement
+    const now = Date.now();
+    const deadline = ws.deletionScheduledAt
+      ? Math.min(ws.deletionScheduledAt.getTime(), ws.deletedAt.getTime() + 30 * 24 * 60 * 60 * 1000)
+      : ws.deletedAt.getTime() + 30 * 24 * 60 * 60 * 1000;
+    if (now > deadline) {
+      throw new AppError('The 30-day recovery window for this workspace has expired and it cannot be restored.', 400);
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Row lock
+      await tx.$executeRaw`SELECT id FROM "Workspace" WHERE id = ${workspaceId} FOR UPDATE;`;
+
+      const currentWs = await tx.workspace.findUnique({
+        where: { id: workspaceId },
+      });
+
+      if (!currentWs) throw new AppError('Workspace not found', 404);
+      if (!currentWs.deletedAt) throw new AppError('This workspace is not deleted', 400);
+
+      await tx.workspace.update({
+        where: { id: workspaceId },
+        data: {
+          deletedAt: null,
+          deletedById: null,
+          deletionScheduledAt: null,
+        },
+      });
+
+      await workspaceAuditService.logAuditEvent(tx, {
+        workspaceId,
+        actorId: userId,
+        action: 'WORKSPACE_RESTORED',
+        targetType: 'WORKSPACE',
+        targetId: workspaceId,
+        metadata: {
+          restoredAt: new Date(),
+        },
+        ipAddress: reqMeta?.ipAddress,
+        userAgent: reqMeta?.userAgent,
+      });
+    }, { timeout: 30000 });
+
+    // Safe post-commit cache invalidation
+    try {
+      await Promise.allSettled([
+        cacheService.delPattern(`*ws:${workspaceId}:*`),
+        cacheService.invalidateUser(userId),
+        cacheService.del(`user:${userId}:workspaces`),
+      ]);
+    } catch (cacheErr) {
+      console.warn(`[Workspace Recovery] Cache invalidation warning for workspace ${workspaceId}:`, cacheErr);
+    }
+
+    return {
+      success: true,
+      message: 'Workspace restored successfully',
+    };
+  }
+
+  /**
+   * Get all soft-deleted workspaces owned by the user that are currently within the 30-day recovery window.
+   */
+  async getDeletedWorkspaces(userId: string): Promise<DeletedWorkspaceDto[]> {
+    const deleted = await prisma.workspace.findMany({
+      where: {
+        ownerId: userId,
+        deletedAt: { not: null },
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        ownerId: true,
+        isPersonal: true,
+        deletedAt: true,
+        deletionScheduledAt: true,
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+
+    const now = Date.now();
+    const result: DeletedWorkspaceDto[] = [];
+
+    for (const w of deleted) {
+      if (!w.deletedAt) continue;
+      const scheduled = w.deletionScheduledAt || new Date(w.deletedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const remainingMs = scheduled.getTime() - now;
+      if (remainingMs > 0) {
+        result.push({
+          id: w.id,
+          name: w.name,
+          slug: w.slug,
+          ownerId: w.ownerId,
+          isPersonal: w.isPersonal,
+          deletedAt: w.deletedAt,
+          deletionScheduledAt: scheduled,
+          daysRemaining: Math.ceil(remainingMs / (1000 * 60 * 60 * 24)),
+        });
+      }
+    }
+
+    return result;
   }
 }
 

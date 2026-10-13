@@ -161,4 +161,48 @@ describe('WorkspaceSwitcher Component Tests', () => {
       });
     });
   });
+
+  it('6. displays deleted workspaces recovery section and triggers restore', async () => {
+    const mockRecoverWorkspace = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(WorkspaceContextModule, 'useWorkspace').mockReturnValue({
+      workspaces: mockWorkspaces,
+      deletedWorkspaces: [
+        {
+          id: 'ws-deleted-1',
+          name: 'Deleted Project Studio',
+          slug: 'deleted-studio',
+          ownerId: 'user-1',
+          isPersonal: false,
+          deletedAt: new Date().toISOString(),
+          deletionScheduledAt: new Date(Date.now() + 25 * 24 * 60 * 60 * 1000).toISOString(),
+          daysRemaining: 25,
+        },
+      ],
+      activeWorkspace: mockWorkspaces.owned[0],
+      activeRole: 'OWNER',
+      isLoading: false,
+      error: null,
+      setActiveWorkspaceId: mockSetActiveWorkspaceId,
+      createWorkspace: mockCreateWorkspace,
+      recoverWorkspace: mockRecoverWorkspace,
+      refreshWorkspaces: vi.fn(),
+      refreshDeletedWorkspaces: vi.fn(),
+    });
+
+    render(<WorkspaceSwitcher />);
+
+    const trigger = screen.getByRole('button', { name: /switch workspace/i });
+    fireEvent.click(trigger);
+
+    expect(screen.getByText(/DELETED WORKSPACES \(RECOVERY\)/i)).toBeInTheDocument();
+    expect(screen.getByText('Deleted Project Studio')).toBeInTheDocument();
+    expect(screen.getByText('25d left')).toBeInTheDocument();
+
+    const restoreBtn = screen.getByRole('button', { name: /restore/i });
+    fireEvent.click(restoreBtn);
+
+    await waitFor(() => {
+      expect(mockRecoverWorkspace).toHaveBeenCalledWith('ws-deleted-1');
+    });
+  });
 });

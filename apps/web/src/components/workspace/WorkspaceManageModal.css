@@ -860,3 +860,293 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
+/* =========================================================================
+   Phase 5: Ownership Transfer Styles
+   ========================================================================= */
+
+.wmm-ownership-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.wmm-notice-card {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.wmm-notice-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #f59e0b;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wmm-notice-desc {
+  font-size: 0.8125rem;
+  color: #d4d4d8;
+  line-height: 1.45;
+}
+
+.wmm-pending-transfer-box {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 10px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.wmm-pending-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 0.75rem;
+}
+
+.wmm-pending-title {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #60a5fa;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wmm-pending-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 1.25rem;
+  font-size: 0.8125rem;
+}
+
+.wmm-pending-item-label {
+  color: #a1a1aa;
+}
+
+.wmm-pending-item-val {
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.wmm-transfer-form {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.wmm-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.wmm-form-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.wmm-form-input,
+.wmm-form-select {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #ffffff;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.wmm-form-input:focus,
+.wmm-form-select:focus {
+  border-color: #3b82f6;
+}
+
+.wmm-form-helper {
+  font-size: 0.75rem;
+  color: #71717a;
+}
+
+/* =========================================================================
+   Phase 5: Audit Trail Styles
+   ========================================================================= */
+
+.wmm-audit-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.wmm-audit-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.wmm-audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.wmm-audit-table th {
+  text-align: left;
+  padding: 0.625rem 0.75rem;
+  color: #71717a;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.wmm-audit-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: #d4d4d8;
+  vertical-align: top;
+}
+
+.wmm-audit-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.wmm-audit-badge-ownership {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.wmm-audit-badge-delete {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.wmm-audit-badge-recovery {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.wmm-audit-badge-member {
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.wmm-audit-badge-default {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e4e4e7;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.wmm-audit-meta-preview {
+  font-family: ui-monospace, monospace;
+  font-size: 0.6875rem;
+  color: #a1a1aa;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  max-width: 320px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.wmm-audit-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* =========================================================================
+   Phase 5: Danger Zone Styles
+   ========================================================================= */
+
+.wmm-danger-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.wmm-danger-card {
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 10px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.wmm-danger-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.wmm-danger-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #f87171;
+  margin: 0;
+}
+
+.wmm-danger-desc {
+  font-size: 0.8125rem;
+  color: #d4d4d8;
+  line-height: 1.5;
+}
+
+.wmm-danger-protected {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 8px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.wmm-confirm-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 6px;
+  color: #ffffff;
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.wmm-confirm-input:focus {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 1px #ef4444;
+}

@@ -6,6 +6,7 @@ import { enqueueEmailJob } from '../jobs/queues.js';
 import { notificationService } from './notification.service.js';
 import { publishToUser } from '../realtime/realtime.service.js';
 import { projectTransferService } from './projectTransfer.service.js';
+import { workspaceAuditService } from './workspaceAudit.service.js';
 import type { WorkspaceRole } from '../generated/prisma/index.js';
 
 export class WorkspaceInvitationService {
@@ -133,6 +134,19 @@ export class WorkspaceInvitationService {
         invitedBy: {
           select: { id: true, fullName: true, username: true },
         },
+      },
+    });
+
+    await workspaceAuditService.logAuditEvent(null, {
+      workspaceId,
+      actorId,
+      action: 'MEMBER_INVITED',
+      targetType: 'INVITATION',
+      targetId: invitation.id,
+      metadata: {
+        invitedEmail: normalizedEmail,
+        role: invitation.role,
+        expiresAt,
       },
     });
 
@@ -544,6 +558,18 @@ export class WorkspaceInvitationService {
 
       // Restore eligible historical project roles from completed transfers into this workspace (Requirement 6)
       await projectTransferService.restoreEligibleProjectRolesForUser(tx, invitation.workspaceId, userId);
+
+      await workspaceAuditService.logAuditEvent(tx, {
+        workspaceId: invitation.workspaceId,
+        actorId: userId,
+        action: 'MEMBER_JOINED',
+        targetType: 'MEMBER',
+        targetId: member.id,
+        metadata: {
+          userId,
+          role: invitation.role,
+        },
+      });
 
       return member;
     });

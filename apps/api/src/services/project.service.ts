@@ -232,19 +232,24 @@ export class ProjectService {
         where: { id: workspaceId },
         include: { members: { where: { userId } } },
       });
-      isWsOwner = ws?.ownerId === userId;
-      isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+      if (!ws || ws.deletedAt) {
+        return { all: [], owned: [], joined: [] };
+      }
+      isWsOwner = ws.ownerId === userId;
+      isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
 
       if (isWsOwner || isWsAdmin) {
-        where = { workspaceId };
+        where = { workspaceId, workspace: { deletedAt: null } };
       } else {
         where = {
           workspaceId,
+          workspace: { deletedAt: null },
           members: { some: { userId } },
         };
       }
     } else {
       where = {
+        workspace: { deletedAt: null },
         members: { some: { userId } },
       };
     }
@@ -353,8 +358,11 @@ export class ProjectService {
       where: { id: project.workspaceId },
       include: { members: { where: { userId } } },
     });
-    const isWsOwner = ws?.ownerId === userId;
-    const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
+    if (!ws || ws.deletedAt) {
+      throw new AppError('Project not found', 404);
+    }
+    const isWsOwner = ws.ownerId === userId;
+    const isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
 
     if (!membership && !isWsOwner && !isWsAdmin) {
       throw new AppError('You are not authorized to view this project', 403);

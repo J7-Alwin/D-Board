@@ -280,4 +280,154 @@ export const workspacesApi = {
       body: JSON.stringify(permissions),
     });
   },
+
+  // =========================================================================
+  // Ownership Transfer (Phase 5A)
+  // =========================================================================
+
+  async requestOwnershipTransfer(
+    workspaceId: string,
+    input: { targetUserId?: string; targetEmail?: string; targetRole: WorkspaceRole }
+  ): Promise<ApiResponse<{ transfer: OwnershipTransferItem }>> {
+    return apiClient(`/workspaces/${workspaceId}/ownership-transfer/request`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+
+  async getPendingOwnershipTransfer(
+    workspaceId: string
+  ): Promise<ApiResponse<{ transfer: OwnershipTransferItem | null }>> {
+    return apiClient(`/workspaces/${workspaceId}/ownership-transfer`, { method: 'GET' });
+  },
+
+  async cancelOwnershipTransfer(
+    workspaceId: string
+  ): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    return apiClient(`/workspaces/${workspaceId}/ownership-transfer/cancel`, { method: 'POST' });
+  },
+
+  async rejectOwnershipTransfer(
+    workspaceId: string,
+    token?: string
+  ): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    return apiClient(`/workspaces/${workspaceId}/ownership-transfer/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  async acceptOwnershipTransfer(
+    workspaceId: string,
+    token?: string
+  ): Promise<ApiResponse<{ success: boolean; message: string; workspaceId: string }>> {
+    return apiClient(`/workspaces/${workspaceId}/ownership-transfer/accept`, {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  // =========================================================================
+  // Soft Deletion and 30-Day Recovery (Phase 5B)
+  // =========================================================================
+
+  async deleteWorkspace(
+    workspaceId: string,
+    confirmationName: string
+  ): Promise<ApiResponse<{ success: boolean; message: string; deletionScheduledAt: string }>> {
+    return apiClient(`/workspaces/${workspaceId}/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ confirmationName }),
+    });
+  },
+
+  async recoverWorkspace(
+    workspaceId: string
+  ): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    return apiClient(`/workspaces/${workspaceId}/recover`, { method: 'POST' });
+  },
+
+  async getDeletedWorkspaces(): Promise<ApiResponse<{ workspaces: DeletedWorkspaceItem[] }>> {
+    return apiClient('/workspaces/deleted', { method: 'GET' });
+  },
+
+  // =========================================================================
+  // Audit Trail (Phase 5C)
+  // =========================================================================
+
+  async getAuditLogs(
+    workspaceId: string,
+    options: { page?: number; limit?: number; action?: string; startDate?: string; endDate?: string } = {}
+  ): Promise<ApiResponse<{
+    logs: WorkspaceAuditLogItem[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }>> {
+    const params = new URLSearchParams();
+    if (options.page) params.set('page', String(options.page));
+    if (options.limit) params.set('limit', String(options.limit));
+    if (options.action) params.set('action', options.action);
+    if (options.startDate) params.set('startDate', options.startDate);
+    if (options.endDate) params.set('endDate', options.endDate);
+
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return apiClient(`/workspaces/${workspaceId}/audit-logs${queryString}`, { method: 'GET' });
+  },
 };
+
+export type WorkspaceOwnershipTransferStatus = 'PENDING' | 'ACCEPTED' | 'CANCELLED' | 'REJECTED' | 'EXPIRED';
+
+export interface OwnershipTransferItem {
+  id: string;
+  workspaceId: string;
+  sourceOwnerId: string;
+  targetUserId: string;
+  targetRole: WorkspaceRole;
+  status: WorkspaceOwnershipTransferStatus;
+  expiresAt: string;
+  createdAt: string;
+  sourceOwner: {
+    id: string;
+    fullName: string | null;
+    username: string;
+    email: string;
+    avatarUrl: string | null;
+  };
+  targetUser: {
+    id: string;
+    fullName: string | null;
+    username: string;
+    email: string;
+    avatarUrl: string | null;
+  };
+}
+
+export interface DeletedWorkspaceItem {
+  id: string;
+  name: string;
+  slug: string;
+  ownerId: string;
+  isPersonal: boolean;
+  deletedAt: string;
+  deletionScheduledAt: string;
+  daysRemaining: number;
+}
+
+export interface WorkspaceAuditLogItem {
+  id: string;
+  workspaceId: string;
+  actorId: string | null;
+  actor: {
+    id: string;
+    fullName: string | null;
+    username: string;
+    email: string;
+    avatarUrl: string | null;
+  } | null;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  metadata: Record<string, any> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+}

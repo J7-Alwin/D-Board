@@ -2,6 +2,7 @@ import prisma from '../prisma.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { resolveAdminPermissions } from '../schemas/workspace.schema.js';
 import { evictUserFromProjectRoom } from '../realtime/realtime.service.js';
+import { workspaceAuditService } from './workspaceAudit.service.js';
 import type { WorkspaceRole } from '../generated/prisma/index.js';
 
 export interface GetWorkspaceMembersOptions {
@@ -172,12 +173,29 @@ export class WorkspaceMemberService {
       throw new AppError('Only the workspace owner can modify administrator roles', 403);
     }
 
-    const updated = await prisma.workspaceMember.update({
-      where: { id: targetMemberId },
-      data: { role: newRole },
-      include: {
-        user: { select: { id: true, fullName: true, username: true, email: true, avatarUrl: true } },
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      const res = await tx.workspaceMember.update({
+        where: { id: targetMemberId },
+        data: { role: newRole },
+        include: {
+          user: { select: { id: true, fullName: true, username: true, email: true, avatarUrl: true } },
+        },
+      });
+
+      await workspaceAuditService.logAuditEvent(tx, {
+        workspaceId,
+        actorId,
+        action: 'MEMBER_ROLE_UPDATED',
+        targetType: 'MEMBER',
+        targetId: targetMemberId,
+        metadata: {
+          targetUserId: targetMember.userId,
+          previousRole: targetMember.role,
+          newRole,
+        },
+      });
+
+      return res;
     });
 
     return {
@@ -286,6 +304,19 @@ export class WorkspaceMemberService {
       // 3. Delete workspace member record
       await tx.workspaceMember.delete({
         where: { id: targetMemberId },
+      });
+
+      // 4. Record audit event
+      await workspaceAuditService.logAuditEvent(tx, {
+        workspaceId,
+        actorId,
+        action: 'MEMBER_REMOVED',
+        targetType: 'MEMBER',
+        targetId: targetMemberId,
+        metadata: {
+          targetUserId: targetMember.userId,
+          removedRole: targetMember.role,
+        },
       });
     });
 

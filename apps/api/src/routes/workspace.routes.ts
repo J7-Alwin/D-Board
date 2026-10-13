@@ -41,6 +41,9 @@ router.post('/invitations/:invitationIdOrToken/decline', (req, res, next) =>
 // List current user's workspaces categorized into owned and joined
 router.get('/', (req, res, next) => workspaceController.getUserWorkspaces(req, res, next));
 
+// List recoverable soft-deleted workspaces owned by authenticated user
+router.get('/deleted', (req, res, next) => workspaceController.getDeletedWorkspaces(req, res, next));
+
 // Create a new team workspace
 router.post('/', validateBody(createWorkspaceSchema), (req, res, next) =>
   workspaceController.createWorkspace(req, res, next)
@@ -115,6 +118,54 @@ router.patch('/:workspaceId/admin-permissions', (req, res, next) =>
 // Get incoming and outgoing pending project transfers for workspace
 router.get('/:workspaceId/transfers/pending', (req, res, next) =>
   projectTransferController.getWorkspacePendingTransfers(req as any, res, next)
+);
+
+// ===========================================================================
+// Workspace Ownership Transfer Endpoints (Phase 5A)
+// ===========================================================================
+
+router.post('/:workspaceId/ownership-transfer/request', (req, res, next) =>
+  workspaceController.requestOwnershipTransfer(req, res, next)
+);
+
+router.get('/:workspaceId/ownership-transfer', (req, res, next) =>
+  workspaceController.getPendingOwnershipTransfer(req, res, next)
+);
+
+router.post('/:workspaceId/ownership-transfer/cancel', (req, res, next) =>
+  workspaceController.cancelOwnershipTransfer(req, res, next)
+);
+
+router.post('/:workspaceId/ownership-transfer/reject', (req, res, next) =>
+  workspaceController.rejectOwnershipTransfer(req, res, next)
+);
+
+router.post('/:workspaceId/ownership-transfer/accept', (req, res, next) =>
+  workspaceController.acceptOwnershipTransfer(req, res, next)
+);
+
+// ===========================================================================
+// Workspace Soft Deletion & Recovery Endpoints (Phase 5B)
+// ===========================================================================
+
+router.post('/:workspaceId/delete', (req, res, next) =>
+  workspaceController.deleteWorkspace(req, res, next)
+);
+
+router.delete('/:workspaceId', (req, res, next) =>
+  workspaceController.deleteWorkspace(req, res, next)
+);
+
+router.post('/:workspaceId/recover', (req, res, next) =>
+  workspaceController.recoverWorkspace(req, res, next)
+);
+
+// ===========================================================================
+// Workspace Audit Trail Endpoint (Phase 5C)
+// ===========================================================================
+
+router.get('/:workspaceId/audit-logs', (req, res, next) =>
+  workspaceController.getWorkspaceAuditLogs(req, res, next)
 );
 
 export default router;

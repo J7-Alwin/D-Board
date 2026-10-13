@@ -19,6 +19,7 @@ export class WorkService {
           select: {
             id: true,
             ownerId: true,
+            deletedAt: true,
             members: { where: { userId } },
           },
         },
@@ -28,6 +29,10 @@ export class WorkService {
 
     if (!project) {
       throw new AppError('Project not found', 404);
+    }
+
+    if (project.workspace.deletedAt) {
+      throw new AppError('The workspace containing this project has been deleted', 404);
     }
 
     const member = project.members[0];

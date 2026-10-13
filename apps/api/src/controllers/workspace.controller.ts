@@ -3,10 +3,17 @@ import type { AuthenticatedRequest } from '../middlewares/auth.middleware.js';
 import { workspaceService } from '../services/workspace.service.js';
 import { workspaceMemberService } from '../services/workspaceMember.service.js';
 import { workspaceInvitationService } from '../services/workspaceInvitation.service.js';
+import { workspaceOwnershipTransferService } from '../services/workspaceOwnershipTransfer.service.js';
+import { workspaceAuditService } from '../services/workspaceAudit.service.js';
 import {
   createWorkspaceSchema,
   createWorkspaceInvitationSchema,
   updateWorkspaceAdminPermissionsSchema,
+  requestOwnershipTransferSchema,
+  acceptOwnershipTransferSchema,
+  rejectOwnershipTransferSchema,
+  deleteWorkspaceSchema,
+  workspaceAuditLogQuerySchema,
 } from '../schemas/workspace.schema.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import type { WorkspaceRole } from '../generated/prisma/index.js';
@@ -343,6 +350,230 @@ export class WorkspaceController {
         success: true,
         message: 'Admin permissions updated successfully',
         data: { permissions },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // =========================================================================
+  // Workspace Ownership Transfer Endpoints (Phase 5A)
+  // =========================================================================
+
+  /**
+   * POST /api/workspaces/:workspaceId/ownership-transfer/request
+   */
+  async requestOwnershipTransfer(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+      const input = requestOwnershipTransferSchema.parse(req.body);
+
+      const transfer = await workspaceOwnershipTransferService.requestTransfer(
+        workspaceId,
+        req.user.userId,
+        input,
+        { ipAddress: req.ip, userAgent: req.get('user-agent') }
+      );
+
+      res.status(201).json({
+        success: true,
+        message: 'Ownership transfer request initiated successfully',
+        data: { transfer },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/workspaces/:workspaceId/ownership-transfer
+   */
+  async getPendingOwnershipTransfer(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+
+      const transfer = await workspaceOwnershipTransferService.getPendingTransfer(
+        workspaceId,
+        req.user.userId
+      );
+
+      res.status(200).json({
+        success: true,
+        data: { transfer },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/workspaces/:workspaceId/ownership-transfer/cancel
+   */
+  async cancelOwnershipTransfer(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+
+      const result = await workspaceOwnershipTransferService.cancelTransfer(
+        workspaceId,
+        req.user.userId,
+        { ipAddress: req.ip, userAgent: req.get('user-agent') }
+      );
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/workspaces/:workspaceId/ownership-transfer/reject
+   */
+  async rejectOwnershipTransfer(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+      const input = rejectOwnershipTransferSchema.parse(req.body || {});
+
+      const result = await workspaceOwnershipTransferService.rejectTransfer(
+        workspaceId,
+        req.user.userId,
+        input.token,
+        { ipAddress: req.ip, userAgent: req.get('user-agent') }
+      );
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/workspaces/:workspaceId/ownership-transfer/accept
+   */
+  async acceptOwnershipTransfer(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+      const input = acceptOwnershipTransferSchema.parse(req.body || {});
+
+      const result = await workspaceOwnershipTransferService.acceptTransfer(
+        workspaceId,
+        req.user.userId,
+        input.token,
+        { ipAddress: req.ip, userAgent: req.get('user-agent') }
+      );
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: { workspaceId: result.workspaceId },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // =========================================================================
+  // Workspace Soft Deletion & Recovery Endpoints (Phase 5B)
+  // =========================================================================
+
+  /**
+   * POST /api/workspaces/:workspaceId/delete (or DELETE /api/workspaces/:workspaceId)
+   */
+  async deleteWorkspace(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+      const input = deleteWorkspaceSchema.parse(req.body);
+
+      const result = await workspaceService.deleteWorkspace(
+        workspaceId,
+        req.user.userId,
+        input.confirmationName,
+        { ipAddress: req.ip, userAgent: req.get('user-agent') }
+      );
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: { deletionScheduledAt: result.deletionScheduledAt },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/workspaces/:workspaceId/recover
+   */
+  async recoverWorkspace(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+
+      const result = await workspaceService.recoverWorkspace(
+        workspaceId,
+        req.user.userId,
+        { ipAddress: req.ip, userAgent: req.get('user-agent') }
+      );
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/workspaces/deleted
+   */
+  async getDeletedWorkspaces(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaces = await workspaceService.getDeletedWorkspaces(req.user.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { workspaces },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // =========================================================================
+  // Workspace Audit Trail Endpoint (Phase 5C)
+  // =========================================================================
+
+  /**
+   * GET /api/workspaces/:workspaceId/audit-logs
+   */
+  async getWorkspaceAuditLogs(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+      const query = workspaceAuditLogQuerySchema.parse(req.query);
+
+      const result = await workspaceAuditService.getWorkspaceAuditLogs(
+        workspaceId,
+        req.user.userId,
+        query
+      );
+
+      res.status(200).json({
+        success: true,
+        data: result,
       });
     } catch (err) {
       next(err);

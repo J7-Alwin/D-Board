@@ -7,6 +7,8 @@ import {
   type WorkspaceInvitationItem,
   type WorkspaceRole,
   type WorkspaceAdminPermissions,
+  type OwnershipTransferItem,
+  type WorkspaceAuditLogItem,
 } from '../../api/workspaces.api';
 import {
   UsersIcon,
@@ -20,6 +22,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
   ArrowRightIcon,
+  ActivityPulseIcon,
 } from '../ui/Icons';
 import { Button } from '../ui/Button';
 import {
@@ -31,7 +34,7 @@ import './WorkspaceManageModal.css';
 export interface WorkspaceManageModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'members' | 'invitations' | 'permissions' | 'transfers';
+  initialTab?: 'members' | 'invitations' | 'permissions' | 'transfers' | 'ownership' | 'audit' | 'danger';
 }
 
 export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
@@ -40,9 +43,9 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
   initialTab = 'members',
 }) => {
   const { user } = useAuth();
-  const { activeWorkspace, activeRole, refreshWorkspaces } = useWorkspace();
+  const { activeWorkspace, activeRole, refreshWorkspaces, refreshDeletedWorkspaces } = useWorkspace();
 
-  const [activeTab, setActiveTab] = useState<'members' | 'invitations' | 'permissions' | 'transfers'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'members' | 'invitations' | 'permissions' | 'transfers' | 'ownership' | 'audit' | 'danger'>(initialTab);
 
   // Members Tab State
   const [members, setMembers] = useState<WorkspaceMemberItem[]>([]);
@@ -99,6 +102,35 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
   const [rejectReason, setRejectReason] = useState('');
   const [isProcessingTransfer, setIsProcessingTransfer] = useState(false);
   const [transferFeedback, setTransferFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Ownership Transfer Tab State (Phase 5A)
+  const [pendingOwnershipTransfer, setPendingOwnershipTransfer] = useState<OwnershipTransferItem | null>(null);
+  const [ownershipLoading, setOwnershipLoading] = useState(false);
+  const [ownershipError, setOwnershipError] = useState<string | null>(null);
+  const [ownershipFeedback, setOwnershipFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [targetRecipientMode, setTargetRecipientMode] = useState<'member' | 'email'>('member');
+  const [targetRecipientUserId, setTargetRecipientUserId] = useState<string>('');
+  const [targetRecipientEmail, setTargetRecipientEmail] = useState<string>('');
+  const [resultingRole, setResultingRole] = useState<'WORKSPACE_ADMIN' | 'WORKSPACE_MEMBER'>('WORKSPACE_ADMIN');
+  const [isInitiatingTransfer, setIsInitiatingTransfer] = useState(false);
+  const [isCancellingTransfer, setIsCancellingTransfer] = useState(false);
+  const [isAcceptingTransfer, setIsAcceptingTransfer] = useState(false);
+  const [isRejectingTransfer, setIsRejectingTransfer] = useState(false);
+
+  // Audit Trail Tab State (Phase 5C)
+  const [auditLogs, setAuditLogs] = useState<WorkspaceAuditLogItem[]>([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+  const [auditLogsError, setAuditLogsError] = useState<string | null>(null);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotalPages, setAuditTotalPages] = useState(1);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditActionFilter, setAuditActionFilter] = useState<string>('ALL');
+
+  // Danger Zone / Deletion Tab State (Phase 5B)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteConfirmationName, setDeleteConfirmationName] = useState('');
+  const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Authority Flags
   const isOwner = useMemo(() => {
@@ -200,6 +232,50 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
     }
   }, [activeWorkspace]);
 
+  // Load Pending Ownership Transfer (Phase 5A)
+  const loadPendingOwnershipTransfer = useCallback(async () => {
+    if (!activeWorkspace || activeWorkspace.isPersonal) return;
+    try {
+      setOwnershipLoading(true);
+      setOwnershipError(null);
+      const res = await workspacesApi.getPendingOwnershipTransfer(activeWorkspace.id);
+      if (res.success && res.data) {
+        setPendingOwnershipTransfer(res.data.transfer);
+      }
+    } catch (err: any) {
+      setOwnershipError(err.message || 'Failed to load ownership transfer status');
+    } finally {
+      setOwnershipLoading(false);
+    }
+  }, [activeWorkspace]);
+
+  // Load Audit Logs (Phase 5C)
+  const loadAuditLogs = useCallback(
+    async (pageToLoad = 1, actionFilter = auditActionFilter) => {
+      if (!activeWorkspace) return;
+      try {
+        setAuditLogsLoading(true);
+        setAuditLogsError(null);
+        const res = await workspacesApi.getAuditLogs(activeWorkspace.id, {
+          page: pageToLoad,
+          limit: 15,
+          action: actionFilter !== 'ALL' ? actionFilter : undefined,
+        });
+        if (res.success && res.data) {
+          setAuditLogs(res.data.logs || []);
+          setAuditTotal(res.data.pagination?.total || 0);
+          setAuditTotalPages(res.data.pagination?.totalPages || 1);
+          setAuditPage(pageToLoad);
+        }
+      } catch (err: any) {
+        setAuditLogsError(err.message || 'Failed to load workspace audit trail');
+      } finally {
+        setAuditLogsLoading(false);
+      }
+    },
+    [activeWorkspace, auditActionFilter]
+  );
+
   // Trigger loads on open and tab changes
   useEffect(() => {
     if (!isOpen || !activeWorkspace) return;
@@ -211,12 +287,32 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
       loadPermissions();
     } else if (activeTab === 'transfers') {
       loadTransfers();
+    } else if (activeTab === 'ownership') {
+      loadPendingOwnershipTransfer();
+    } else if (activeTab === 'audit') {
+      loadAuditLogs(1, auditActionFilter);
     }
     // Pre-fetch transfers on modal open to populate badge counter if authorized
     if (canTransfer && !activeWorkspace.isPersonal) {
       loadTransfers();
     }
-  }, [isOpen, activeWorkspace?.id, activeTab, loadMembers, loadInvitations, loadPermissions, loadTransfers, canTransfer]);
+    if (isOwner && !activeWorkspace.isPersonal) {
+      loadPendingOwnershipTransfer();
+    }
+  }, [
+    isOpen,
+    activeWorkspace?.id,
+    activeTab,
+    loadMembers,
+    loadInvitations,
+    loadPermissions,
+    loadTransfers,
+    loadPendingOwnershipTransfer,
+    loadAuditLogs,
+    canTransfer,
+    isOwner,
+    auditActionFilter,
+  ]);
 
   // Handle Approve Transfer
   const confirmApproveTransfer = async () => {
@@ -281,11 +377,136 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
     if (isOpen) {
       if (initialTab === 'permissions' && (!isOwner || activeWorkspace?.isPersonal)) {
         setActiveTab('members');
+      } else if (initialTab === 'ownership' && (!isOwner || activeWorkspace?.isPersonal)) {
+        setActiveTab('members');
+      } else if (initialTab === 'danger' && !isOwner) {
+        setActiveTab('members');
+      } else if (initialTab === 'audit' && (!isOwner && activeRole !== 'WORKSPACE_ADMIN')) {
+        setActiveTab('members');
       } else {
         setActiveTab(initialTab);
       }
     }
-  }, [isOpen, initialTab, isOwner, activeWorkspace?.isPersonal]);
+  }, [isOpen, initialTab, isOwner, activeRole, activeWorkspace?.isPersonal]);
+
+  // Handle Initiate Ownership Transfer (Phase 5A)
+  const handleInitiateOwnershipTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeWorkspace) return;
+    try {
+      setIsInitiatingTransfer(true);
+      setOwnershipFeedback(null);
+      if (targetRecipientMode === 'member' && !targetRecipientUserId) {
+        setOwnershipFeedback({ type: 'error', message: 'Please select a workspace member to receive ownership' });
+        setIsInitiatingTransfer(false);
+        return;
+      }
+      if (targetRecipientMode === 'email' && !targetRecipientEmail.trim()) {
+        setOwnershipFeedback({ type: 'error', message: 'Please enter a valid recipient email address' });
+        setIsInitiatingTransfer(false);
+        return;
+      }
+
+      const input = targetRecipientMode === 'member'
+        ? { targetUserId: targetRecipientUserId, targetRole: resultingRole }
+        : { targetEmail: targetRecipientEmail.trim().toLowerCase(), targetRole: resultingRole };
+
+      const res = await workspacesApi.requestOwnershipTransfer(activeWorkspace.id, input);
+      if (res.success && res.data) {
+        setPendingOwnershipTransfer(res.data.transfer);
+        setOwnershipFeedback({
+          type: 'success',
+          message: 'Ownership transfer request initiated! The recipient must accept to complete the transfer.',
+        });
+        setTargetRecipientEmail('');
+        setTargetRecipientUserId('');
+      }
+    } catch (err: any) {
+      setOwnershipFeedback({ type: 'error', message: err.message || 'Failed to initiate ownership transfer' });
+    } finally {
+      setIsInitiatingTransfer(false);
+    }
+  };
+
+  // Handle Cancel Ownership Transfer (Phase 5A)
+  const handleCancelOwnershipTransfer = async () => {
+    if (!activeWorkspace) return;
+    try {
+      setIsCancellingTransfer(true);
+      setOwnershipFeedback(null);
+      const res = await workspacesApi.cancelOwnershipTransfer(activeWorkspace.id);
+      if (res.success) {
+        setPendingOwnershipTransfer(null);
+        setOwnershipFeedback({ type: 'success', message: 'Ownership transfer request cancelled.' });
+      }
+    } catch (err: any) {
+      setOwnershipFeedback({ type: 'error', message: err.message || 'Failed to cancel ownership transfer' });
+    } finally {
+      setIsCancellingTransfer(false);
+    }
+  };
+
+  // Handle Accept Ownership Transfer (Phase 5A)
+  const handleAcceptOwnershipTransfer = async () => {
+    if (!activeWorkspace) return;
+    try {
+      setIsAcceptingTransfer(true);
+      setOwnershipFeedback(null);
+      const res = await workspacesApi.acceptOwnershipTransfer(activeWorkspace.id);
+      if (res.success) {
+        setOwnershipFeedback({ type: 'success', message: 'You are now the Owner of this workspace!' });
+        await refreshWorkspaces();
+        await loadPendingOwnershipTransfer();
+      }
+    } catch (err: any) {
+      setOwnershipFeedback({ type: 'error', message: err.message || 'Failed to accept ownership transfer' });
+    } finally {
+      setIsAcceptingTransfer(false);
+    }
+  };
+
+  // Handle Reject Ownership Transfer (Phase 5A)
+  const handleRejectOwnershipTransfer = async () => {
+    if (!activeWorkspace) return;
+    try {
+      setIsRejectingTransfer(true);
+      setOwnershipFeedback(null);
+      const res = await workspacesApi.rejectOwnershipTransfer(activeWorkspace.id);
+      if (res.success) {
+        setPendingOwnershipTransfer(null);
+        setOwnershipFeedback({ type: 'success', message: 'Ownership transfer request rejected.' });
+      }
+    } catch (err: any) {
+      setOwnershipFeedback({ type: 'error', message: err.message || 'Failed to reject ownership transfer' });
+    } finally {
+      setIsRejectingTransfer(false);
+    }
+  };
+
+  // Handle Confirm Delete Workspace (Phase 5B)
+  const handleConfirmDeleteWorkspace = async () => {
+    if (!activeWorkspace) return;
+    if (deleteConfirmationName.trim() !== activeWorkspace.name.trim()) {
+      setDeleteError(`Please type "${activeWorkspace.name}" exactly to confirm.`);
+      return;
+    }
+    try {
+      setIsDeletingWorkspace(true);
+      setDeleteError(null);
+      const res = await workspacesApi.deleteWorkspace(activeWorkspace.id, deleteConfirmationName.trim());
+      if (res.success) {
+        setDeleteModalOpen(false);
+        setDeleteConfirmationName('');
+        await refreshWorkspaces();
+        await refreshDeletedWorkspaces();
+        onClose();
+      }
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete workspace');
+    } finally {
+      setIsDeletingWorkspace(false);
+    }
+  };
 
   // Handle Role Change
   const confirmRoleChange = async () => {
@@ -510,6 +731,47 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                   {incomingTransfers.length}
                 </span>
               )}
+            </button>
+          )}
+
+          {/* Phase 5A: Workspace Ownership Transfer */}
+          {isOwner && !activeWorkspace.isPersonal && (
+            <button
+              type="button"
+              className={`wmm-tab-btn ${activeTab === 'ownership' ? 'is-active' : ''}`}
+              onClick={() => setActiveTab('ownership')}
+            >
+              <UsersIcon size={16} />
+              <span>Ownership</span>
+              {pendingOwnershipTransfer && (
+                <span className="wmm-tab-badge" style={{ backgroundColor: '#3b82f6', color: '#ffffff' }}>
+                  1
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Phase 5C: Administration Audit Trail */}
+          {(isOwner || activeRole === 'WORKSPACE_ADMIN') && (
+            <button
+              type="button"
+              className={`wmm-tab-btn ${activeTab === 'audit' ? 'is-active' : ''}`}
+              onClick={() => setActiveTab('audit')}
+            >
+              <ActivityPulseIcon size={16} />
+              <span>Audit Trail</span>
+            </button>
+          )}
+
+          {/* Phase 5B: Workspace Deletion / Danger Zone */}
+          {isOwner && (
+            <button
+              type="button"
+              className={`wmm-tab-btn ${activeTab === 'danger' ? 'is-active' : ''}`}
+              onClick={() => setActiveTab('danger')}
+            >
+              <TrashIcon size={16} />
+              <span>Danger Zone</span>
             </button>
           )}
         </div>
@@ -1032,6 +1294,415 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
               )}
             </div>
           )}
+
+          {/* Phase 5A: Ownership Tab */}
+          {activeTab === 'ownership' && (
+            <div className="wmm-ownership-section">
+              <div className="wmm-notice-card">
+                <div className="wmm-notice-title">
+                  <ShieldIcon size={16} />
+                  <span>Workspace Ownership Lifecycle</span>
+                </div>
+                <p className="wmm-notice-desc">
+                  Transferring ownership grants full administrative control of this workspace to the recipient.
+                  All projects, tasks, comments, notes, files, and memberships remain intact under the same workspace ID.
+                  Once accepted, you will transition to your chosen role (Admin or Member).
+                </p>
+              </div>
+
+              {ownershipFeedback && (
+                <div
+                  className={`wmm-feedback-banner ${
+                    ownershipFeedback.type === 'success' ? 'wmm-feedback-success' : 'wmm-feedback-error'
+                  }`}
+                >
+                  {ownershipFeedback.type === 'success' ? <CheckIcon size={16} /> : <AlertCircleIcon size={16} />}
+                  <span>{ownershipFeedback.message}</span>
+                </div>
+              )}
+
+              {ownershipError && (
+                <div className="wmm-feedback-banner wmm-feedback-error">
+                  <AlertCircleIcon size={16} />
+                  <span>{ownershipError}</span>
+                </div>
+              )}
+
+              {ownershipLoading ? (
+                <div className="wmm-loading-state">
+                  <div className="btn-spinner" />
+                  <span>Checking ownership transfer status...</span>
+                </div>
+              ) : pendingOwnershipTransfer ? (
+                <div className="wmm-pending-transfer-box">
+                  <div className="wmm-pending-header">
+                    <div className="wmm-pending-title">
+                      <UsersIcon size={18} />
+                      <span>Pending Ownership Transfer</span>
+                    </div>
+                    <span className="wmm-audit-badge wmm-audit-badge-ownership">
+                      {pendingOwnershipTransfer.status}
+                    </span>
+                  </div>
+
+                  <div className="wmm-pending-details">
+                    <div>
+                      <div className="wmm-pending-item-label">Transfer Recipient:</div>
+                      <div className="wmm-pending-item-val">
+                        {pendingOwnershipTransfer.targetUser.fullName || pendingOwnershipTransfer.targetUser.username}
+                        {' '}({pendingOwnershipTransfer.targetUser.email})
+                      </div>
+                    </div>
+                    <div>
+                      <div className="wmm-pending-item-label">Requested By:</div>
+                      <div className="wmm-pending-item-val">
+                        {pendingOwnershipTransfer.sourceOwner.fullName || pendingOwnershipTransfer.sourceOwner.username}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="wmm-pending-item-label">Your Post-Transfer Role:</div>
+                      <div className="wmm-pending-item-val">
+                        {pendingOwnershipTransfer.targetRole === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="wmm-pending-item-label">Expires:</div>
+                      <div className="wmm-pending-item-val">
+                        {new Date(pendingOwnershipTransfer.expiresAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                    {isOwner && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        isLoading={isCancellingTransfer}
+                        onClick={handleCancelOwnershipTransfer}
+                      >
+                        Cancel Transfer Request
+                      </Button>
+                    )}
+                    {pendingOwnershipTransfer.targetUserId === user?.id && (
+                      <>
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          style={{ backgroundColor: '#10b981', borderColor: '#059669' }}
+                          isLoading={isAcceptingTransfer}
+                          onClick={handleAcceptOwnershipTransfer}
+                        >
+                          Accept Ownership
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          isLoading={isRejectingTransfer}
+                          onClick={handleRejectOwnershipTransfer}
+                        >
+                          Decline
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <form className="wmm-transfer-form" onSubmit={handleInitiateOwnershipTransfer}>
+                  <h4 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600 }}>Initiate Transfer Request</h4>
+
+                  <div className="wmm-form-group">
+                    <label className="wmm-form-label">Transfer Recipient Target</label>
+                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.5rem' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8125rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="recipientMode"
+                          checked={targetRecipientMode === 'member'}
+                          onChange={() => setTargetRecipientMode('member')}
+                        />
+                        <span>Current Workspace Member</span>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8125rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="recipientMode"
+                          checked={targetRecipientMode === 'email'}
+                          onChange={() => setTargetRecipientMode('email')}
+                        />
+                        <span>Registered User Email</span>
+                      </label>
+                    </div>
+
+                    {targetRecipientMode === 'member' ? (
+                      <select
+                        className="wmm-form-select"
+                        value={targetRecipientUserId}
+                        onChange={(e) => setTargetRecipientUserId(e.target.value)}
+                        required
+                      >
+                        <option value="">Select a member...</option>
+                        {members
+                          .filter((m) => m.userId !== user?.id)
+                          .map((m) => (
+                            <option key={m.userId} value={m.userId}>
+                              {m.user.fullName || m.user.username} ({m.user.email}) - {m.role === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}
+                            </option>
+                          ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="email"
+                        className="wmm-form-input"
+                        placeholder="verified.user@example.com"
+                        value={targetRecipientEmail}
+                        onChange={(e) => setTargetRecipientEmail(e.target.value)}
+                        required
+                      />
+                    )}
+                    <span className="wmm-form-helper">
+                      Recipient must have a verified registered account to receive and accept workspace ownership.
+                    </span>
+                  </div>
+
+                  <div className="wmm-form-group">
+                    <label className="wmm-form-label">Your Resulting Role After Transfer</label>
+                    <select
+                      className="wmm-form-select"
+                      value={resultingRole}
+                      onChange={(e) => setResultingRole(e.target.value as 'WORKSPACE_ADMIN' | 'WORKSPACE_MEMBER')}
+                    >
+                      <option value="WORKSPACE_ADMIN">Workspace Admin (Recommended)</option>
+                      <option value="WORKSPACE_MEMBER">Workspace Member</option>
+                    </select>
+                    <span className="wmm-form-helper">
+                      Upon recipient acceptance, your role will transition to this setting.
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      size="sm"
+                      isLoading={isInitiatingTransfer}
+                    >
+                      Send Transfer Request
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </div>
+          )}
+
+          {/* Phase 5C: Audit Trail Tab */}
+          {activeTab === 'audit' && (
+            <div className="wmm-audit-section">
+              <div className="wmm-audit-toolbar">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <label className="wmm-form-label" style={{ margin: 0 }}>Filter Action:</label>
+                  <select
+                    className="wmm-filter-select"
+                    value={auditActionFilter}
+                    onChange={(e) => {
+                      const newFilter = e.target.value;
+                      setAuditActionFilter(newFilter);
+                      loadAuditLogs(1, newFilter);
+                    }}
+                  >
+                    <option value="ALL">All Actions</option>
+                    <option value="OWNERSHIP_TRANSFER_REQUESTED">Ownership Transfer Requested</option>
+                    <option value="OWNERSHIP_TRANSFERRED">Ownership Transferred</option>
+                    <option value="OWNERSHIP_TRANSFER_CANCELLED">Ownership Transfer Cancelled</option>
+                    <option value="OWNERSHIP_TRANSFER_REJECTED">Ownership Transfer Rejected</option>
+                    <option value="WORKSPACE_DELETION_SCHEDULED">Workspace Deletion Scheduled</option>
+                    <option value="WORKSPACE_RECOVERED">Workspace Recovered</option>
+                    <option value="ADMIN_PERMISSIONS_UPDATED">Admin Permissions Updated</option>
+                    <option value="MEMBER_ROLE_UPDATED">Member Role Updated</option>
+                    <option value="MEMBER_REMOVED">Member Removed</option>
+                    <option value="MEMBER_INVITED">Member Invited</option>
+                    <option value="MEMBER_JOINED">Member Joined</option>
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  className="wmm-btn-resend"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}
+                  onClick={() => loadAuditLogs(auditPage, auditActionFilter)}
+                  disabled={auditLogsLoading}
+                >
+                  <RefreshCwIcon size={14} />
+                  <span>Refresh</span>
+                </button>
+              </div>
+
+              {auditLogsError && (
+                <div className="wmm-feedback-banner wmm-feedback-error">
+                  <AlertCircleIcon size={16} />
+                  <span>{auditLogsError}</span>
+                </div>
+              )}
+
+              {auditLogsLoading ? (
+                <div className="wmm-loading-state">
+                  <div className="btn-spinner" />
+                  <span>Loading audit log entries...</span>
+                </div>
+              ) : auditLogs.length === 0 ? (
+                <div className="wmm-empty-state">
+                  <p>No administrative audit logs found.</p>
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="wmm-audit-table">
+                    <thead>
+                      <tr>
+                        <th>Date & Time</th>
+                        <th>Actor</th>
+                        <th>Action</th>
+                        <th>Target</th>
+                        <th>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditLogs.map((log) => {
+                        let badgeClass = 'wmm-audit-badge-default';
+                        if (log.action.includes('OWNERSHIP')) badgeClass = 'wmm-audit-badge-ownership';
+                        else if (log.action.includes('DELETION')) badgeClass = 'wmm-audit-badge-delete';
+                        else if (log.action.includes('RECOVER')) badgeClass = 'wmm-audit-badge-recovery';
+                        else if (log.action.includes('MEMBER')) badgeClass = 'wmm-audit-badge-member';
+
+                        return (
+                          <tr key={log.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              {new Date(log.createdAt).toLocaleString(undefined, {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ fontWeight: 600, color: '#ffffff' }}>
+                                  {log.actor?.fullName || log.actor?.username || 'System'}
+                                </span>
+                                {log.actor?.email && (
+                                  <span style={{ fontSize: '0.6875rem', color: '#71717a' }}>{log.actor.email}</span>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`wmm-audit-badge ${badgeClass}`}>
+                                {log.action.replace(/_/g, ' ')}
+                              </span>
+                            </td>
+                            <td>
+                              {log.targetType ? (
+                                <span style={{ fontSize: '0.75rem', color: '#a1a1aa' }}>
+                                  {log.targetType}
+                                </span>
+                              ) : (
+                                <span style={{ color: '#52525b' }}>—</span>
+                              )}
+                            </td>
+                            <td>
+                              {log.metadata && Object.keys(log.metadata).length > 0 ? (
+                                <pre className="wmm-audit-meta-preview">
+                                  {JSON.stringify(log.metadata, null, 2)}
+                                </pre>
+                              ) : (
+                                <span style={{ color: '#52525b' }}>—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {auditTotalPages > 1 && (
+                <div className="wmm-audit-pagination">
+                  <span style={{ fontSize: '0.75rem', color: '#a1a1aa' }}>
+                    Page {auditPage} of {auditTotalPages} ({auditTotal} total events)
+                  </span>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={auditPage <= 1 || auditLogsLoading}
+                      onClick={() => loadAuditLogs(auditPage - 1, auditActionFilter)}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={auditPage >= auditTotalPages || auditLogsLoading}
+                      onClick={() => loadAuditLogs(auditPage + 1, auditActionFilter)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Phase 5B: Danger Zone Tab */}
+          {activeTab === 'danger' && (
+            <div className="wmm-danger-section">
+              {activeWorkspace.isPersonal ? (
+                <div className="wmm-danger-protected">
+                  <h4 style={{ margin: 0, color: '#60a5fa', fontSize: '0.9375rem', fontWeight: 600 }}>
+                    Personal Workspace Protected
+                  </h4>
+                  <p style={{ margin: 0, fontSize: '0.8125rem', color: '#d4d4d8', lineHeight: 1.5 }}>
+                    This workspace is your personal default workspace tied directly to your user account.
+                    It cannot be deleted.
+                  </p>
+                </div>
+              ) : (
+                <div className="wmm-danger-card">
+                  <div className="wmm-danger-header">
+                    <TrashIcon size={20} className="wmm-danger-title" />
+                    <h4 className="wmm-danger-title">Delete Workspace</h4>
+                  </div>
+                  <p className="wmm-danger-desc">
+                    Soft-deletes <strong>{activeWorkspace.name}</strong> with a 30-day recovery grace period.
+                    <br /><br />
+                    • <strong>Immediate Access Revocation:</strong> All access to projects, tasks, comments, notes, files, and calendar will be instantly hidden and denied for all members.
+                    <br />
+                    • <strong>Transfers & Invitations:</strong> Any pending project transfers and workspace invitations will be transactionally cancelled.
+                    <br />
+                    • <strong>30-Day Recovery:</strong> As the workspace Owner, you can restore this workspace within 30 days from the Workspace Switcher in the sidebar. After 30 days, the workspace will permanently expire.
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '0.5rem' }}>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}
+                      onClick={() => {
+                        setDeleteConfirmationName('');
+                        setDeleteError(null);
+                        setDeleteModalOpen(true);
+                      }}
+                    >
+                      Delete This Workspace
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Confirmation Overlay: Role Change */}
@@ -1226,6 +1897,69 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                   onClick={confirmRejectTransfer}
                 >
                   Reject Request
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirmation Overlay: Workspace Soft Deletion (Phase 5B) */}
+        {deleteModalOpen && (
+          <div className="wmm-confirm-backdrop">
+            <div className="wmm-confirm-box" style={{ maxWidth: '440px' }}>
+              <h4 className="wmm-confirm-title" style={{ color: '#f87171' }}>
+                Delete Workspace?
+              </h4>
+              <p className="wmm-confirm-desc">
+                Are you sure you want to soft-delete <strong>{activeWorkspace.name}</strong>?
+                <br /><br />
+                All members will lose access immediately. You will have 30 days to recover this workspace from the workspace switcher before it is permanently expired.
+              </p>
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ fontSize: '0.75rem', color: '#a1a1aa', display: 'block', marginBottom: '0.375rem' }}>
+                  Please type <strong>{activeWorkspace.name}</strong> to confirm:
+                </label>
+                <input
+                  type="text"
+                  className="wmm-confirm-input"
+                  placeholder={activeWorkspace.name}
+                  value={deleteConfirmationName}
+                  onChange={(e) => {
+                    setDeleteConfirmationName(e.target.value);
+                    setDeleteError(null);
+                  }}
+                  disabled={isDeletingWorkspace}
+                />
+                {deleteError && (
+                  <span style={{ fontSize: '0.75rem', color: '#f87171', display: 'block', marginTop: '0.375rem' }}>
+                    {deleteError}
+                  </span>
+                )}
+              </div>
+              <div className="wmm-confirm-actions">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setDeleteModalOpen(false);
+                    setDeleteConfirmationName('');
+                    setDeleteError(null);
+                  }}
+                  disabled={isDeletingWorkspace}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}
+                  isLoading={isDeletingWorkspace}
+                  disabled={deleteConfirmationName.trim() !== activeWorkspace.name.trim()}
+                  onClick={handleConfirmDeleteWorkspace}
+                >
+                  Delete Workspace
                 </Button>
               </div>
             </div>

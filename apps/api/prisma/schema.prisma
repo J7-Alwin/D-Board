@@ -47,6 +47,30 @@ enum ProjectTransferStatus {
   EXPIRED
 }
 
+enum WorkspaceOwnershipTransferStatus {
+  PENDING
+  ACCEPTED
+  CANCELLED
+  REJECTED
+  EXPIRED
+}
+
+enum WorkspaceAuditAction {
+  OWNERSHIP_TRANSFER_REQUESTED
+  OWNERSHIP_TRANSFER_ACCEPTED
+  OWNERSHIP_TRANSFER_CANCELLED
+  OWNERSHIP_TRANSFER_REJECTED
+  OWNERSHIP_TRANSFERRED
+  ADMIN_PERMISSIONS_UPDATED
+  WORKSPACE_DELETION_SCHEDULED
+  WORKSPACE_RESTORED
+  MEMBER_INVITED
+  MEMBER_JOINED
+  MEMBER_ROLE_UPDATED
+  MEMBER_REMOVED
+  WORKSPACE_UPDATED
+}
+
 enum WorkItemType {
   TASK
   BUG
@@ -202,6 +226,10 @@ model User {
   receivedWorkspaceInvitations WorkspaceInvitation[]   @relation("WorkspaceReceivedInvitations")
   initiatedProjectTransfers    ProjectTransfer[]       @relation("InitiatedProjectTransfers")
   reviewedProjectTransfers     ProjectTransfer[]       @relation("ReviewedProjectTransfers")
+  deletedWorkspaces            Workspace[]             @relation("DeletedWorkspaces")
+  sentOwnershipTransfers       WorkspaceOwnershipTransfer[] @relation("SentOwnershipTransfers")
+  receivedOwnershipTransfers   WorkspaceOwnershipTransfer[] @relation("ReceivedOwnershipTransfers")
+  actedWorkspaceAuditLogs      WorkspaceAuditLog[]     @relation("ActorWorkspaceAuditLogs")
 }
 
 model Project {
@@ -252,6 +280,10 @@ model Workspace {
   owner            User                  @relation("OwnedWorkspaces", fields: [ownerId], references: [id], onDelete: Restrict)
   isPersonal       Boolean               @default(false)
   adminPermissions Json?                 @default("{\"canInviteMembers\":true,\"canRemoveMembers\":false,\"canCreateProjects\":true,\"canManageRoles\":false}")
+  deletedAt        DateTime?
+  deletedById      String?
+  deletedBy        User?                 @relation("DeletedWorkspaces", fields: [deletedById], references: [id], onDelete: SetNull)
+  deletionScheduledAt DateTime?
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
 
@@ -261,9 +293,12 @@ model Workspace {
   calendarFeedTokens CalendarFeedToken[] @relation("WorkspaceCalendarFeedTokens")
   outgoingProjectTransfers ProjectTransfer[]   @relation("SourceWorkspaceTransfers")
   incomingProjectTransfers ProjectTransfer[]   @relation("DestinationWorkspaceTransfers")
+  ownershipTransfers WorkspaceOwnershipTransfer[]
+  auditLogs        WorkspaceAuditLog[]
 
   @@index([ownerId])
   @@index([isPersonal])
+  @@index([deletedAt])
 }
 
 model WorkspaceInvitation {
@@ -675,4 +710,48 @@ model ProjectTransfer {
   @@index([destinationWorkspaceId, status])
   @@index([initiatedById])
   @@index([status, expiresAt])
-}
+}
+
+model WorkspaceOwnershipTransfer {
+  id            String                          @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceOwnerId String
+  sourceOwner   User                            @relation("SentOwnershipTransfers", fields: [sourceOwnerId], references: [id], onDelete: Restrict)
+  targetUserId  String
+  targetUser    User                            @relation("ReceivedOwnershipTransfers", fields: [targetUserId], references: [id], onDelete: Restrict)
+  targetRole    WorkspaceRole                   @default(WORKSPACE_ADMIN)
+  status        WorkspaceOwnershipTransferStatus @default(PENDING)
+  tokenHash     String                          @unique
+  expiresAt     DateTime
+  acceptedAt    DateTime?
+  cancelledAt   DateTime?
+  rejectedAt    DateTime?
+  createdAt     DateTime                        @default(now())
+  updatedAt     DateTime                        @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([targetUserId, status])
+  @@index([sourceOwnerId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+}
+
+model WorkspaceAuditLog {
+  id          String               @id @default(uuid())
+  workspaceId String
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actorId     String?
+  actor       User?                @relation("ActorWorkspaceAuditLogs", fields: [actorId], references: [id], onDelete: SetNull)
+  action      WorkspaceAuditAction
+  targetType  String?
+  targetId    String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime             @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, action])
+  @@index([actorId])
+}

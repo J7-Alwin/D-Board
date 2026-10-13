@@ -29,6 +29,7 @@ export class CalendarService {
           select: {
             id: true,
             ownerId: true,
+            deletedAt: true,
             members: { where: { userId } },
           },
         },
@@ -37,6 +38,10 @@ export class CalendarService {
 
     if (!project) {
       throw new AppError('Project not found', 404);
+    }
+
+    if (project.workspace.deletedAt) {
+      throw new AppError('The workspace containing this project has been deleted', 404);
     }
 
     const membership = await prisma.projectMember.findUnique({

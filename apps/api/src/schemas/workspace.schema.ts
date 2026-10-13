@@ -81,3 +81,41 @@ export const createWorkspaceInvitationSchema = z.object({
 });
 
 export type CreateWorkspaceInvitationInput = z.infer<typeof createWorkspaceInvitationSchema>;
+
+export const requestOwnershipTransferSchema = z.object({
+  targetUserId: z.string().uuid('Invalid user ID format').optional(),
+  targetEmail: z.string().trim().email('Invalid email address').toLowerCase().optional(),
+  targetRole: z.enum(['WORKSPACE_ADMIN', 'WORKSPACE_MEMBER']).default('WORKSPACE_ADMIN'),
+}).refine((data) => !!data.targetUserId || !!data.targetEmail, {
+  message: 'Either targetUserId or targetEmail must be provided',
+});
+
+export type RequestOwnershipTransferInput = z.infer<typeof requestOwnershipTransferSchema>;
+
+export const acceptOwnershipTransferSchema = z.object({
+  token: z.string().trim().min(16).optional(),
+});
+
+export type AcceptOwnershipTransferInput = z.infer<typeof acceptOwnershipTransferSchema>;
+
+export const rejectOwnershipTransferSchema = z.object({
+  token: z.string().trim().min(16).optional(),
+});
+
+export type RejectOwnershipTransferInput = z.infer<typeof rejectOwnershipTransferSchema>;
+
+export const deleteWorkspaceSchema = z.object({
+  confirmationName: z.string().trim().min(1, 'Confirmation name is required'),
+});
+
+export type DeleteWorkspaceInput = z.infer<typeof deleteWorkspaceSchema>;
+
+export const workspaceAuditLogQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  action: z.string().trim().optional(),
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+});
+
+export type WorkspaceAuditLogQueryInput = z.infer<typeof workspaceAuditLogQuerySchema>;

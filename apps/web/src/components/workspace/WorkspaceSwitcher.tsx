@@ -21,12 +21,14 @@ export interface WorkspaceSwitcherProps {
 export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspaceSwitched }) => {
   const {
     workspaces,
+    deletedWorkspaces,
     activeWorkspace,
     activeRole,
     isLoading,
     error,
     setActiveWorkspaceId,
     createWorkspace,
+    recoverWorkspace,
   } = useWorkspace();
 
   const [isOpen, setIsOpen] = useState(false);
@@ -263,6 +265,70 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
                   </button>
                 );
               })
+            )}
+
+            {/* Recoverable Soft-Deleted Workspaces (Phase 5B) */}
+            {deletedWorkspaces && deletedWorkspaces.length > 0 && (
+              <>
+                <div className="workspace-section-header" style={{ marginTop: '0.75rem', color: '#ef4444' }}>
+                  <span>DELETED WORKSPACES (RECOVERY)</span>
+                  <span className="workspace-section-count">({deletedWorkspaces.length})</span>
+                </div>
+                {deletedWorkspaces.map((dws) => (
+                  <div
+                    key={dws.id}
+                    className="workspace-option-item is-deleted"
+                    style={{ opacity: 0.9, backgroundColor: '#fef2f2', border: '1px dashed #fca5a5' }}
+                  >
+                    <div className="workspace-option-details">
+                      <div className="workspace-option-title-row">
+                        <span className="workspace-option-name" style={{ textDecoration: 'line-through' }}>
+                          {dws.name}
+                        </span>
+                        <span
+                          className="workspace-tag-recovery"
+                          style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                            color: '#b45309',
+                            backgroundColor: '#fef3c7',
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                          }}
+                        >
+                          {dws.daysRemaining}d left
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="workspace-restore-btn"
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        borderRadius: '4px',
+                        border: '1px solid #10b981',
+                        color: '#065f46',
+                        backgroundColor: '#d1fae5',
+                        cursor: 'pointer',
+                        marginLeft: '8px',
+                      }}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          await recoverWorkspace(dws.id);
+                          setIsOpen(false);
+                        } catch (err: any) {
+                          alert(err.message || 'Failed to restore workspace');
+                        }
+                      }}
+                    >
+                      Restore
+                    </button>
+                  </div>
+                ))}
+              </>
             )}
           </div>
 

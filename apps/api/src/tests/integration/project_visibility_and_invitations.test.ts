@@ -36,6 +36,7 @@ describe('Project Visibility Model and Cross-Workspace Invitations Integration T
 
   let teamWsId: string;
   let otherWsId: string;
+  let unauthorizedWsId: string;
 
   let publicProjectId: string;
   let restrictedProjectId: string;
@@ -134,6 +135,13 @@ describe('Project Visibility Model and Cross-Workspace Invitations Integration T
     expect(resOtherWs.status).toBe(201);
     otherWsId = resOtherWs.body.data.workspace.id;
 
+    const resUnauthWs = await request(app)
+      .post('/api/workspaces')
+      .set('Cookie', ownerCookie)
+      .send({ name: `Unauth WS ${ts}`, slug: `unauth-ws-${ts}` });
+    expect(resUnauthWs.status).toBe(201);
+    unauthorizedWsId = resUnauthWs.body.data.workspace.id;
+
     // 6. Create WORKSPACE-visible project in Team Workspace
     const resP1 = await request(app)
       .post('/api/projects')
@@ -191,10 +199,10 @@ describe('Project Visibility Model and Cross-Workspace Invitations Integration T
         where: { id: { in: [publicProjectId, restrictedProjectId, otherWsProjectId] } },
       });
       await prisma.workspaceMember.deleteMany({
-        where: { workspaceId: { in: [teamWsId, otherWsId] } },
+        where: { workspaceId: { in: [teamWsId, otherWsId, unauthorizedWsId] } },
       });
       await prisma.workspace.deleteMany({
-        where: { id: { in: [teamWsId, otherWsId] } },
+        where: { id: { in: [teamWsId, otherWsId, unauthorizedWsId] } },
       });
       await prisma.user.deleteMany({
         where: { id: { in: [ownerUserId, adminUserId, memberUserId] } },
@@ -333,7 +341,17 @@ describe('Project Visibility Model and Cross-Workspace Invitations Integration T
       expect(resInv1.status).toBe(201);
       invitationToTeamProjId = resInv1.body.data.invitation.id;
 
-      // Also invite Member to project in Other Workspace (where Member is NOT yet a workspace member)
+      // Add Member to otherWsId so project invitation is valid
+      await prisma.workspaceMember.create({
+        data: {
+          workspaceId: otherWsId,
+          userId: memberUserId,
+          role: 'WORKSPACE_MEMBER',
+          origin: 'DIRECT',
+        },
+      });
+
+      // Also invite Member to project in Other Workspace
       const resInv2 = await request(app)
         .post(`/api/projects/${otherWsProjectId}/invitations`)
         .set('Cookie', ownerCookie)
@@ -386,18 +404,23 @@ describe('Project Visibility Model and Cross-Workspace Invitations Integration T
     });
 
     it('5. GET /api/invitations rejects unauthorized workspace ID with 403', async () => {
-      // Member tries to pass otherWsId (where Member is NOT a member)
+      // Member tries to pass unauthorizedWsId (where Member is NOT a member)
       const res = await request(app)
         .get('/api/invitations')
         .set('Cookie', memberCookie)
-        .set('X-Workspace-Id', otherWsId);
+        .set('X-Workspace-Id', unauthorizedWsId);
 
       expect(res.status).toBe(403);
       expect(res.body.success).toBe(false);
     });
 
     it('6. Accepting project invitation enforces workspace membership requirement (403)', async () => {
-      // Member tries to accept invitation to otherWsProjectId where Member is NOT a workspace member
+      // Member is removed from otherWsId
+      await prisma.workspaceMember.deleteMany({
+        where: { workspaceId: otherWsId, userId: memberUserId },
+      });
+
+      // Member tries to accept invitation to otherWsProjectId where Member is no longer a workspace member
       const res = await request(app)
         .post(`/api/invitations/${invitationToOtherProjId}/accept`)
         .set('Cookie', memberCookie);

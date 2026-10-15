@@ -129,11 +129,27 @@ describe('Multi-Workspace Security Remediation Test Suite', () => {
   // 1. Critical: Project Invitation Acceptance & Workspace Membership Prereq
   // =========================================================================
   describe('1. Project Invitation Acceptance Lifecycle & Prerequisite Checks', () => {
+    it('rejects invitation creation for non-workspace member (400)', async () => {
+      await expect(
+        invitationService.createInvitation(teamProject1Id, ownerId, {
+          email: outsiderUser.email,
+          role: 'PROJECT_MEMBER',
+        })
+      ).rejects.toThrow(/(workspace member|active member of this workspace)/i);
+    });
+
     it('rejects acceptance with 403 when recipient is not a workspace member and preserves PENDING status', async () => {
-      // Invite outsider to Team Project 1 (outsider is NOT in teamWsId)
-      const inv = await invitationService.createInvitation(teamProject1Id, ownerId, {
-        email: outsiderUser.email,
-        role: 'PROJECT_MEMBER',
+      // Existing pending invitation for outsider (not in teamWsId)
+      const inv = await prisma.invitation.create({
+        data: {
+          projectId: teamProject1Id,
+          invitedEmail: outsiderUser.email.toLowerCase(),
+          invitedUserId: outsiderId,
+          invitedById: ownerId,
+          role: 'PROJECT_MEMBER',
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 86400000),
+        },
       });
 
       await expect(invitationService.acceptInvitation(inv.id, outsiderId)).rejects.toThrow(
@@ -149,13 +165,7 @@ describe('Multi-Workspace Security Remediation Test Suite', () => {
     });
 
     it('successfully accepts invitation once workspace membership is established', async () => {
-      // Invite memberUser to Team Project 1
-      const inv = await invitationService.createInvitation(teamProject1Id, ownerId, {
-        email: memberUser.email,
-        role: 'PROJECT_MEMBER',
-      });
-
-      // Add memberUser to workspace
+      // Add memberUser to workspace first
       await prisma.workspaceMember.create({
         data: {
           workspaceId: teamWsId,
@@ -163,6 +173,12 @@ describe('Multi-Workspace Security Remediation Test Suite', () => {
           role: 'WORKSPACE_MEMBER',
           origin: 'PROJECT_DERIVED',
         },
+      });
+
+      // Invite memberUser to Team Project 1
+      const inv = await invitationService.createInvitation(teamProject1Id, ownerId, {
+        email: memberUser.email,
+        role: 'PROJECT_MEMBER',
       });
 
       const res = await invitationService.acceptInvitation(inv.id, memberId);
@@ -879,6 +895,12 @@ describe('Multi-Workspace Security Remediation Test Suite', () => {
   // =========================================================================
   describe('7. Workspace Metadata Disclosure Restrictions', () => {
     it('restricts project and member counts for non-privileged members to only what they are authorized to access', async () => {
+      // Ensure teamProject2 is RESTRICTED so non-member cannot access it
+      await prisma.project.update({
+        where: { id: teamProject2Id },
+        data: { visibility: 'RESTRICTED' },
+      });
+
       // In teamWsId, owner has 2 projects (TP1 and TP2)
       // Add memberUser ONLY to Team Project 1
       await prisma.projectMember.create({

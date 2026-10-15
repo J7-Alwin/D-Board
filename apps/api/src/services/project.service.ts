@@ -128,11 +128,36 @@ export class ProjectService {
         for (const inv of validInvitations) {
           const normalizedEmail = inv.email.toLowerCase().trim();
           
-          // Check if invited user is already a registered D-Board user
+          // Check if invited user is an active member or owner of targetWorkspaceId
           const existingUser = await tx.user.findUnique({
             where: { email: normalizedEmail },
-            select: { id: true },
+            select: { id: true, isDeactivated: true },
           });
+
+          let isWsMember = false;
+          if (existingUser && !existingUser.isDeactivated) {
+            const targetWs = await tx.workspace.findUnique({
+              where: { id: targetWorkspaceId },
+              select: { ownerId: true },
+            });
+            if (targetWs?.ownerId === existingUser.id) {
+              isWsMember = true;
+            } else {
+              const wsMember = await tx.workspaceMember.findUnique({
+                where: {
+                  workspaceId_userId: {
+                    workspaceId: targetWorkspaceId,
+                    userId: existingUser.id,
+                  },
+                },
+              });
+              isWsMember = !!wsMember;
+            }
+          }
+
+          if (!isWsMember) {
+            throw new AppError(`Cannot invite ${normalizedEmail}: user must be an active member of this workspace`, 400);
+          }
 
           // 7-day expiration for invitations
           const expiresAt = new Date();

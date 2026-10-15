@@ -299,9 +299,25 @@ export class WorkspaceMemberService {
             userId: targetMember.userId,
           },
         });
+
+        // 3. Invalidate/cancel any pending project invitations for this member in this workspace
+        await tx.invitation.updateMany({
+          where: {
+            projectId: { in: projectIds },
+            OR: [
+              { invitedUserId: targetMember.userId },
+              { invitedEmail: targetMember.user.email.toLowerCase() },
+            ],
+            status: 'PENDING',
+          },
+          data: {
+            status: 'CANCELLED',
+            cancelledAt: new Date(),
+          },
+        });
       }
 
-      // 3. Delete workspace member record
+      // 4. Delete workspace member record
       await tx.workspaceMember.delete({
         where: { id: targetMemberId },
       });

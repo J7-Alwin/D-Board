@@ -844,6 +844,16 @@ describe('Phase 4 — Workspace Project Transfer Integration & Security Tests', 
         .send({ name: 'Project With Pending Invite', description: 'Testing invite cancellation' });
       const pId = pRes.body.data.project.id;
 
+      // Ensure userA is a member of remDestWsId so project invitation is valid
+      await prisma.workspaceMember.create({
+        data: {
+          workspaceId: remDestWsId,
+          userId: userAId,
+          role: 'WORKSPACE_MEMBER',
+          origin: 'DIRECT',
+        },
+      });
+
       // 2. Create pending invitation for this project
       const invRes = await request(app)
         .post(`/api/projects/${pId}/invitations`)

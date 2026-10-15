@@ -246,6 +246,21 @@ export class MemberService {
               },
             },
           });
+
+          await tx.invitation.updateMany({
+            where: {
+              project: { workspaceId: project.workspaceId },
+              OR: [
+                { invitedUserId: targetMember.userId },
+                { invitedEmail: targetMember.user.email.toLowerCase() },
+              ],
+              status: 'PENDING',
+            },
+            data: {
+              status: 'CANCELLED',
+              cancelledAt: new Date(),
+            },
+          });
         }
       }
 

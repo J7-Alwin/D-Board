@@ -43,21 +43,50 @@ export class InvitationService {
       throw new AppError('You cannot invite yourself to the project', 400);
     }
 
-    // 2. Check if a user with this email is ALREADY an active project member
-    const existingMemberUser = await prisma.user.findUnique({
+    // 2. Target user must exist and be an active member or owner of the project's workspace
+    // External guests or users who are not active members of this workspace cannot be invited directly to a project.
+    const targetUser = await prisma.user.findUnique({
       where: { email: normalizedEmail },
-      include: {
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        username: true,
+        isDeactivated: true,
         memberships: {
           where: { projectId },
+          select: { id: true },
         },
       },
     });
 
-    if (existingMemberUser && existingMemberUser.memberships.length > 0) {
+    let isWsMember = false;
+    if (targetUser && !targetUser.isDeactivated) {
+      if (project.workspace?.ownerId === targetUser.id) {
+        isWsMember = true;
+      } else {
+        const wsMember = await prisma.workspaceMember.findUnique({
+          where: {
+            workspaceId_userId: {
+              workspaceId: project.workspaceId,
+              userId: targetUser.id,
+            },
+          },
+        });
+        isWsMember = !!wsMember;
+      }
+    }
+
+    if (!targetUser || !isWsMember) {
+      throw new AppError('The invited user must be an active member of this workspace', 400);
+    }
+
+    // 3. Check if user is ALREADY an active project member
+    if (targetUser.memberships.length > 0) {
       throw new AppError('This user is already a member of this project', 400);
     }
 
-    // 3. Check for existing active PENDING invitation
+    // 4. Check for existing active PENDING invitation
     const existingPending = await prisma.invitation.findFirst({
       where: {
         projectId,
@@ -71,7 +100,7 @@ export class InvitationService {
       throw new AppError('A pending invitation has already been sent to this email address', 400);
     }
 
-    // 4. Create new invitation with 7-day expiration
+    // 5. Create new invitation with 7-day expiration
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
@@ -79,7 +108,7 @@ export class InvitationService {
       data: {
         projectId,
         invitedEmail: normalizedEmail,
-        invitedUserId: existingMemberUser?.id || null,
+        invitedUserId: targetUser.id,
         invitedById: actorId,
         role: input.role || 'PROJECT_MEMBER',
         message: input.message ? input.message.trim() : null,
@@ -93,7 +122,7 @@ export class InvitationService {
       },
     });
 
-    // 5. Dispatch email via BullMQ
+    // 6. Dispatch email via BullMQ
     await enqueueEmailJob({
       type: 'PROJECT_INVITATION',
       toEmail: normalizedEmail,
@@ -105,10 +134,10 @@ export class InvitationService {
       expiresAt: expiresAt.toISOString(),
     });
 
-    // 6. In-app notification if invited user exists in system
-    if (existingMemberUser && existingMemberUser.id !== actorId) {
+    // 7. In-app notification if invited user exists in system
+    if (targetUser.id !== actorId) {
       await notificationService.createNotification({
-        recipientId: existingMemberUser.id,
+        recipientId: targetUser.id,
         actorId,
         projectId,
         type: 'PROJECT_INVITED',
@@ -117,7 +146,7 @@ export class InvitationService {
         link: '/app/invitations',
       });
 
-      publishToUser(existingMemberUser.id, 'INVITATION_CREATED', {
+      publishToUser(targetUser.id, 'INVITATION_CREATED', {
         projectId,
         invitationId: invitation.id,
         actorId,
@@ -177,6 +206,44 @@ export class InvitationService {
     const nowMs = Date.now();
     if (invitation.updatedAt && nowMs - new Date(invitation.updatedAt).getTime() < 60 * 1000) {
       throw new AppError('Please wait 60 seconds before resending this invitation', 429);
+    }
+
+    // Verify recipient is still an active member or owner of the workspace
+    const targetUser = await prisma.user.findUnique({
+      where: { email: invitation.invitedEmail.toLowerCase() },
+      select: {
+        id: true,
+        isDeactivated: true,
+        memberships: {
+          where: { projectId },
+          select: { id: true },
+        },
+      },
+    });
+
+    let isWsMember = false;
+    if (targetUser && !targetUser.isDeactivated) {
+      if (project.workspace?.ownerId === targetUser.id) {
+        isWsMember = true;
+      } else {
+        const wsMember = await prisma.workspaceMember.findUnique({
+          where: {
+            workspaceId_userId: {
+              workspaceId: project.workspaceId,
+              userId: targetUser.id,
+            },
+          },
+        });
+        isWsMember = !!wsMember;
+      }
+    }
+
+    if (!targetUser || !isWsMember) {
+      throw new AppError('Cannot resend invitation: the invited user is not an active member of this workspace', 400);
+    }
+
+    if (targetUser.memberships.length > 0) {
+      throw new AppError('This user is already a member of this project', 400);
     }
 
     const actor = await prisma.user.findUnique({
@@ -268,7 +335,23 @@ export class InvitationService {
     }
 
     if (workspaceId) {
-      where.project = { workspaceId };
+      where.project = { workspaceId, workspace: { deletedAt: null } };
+    } else {
+      const activeWorkspaces = await prisma.workspace.findMany({
+        where: {
+          deletedAt: null,
+          OR: [
+            { ownerId: userId },
+            { members: { some: { userId } } },
+          ],
+        },
+        select: { id: true },
+      });
+      const activeWorkspaceIds = activeWorkspaces.map((w) => w.id);
+      where.project = {
+        workspaceId: { in: activeWorkspaceIds },
+        workspace: { deletedAt: null },
+      };
     }
 
     const invitations = await prisma.invitation.findMany({
@@ -347,6 +430,10 @@ export class InvitationService {
       throw new AppError('Invitation not found', 404);
     }
 
+    if (invitation.project.workspace?.deletedAt) {
+      throw new AppError('The workspace containing this project has been deleted', 404);
+    }
+
     // Verify status is PENDING
     if (invitation.status !== 'PENDING') {
       throw new AppError(`This invitation has already been ${invitation.status.toLowerCase()}`, 400);
@@ -406,6 +493,12 @@ export class InvitationService {
 
     // Atomically create ProjectMember and update Invitation inside transaction
     const result = await prisma.$transaction(async (tx) => {
+      // Serialize concurrent acceptance attempts for the same invitation
+      await tx.$executeRawUnsafe(
+        'SELECT pg_advisory_xact_lock(hashtext($1));',
+        `invite_accept_${invitationId}`
+      );
+
       // Re-verify invitation status and expiry inside transaction to prevent concurrent race conditions
       const freshInvite = await tx.invitation.findUnique({
         where: { id: invitationId },
@@ -427,7 +520,17 @@ export class InvitationService {
         throw new AppError('This invitation has expired', 400);
       }
 
-      // Re-verify workspace membership inside transaction
+      // Re-verify workspace not deleted and workspace membership inside transaction
+      const txWs = await tx.workspace.findUnique({
+        where: { id: invitation.project.workspaceId },
+        select: { ownerId: true, deletedAt: true },
+      });
+
+      if (!txWs || txWs.deletedAt) {
+        throw new AppError('The workspace containing this project has been deleted', 404);
+      }
+
+      const txIsWsOwner = txWs.ownerId === userId;
       const txWsMember = await tx.workspaceMember.findUnique({
         where: {
           workspaceId_userId: {
@@ -437,11 +540,34 @@ export class InvitationService {
         },
       });
 
-      if (!txWsMember) {
+      if (!txWsMember && !txIsWsOwner) {
         throw new AppError(
           'Workspace membership is required before joining this project. Please join the workspace first.',
           403
         );
+      }
+
+      // Re-verify existing project membership inside transaction to prevent duplicate records
+      const txExistingMember = await tx.projectMember.findUnique({
+        where: {
+          projectId_userId: {
+            projectId: invitation.projectId,
+            userId,
+          },
+        },
+      });
+
+      if (txExistingMember) {
+        await tx.invitation.update({
+          where: { id: invitationId },
+          data: { status: 'ACCEPTED', acceptedAt: new Date(), invitedUserId: userId },
+        });
+        return {
+          success: true,
+          message: 'You are already a member of this project',
+          project: invitation.project,
+          member: txExistingMember,
+        };
       }
 
       // 1. Create ProjectMember
@@ -634,7 +760,23 @@ export class InvitationService {
     };
 
     if (workspaceId) {
-      where.project = { workspaceId };
+      where.project = { workspaceId, workspace: { deletedAt: null } };
+    } else {
+      const activeWorkspaces = await prisma.workspace.findMany({
+        where: {
+          deletedAt: null,
+          OR: [
+            { ownerId: userId },
+            { members: { some: { userId } } },
+          ],
+        },
+        select: { id: true },
+      });
+      const activeWorkspaceIds = activeWorkspaces.map((w) => w.id);
+      where.project = {
+        workspaceId: { in: activeWorkspaceIds },
+        workspace: { deletedAt: null },
+      };
     }
 
     const count = await prisma.invitation.count({

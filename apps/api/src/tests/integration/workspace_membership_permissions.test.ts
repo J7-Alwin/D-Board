@@ -736,8 +736,9 @@ describe('Phase 3 Multi-Workspace Membership, Invitations, and Permissions Test 
     });
 
     it('Project invitation cannot be created for a user who is not a member of the workspace (or acceptance rejected)', async () => {
-      // Trying to accept project invitation without workspace membership
       const outsiderEmail = `project_only_${ts}@example.com`;
+
+      // 1. Attempting to create project invitation for non-workspace member is rejected (400)
       const invRes = await request(app)
         .post(`/api/projects/${testProjectId}/invitations`)
         .set('Cookie', ownerCookie)
@@ -746,8 +747,8 @@ describe('Phase 3 Multi-Workspace Membership, Invitations, and Permissions Test 
           role: 'PROJECT_MEMBER',
         });
 
-      expect(invRes.status).toBe(201);
-      const invId = invRes.body.data.invitation.id;
+      expect(invRes.status).toBe(400);
+      expect(invRes.body.message).toMatch(/(workspace member|active member of this workspace)/i);
 
       // Outsider registers with that email
       const pUser = {
@@ -766,13 +767,27 @@ describe('Phase 3 Multi-Workspace Membership, Invitations, and Permissions Test 
       const cP = log.headers['set-cookie'];
       const pCookie = Array.isArray(cP) ? cP[0].split(';')[0] : cP.split(';')[0];
 
-      // Accepting project invitation without workspace membership must fail with 403!
+      // 2. Direct pending invitation without workspace membership fails acceptance with 403
+      const directInv = await prisma.invitation.create({
+        data: {
+          projectId: testProjectId,
+          invitedEmail: outsiderEmail.toLowerCase(),
+          invitedUserId: pUserId,
+          invitedById: ownerId,
+          role: 'PROJECT_MEMBER',
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 86400000),
+        },
+      });
+
       const acceptRes = await request(app)
-        .post(`/api/invitations/${invId}/accept`)
+        .post(`/api/invitations/${directInv.id}/accept`)
         .set('Cookie', pCookie);
 
       expect(acceptRes.status).toBe(403);
       expect(acceptRes.body.message).toContain('Workspace membership is required');
+
+      await prisma.invitation.delete({ where: { id: directInv.id } });
     });
   });
 });

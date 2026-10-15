@@ -162,7 +162,7 @@ export const MyWorkPage: React.FC = () => {
 
   const handleOpenCreateModal = () => {
     if (projects.length === 0) {
-      alert('You need at least one project to create a work item.');
+      setError('You need at least one project to create a work item.');
       return;
     }
     setCreateTargetProject(projects[0]);
@@ -181,7 +181,7 @@ export const MyWorkPage: React.FC = () => {
       setItemToDelete(null);
       await loadWork();
     } catch (err: any) {
-      alert(err.message || 'Failed to delete work item');
+      setError(err.message || 'Failed to delete work item');
     } finally {
       setIsDeleting(false);
     }

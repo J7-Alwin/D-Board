@@ -72,7 +72,7 @@ export const NotificationsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, page]);
+  }, [activeTab, page, activeWorkspace?.id]);
 
   useEffect(() => {
     fetchNotifications();

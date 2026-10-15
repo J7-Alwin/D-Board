@@ -72,6 +72,23 @@ export const StorageBreakdownModal: React.FC<StorageBreakdownModalProps> = ({
     }
   }, [isOpen]);
 
+  // Accessibility: Escape key and body scroll lock
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, onClose]);
+
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
     if (bytes < 1024) return `${bytes} B`;

@@ -133,7 +133,7 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
         setOpenMenuMemberId(null);
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to update role');
+      setError(err.message || 'Failed to update role');
     }
   };
 
@@ -149,7 +149,7 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
         setOpenMenuMemberId(null);
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to remove member');
+      setError(err.message || 'Failed to remove member');
     }
   };
 
@@ -162,7 +162,7 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
         setPendingInvitations((prev) => prev.filter((i) => i.id !== invitationId));
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to cancel invitation');
+      setError(err.message || 'Failed to cancel invitation');
     }
   };
 
@@ -297,6 +297,37 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
             <TeamMembersHeaderAtmosphere />
           </div>
         </div>
+
+        {error && (
+          <div
+            className="form-error-banner"
+            style={{
+              marginBottom: '1rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0.75rem 1rem',
+            }}
+            role="alert"
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#991B1B',
+                fontWeight: 'bold',
+                fontSize: '1rem',
+              }}
+              aria-label="Dismiss error"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Top Control Section: Search + Filters + Sort + View Switchers */}
         <div className="team-toolbar-card">

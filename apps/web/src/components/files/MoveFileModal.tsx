@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type { AttachmentDTO } from '../../api/files.api';
 import type { FolderItem } from './CreateFolderModal';
 import type { Project } from '../../api/projects.api';
@@ -23,6 +23,23 @@ export const MoveFileModal: React.FC<MoveFileModalProps> = ({
 }) => {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(currentFolderId || null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Accessibility: Escape key and body scroll lock
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, onClose]);
 
   const formatFileSize = (bytes: number) => {
     if (!bytes || bytes === 0) return '0 MB';

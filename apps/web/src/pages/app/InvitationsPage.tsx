@@ -102,6 +102,7 @@ export const InvitationsPage: React.FC = () => {
       if (res.success) {
         setFeedback({ type: 'success', message: res.message || 'Project invitation accepted!' });
         loadProjectInvitations();
+        await refreshWorkspaces();
       }
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message || 'Failed to accept invitation' });

@@ -49,6 +49,23 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   const [parentId, setParentId] = useState<string>(currentFolderId || '');
   const [error, setError] = useState<string | null>(null);
 
+  // Accessibility: Escape key and body scroll lock
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   const targetProjectId = activeProjectId || selectedProjectId;
 
   const currentProjectName = useMemo(() => {

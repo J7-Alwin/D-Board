@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { AttachmentDTO } from '../../api/files.api';
 import { filesApi } from '../../api/files.api';
 import { ViewerResolver } from './ViewerResolver';
@@ -37,16 +37,32 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
   const [isRenaming, setIsRenaming] = useState(false);
   const [newName, setNewName] = useState('');
   const [savingRename, setSavingRename] = useState(false);
-  const [renameError, setRenameError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Accessibility: Escape key and body scroll lock
+  useEffect(() => {
+    if (!file) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isRenaming && !isDeleteModalOpen) {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [file, onClose, isRenaming, isDeleteModalOpen]);
 
   if (!file) return null;
 
   const handleStartRename = () => {
     setNewName(file.originalName);
     setIsRenaming(true);
-    setRenameError(null);
+    setActionError(null);
   };
 
   const handleSaveRename = async (e?: React.FormEvent) => {
@@ -57,13 +73,13 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
     }
 
     setSavingRename(true);
-    setRenameError(null);
+    setActionError(null);
     try {
       await filesApi.renameFile(file.projectId, file.id, newName.trim());
       setIsRenaming(false);
       onFileUpdated?.();
     } catch (err: any) {
-      setRenameError(err.message || 'Failed to rename file');
+      setActionError(err.message || 'Failed to rename file');
     } finally {
       setSavingRename(false);
     }
@@ -72,12 +88,13 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
   const handleConfirmDelete = async (fileId: string) => {
     try {
       setIsDeleting(true);
+      setActionError(null);
       await filesApi.deleteFile(file.projectId, fileId);
       setIsDeleteModalOpen(false);
       onFileDeleted?.();
       onClose();
     } catch (err: any) {
-      alert(err.message || 'Failed to delete file');
+      setActionError(err.message || 'Failed to delete file');
     } finally {
       setIsDeleting(false);
     }
@@ -242,7 +259,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
             </div>
           </div>
 
-          {renameError && <div className="form-error-banner">{renameError}</div>}
+          {actionError && <div className="form-error-banner">{actionError}</div>}
 
           {/* Main Body Layout: Dark Viewport Canvas & Collapsible Details Drawer */}
           <div className="fvm-body-layout">

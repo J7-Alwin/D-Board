@@ -281,6 +281,41 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
     [activeWorkspace, auditActionFilter]
   );
 
+  // Accessibility: Escape key and body scroll lock
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
+  // Fallback to 'members' tab if activeTab is not permitted
+  useEffect(() => {
+    if (!isOpen || !activeWorkspace) return;
+    if (activeTab === 'invitations' && !isOwner && !canInvite) {
+      setActiveTab('members');
+    } else if (activeTab === 'permissions' && (!isOwner || activeWorkspace.isPersonal)) {
+      setActiveTab('members');
+    } else if (activeTab === 'transfers' && (!canTransfer || activeWorkspace.isPersonal)) {
+      setActiveTab('members');
+    } else if (activeTab === 'ownership' && (!isOwner || activeWorkspace.isPersonal)) {
+      setActiveTab('members');
+    } else if (activeTab === 'audit' && !isOwner && activeRole !== 'WORKSPACE_ADMIN') {
+      setActiveTab('members');
+    } else if (activeTab === 'danger' && !isOwner) {
+      setActiveTab('members');
+    }
+  }, [isOpen, activeTab, isOwner, canInvite, canTransfer, activeRole, activeWorkspace]);
+
   // Trigger loads on open and tab changes
   useEffect(() => {
     if (!isOpen || !activeWorkspace) return;
@@ -529,7 +564,7 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
         await refreshWorkspaces();
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to update member role');
+      setMembersError(err.message || 'Failed to update member role');
     } finally {
       setIsUpdatingRole(false);
     }
@@ -547,7 +582,7 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
         await refreshWorkspaces();
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to remove member');
+      setMembersError(err.message || 'Failed to remove member');
     } finally {
       setIsRemoving(false);
     }
@@ -615,7 +650,7 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
         await loadInvitations();
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to revoke invitation');
+      setInviteFeedback({ type: 'error', message: err.message || 'Failed to revoke invitation' });
     } finally {
       setIsRevoking(false);
     }

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useRouter, Link } from '../../router/Router';
 import { useAuth } from '../../context/AuthContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { projectsApi } from '../../api/projects.api';
 import { Button } from '../../components/ui/Button';
 import { CreateProjectHeaderAtmosphere } from '../../components/common/HeaderAtmosphereArt';
@@ -17,6 +18,8 @@ import {
   CalendarIcon,
   EditIcon,
   FolderPlusIcon,
+  GlobeIcon,
+  LockIcon,
 } from '../../components/ui/Icons';
 
 interface InvitationDraft {
@@ -67,8 +70,10 @@ const ALL_AVAILABLE_TECH = [
 export const CreateProjectPage: React.FC = () => {
   const { navigate } = useRouter();
   const { user } = useAuth();
+  const { activeWorkspace, activeRole } = useWorkspace();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [visibility, setVisibility] = useState<'WORKSPACE' | 'RESTRICTED'>('WORKSPACE');
 
   // Helper for color-coding tech badges in review matching screenshot
   const getTechBadgeStyle = (tech: string) => {
@@ -314,12 +319,14 @@ export const CreateProjectPage: React.FC = () => {
         repositoryUrl: finalRepo || null,
         liveUrl: liveUrl.trim() || null,
         avatarUrl: avatarUrl || null,
+        visibility: activeWorkspace?.isPersonal ? 'RESTRICTED' : visibility,
+        workspaceId: activeWorkspace?.id,
         invitations: invitations.map((inv) => ({
           email: inv.email,
           role: inv.role,
           message: inv.message || null,
         })),
-      });
+      }, activeWorkspace?.id);
 
       if (res.success && res.data?.project?.id) {
         setToastMessage({
@@ -517,6 +524,121 @@ export const CreateProjectPage: React.FC = () => {
                     </div>
                     {errors.logo && <span className="cp-field-error">{errors.logo}</span>}
                   </div>
+                </div>
+
+                {/* Workspace Destination Indicator */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.75rem 1rem',
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '8px',
+                  marginBottom: '1.25rem',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                    <div style={{
+                      width: '28px',
+                      height: '28px',
+                      borderRadius: '6px',
+                      backgroundColor: '#3B82F6',
+                      color: '#FFFFFF',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                    }}>
+                      {activeWorkspace ? activeWorkspace.name.slice(0, 2).toUpperCase() : 'WS'}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#0F172A' }}>
+                        Creating in: {activeWorkspace?.name || 'Workspace'}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                        {activeWorkspace?.isPersonal ? 'Personal Workspace' : 'Team Workspace'} • {activeWorkspace?.isPersonal ? 'Restricted to owner' : 'Collaborative workspace'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Project Visibility Selector */}
+                <div className="cp-field-group" style={{ marginBottom: '1.25rem' }}>
+                  <label className="cp-field-label">
+                    Project Visibility <span className="cp-req">*</span>
+                  </label>
+                  {activeWorkspace?.isPersonal ? (
+                    <div style={{
+                      padding: '0.625rem 0.875rem',
+                      background: '#F8FAFC',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: '6px',
+                      fontSize: '0.8125rem',
+                      color: '#475569',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                    }}>
+                      <LockIcon size={14} />
+                      <span>Restricted (Projects in personal workspaces are restricted to the owner)</span>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => setVisibility('WORKSPACE')}
+                        style={{
+                          flex: '1 1 200px',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '0.625rem',
+                          padding: '0.75rem',
+                          borderRadius: '8px',
+                          border: visibility === 'WORKSPACE' ? '2px solid #3B82F6' : '1px solid #E2E8F0',
+                          backgroundColor: visibility === 'WORKSPACE' ? '#EFF6FF' : '#FFFFFF',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <GlobeIcon size={18} style={{ color: visibility === 'WORKSPACE' ? '#2563EB' : '#64748B', marginTop: '2px' }} />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#0F172A' }}>Workspace</div>
+                          <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '2px' }}>
+                            Visible to all members of this workspace.
+                          </div>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setVisibility('RESTRICTED')}
+                        style={{
+                          flex: '1 1 200px',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '0.625rem',
+                          padding: '0.75rem',
+                          borderRadius: '8px',
+                          border: visibility === 'RESTRICTED' ? '2px solid #8B5CF6' : '1px solid #E2E8F0',
+                          backgroundColor: visibility === 'RESTRICTED' ? '#F5F3FF' : '#FFFFFF',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <LockIcon size={18} style={{ color: visibility === 'RESTRICTED' ? '#7C3AED' : '#64748B', marginTop: '2px' }} />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#0F172A' }}>Restricted</div>
+                          <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '2px' }}>
+                            Accessible only to assigned project members.
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  )}
+                  <span className="cp-field-helper">
+                    Control whether all workspace members can view this project or only invited members.
+                  </span>
                 </div>
 
                 {/* Row 1: Name & Key */}
@@ -798,7 +920,9 @@ export const CreateProjectPage: React.FC = () => {
                   </div>
                   <div className="cp-icc-titles">
                     <h4 className="cp-icc-title">Invite team members</h4>
-                    <p className="cp-icc-subtitle">Add your team members by email and assign a role.</p>
+                    <p className="cp-icc-subtitle">
+                      Add team members by email and assign a role. Note: Invited users must already be active members of {activeWorkspace?.name || 'this workspace'}.
+                    </p>
                   </div>
                 </div>
 

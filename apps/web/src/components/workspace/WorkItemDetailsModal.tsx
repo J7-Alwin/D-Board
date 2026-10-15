@@ -644,6 +644,23 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
     };
   }, [socket, isConnected, workItemId, loadWorkItemData, loadAttachments]);
 
+  // Accessibility: Escape key and body scroll lock
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && workItemId) {
+        onClose();
+      }
+    };
+    if (workItemId) {
+      document.body.style.overflow = 'hidden';
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [workItemId, onClose]);
+
   if (!workItemId) return null;
 
   const isProjectAdmin = project.userRole === 'PROJECT_ADMIN' || project.createdById === user?.id;

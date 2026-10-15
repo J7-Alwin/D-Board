@@ -49,6 +49,7 @@ export const ProjectTransferModal: React.FC<ProjectTransferModalProps> = ({
   const [history, setHistory] = useState<ProjectTransfer[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   // Load Eligibility
   const loadEligibility = useCallback(async () => {
@@ -85,13 +86,24 @@ export const ProjectTransferModal: React.FC<ProjectTransferModalProps> = ({
   }, [project.id]);
 
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
     if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      window.addEventListener('keydown', handleKeyDown);
       loadEligibility();
       loadHistory();
       setConfirmationName('');
       setSubmitFeedback(null);
     }
-  }, [isOpen, loadEligibility, loadHistory]);
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose, loadEligibility, loadHistory]);
 
   if (!isOpen) return null;
 
@@ -145,12 +157,13 @@ export const ProjectTransferModal: React.FC<ProjectTransferModalProps> = ({
   const handleCancelTransfer = async (transferId: string) => {
     try {
       setCancellingId(transferId);
+      setHistoryError(null);
       const res = await projectTransferApi.cancelTransfer(transferId);
       if (res.success) {
         loadHistory();
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to cancel transfer request');
+      setHistoryError(err.message || 'Failed to cancel transfer request');
     } finally {
       setCancellingId(null);
     }
@@ -370,6 +383,12 @@ export const ProjectTransferModal: React.FC<ProjectTransferModalProps> = ({
         {/* Tab 2: History */}
         {activeTab === 'history' && (
           <div className="ptm-content">
+            {historyError && (
+              <div className="ptm-alert ptm-alert-error" style={{ marginBottom: '1rem' }}>
+                <AlertCircleIcon size={16} />
+                <span>{historyError}</span>
+              </div>
+            )}
             {historyLoading ? (
               <div className="ptm-state-box">
                 <div className="ptm-spinner" />

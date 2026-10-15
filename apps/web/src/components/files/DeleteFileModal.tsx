@@ -16,6 +16,23 @@ export const DeleteFileModal: React.FC<DeleteFileModalProps> = ({
   onConfirmDelete,
   isDeleting = false,
 }) => {
+  // Accessibility: Escape key and body scroll lock
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen || !file) return null;
 
   const formatFileSize = (bytes: number) => {

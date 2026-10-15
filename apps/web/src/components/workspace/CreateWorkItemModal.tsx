@@ -204,7 +204,7 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
     }
   }, [selectedProjectId, selectedProjectDetails, loadProjectDetails]);
 
-  // Close dropdown on outside click
+  // Close dropdown on outside click or Escape key
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (
@@ -214,9 +214,26 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
         setOpenDropdown(null);
       }
     };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (openDropdown) {
+          setOpenDropdown(null);
+        } else if (isOpen) {
+          onClose();
+        }
+      }
+    };
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      window.addEventListener('keydown', handleKeyDown);
+    }
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    return () => {
+      document.body.style.overflow = '';
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, openDropdown, onClose]);
 
   if (!isOpen) return null;
 

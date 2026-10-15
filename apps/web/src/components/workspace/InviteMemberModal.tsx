@@ -23,6 +23,23 @@ export const InviteMemberModal: React.FC<InviteMemberModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Accessibility: Escape key and body scroll lock
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -163,7 +180,7 @@ export const InviteMemberModal: React.FC<InviteMemberModalProps> = ({
               />
             </div>
             <span className="im-field-helper">
-              An invitation email will be sent with instructions to join this project.
+              Recipients must be active members of this workspace. An invitation will be sent to join this project.
             </span>
           </div>
 

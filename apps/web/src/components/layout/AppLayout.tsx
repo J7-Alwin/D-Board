@@ -58,7 +58,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
+  // Close dropdown on outside click or Escape key
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -68,8 +68,20 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         setSearchOpen(false);
       }
     }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setProfileDropdownOpen(false);
+        setSearchOpen(false);
+        setMobileSearchOpen(false);
+        setSidebarOpen(false);
+      }
+    }
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   // Debounced search query

@@ -38,18 +38,29 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
   const [newWsDescription, setNewWsDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [recoveringId, setRecoveringId] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
+  // Close dropdown on outside click or Escape key
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    }
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   const handleSelect = (ws: WorkspaceSummary) => {
@@ -164,9 +175,9 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
       {/* Dropdown Menu */}
       {isOpen && (
         <div className="workspace-switcher-dropdown" role="listbox">
-          {error && (
+          {(error || restoreError) && (
             <div className="workspace-switcher-error-banner" role="alert">
-              {error}
+              {error || restoreError}
             </div>
           )}
 
@@ -303,6 +314,7 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
                     <button
                       type="button"
                       className="workspace-restore-btn"
+                      disabled={recoveringId === dws.id}
                       style={{
                         padding: '4px 8px',
                         fontSize: '0.75rem',
@@ -311,20 +323,25 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
                         border: '1px solid #10b981',
                         color: '#065f46',
                         backgroundColor: '#d1fae5',
-                        cursor: 'pointer',
+                        cursor: recoveringId === dws.id ? 'not-allowed' : 'pointer',
                         marginLeft: '8px',
+                        opacity: recoveringId === dws.id ? 0.7 : 1,
                       }}
                       onClick={async (e) => {
                         e.stopPropagation();
                         try {
+                          setRecoveringId(dws.id);
+                          setRestoreError(null);
                           await recoverWorkspace(dws.id);
                           setIsOpen(false);
                         } catch (err: any) {
-                          alert(err.message || 'Failed to restore workspace');
+                          setRestoreError(err.message || 'Failed to restore workspace');
+                        } finally {
+                          setRecoveringId(null);
                         }
                       }}
                     >
-                      Restore
+                      {recoveringId === dws.id ? 'Restoring...' : 'Restore'}
                     </button>
                   </div>
                 ))}

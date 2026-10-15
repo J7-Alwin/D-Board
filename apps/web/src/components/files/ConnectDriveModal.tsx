@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import type { AttachmentDTO } from '../../api/files.api';
 import type { FolderItem } from './CreateFolderModal';
 import type { Project } from '../../api/projects.api';
@@ -15,6 +15,23 @@ export const ConnectDriveModal: React.FC<ConnectDriveModalProps> = ({
   isOpen,
   onClose,
 }) => {
+  // Accessibility: Escape key and body scroll lock
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (

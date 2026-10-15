@@ -14,6 +14,8 @@ import {
   LayersIcon,
   AlertCircleIcon,
   ArrowRightIcon,
+  GlobeIcon,
+  LockIcon,
 } from '../ui/Icons';
 import { ProjectTransferModal } from './ProjectTransferModal';
 
@@ -159,6 +161,9 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
   const [endDate, setEndDate] = useState(
     project.endDate ? project.endDate.split('T')[0] : ''
   );
+  const [visibility, setVisibility] = useState<'WORKSPACE' | 'RESTRICTED'>(
+    (project.visibility?.toUpperCase() as any) === 'RESTRICTED' ? 'RESTRICTED' : 'WORKSPACE'
+  );
 
   // Status & loading states
   const [isSaving, setIsSaving] = useState(false);
@@ -181,6 +186,23 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Accessibility: Escape key and body scroll lock
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -237,6 +259,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
         description: description.trim(),
         avatarUrl: avatarUrl.trim() || null,
         technologyStack,
+        visibility: project.workspace?.isPersonal ? 'RESTRICTED' : visibility,
         repositoryUrl: repositoryUrl.trim() || null,
         liveUrl: liveUrl.trim() || null,
         startDate: startDate ? new Date(startDate).toISOString() : null,
@@ -498,6 +521,84 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
                   <span className="psm-field-helper">Supports concise markdown or plain text.</span>
                   <span className="psm-char-counter">{description.length}/1000</span>
                 </div>
+              </div>
+
+              {/* Project Visibility */}
+              <div className="psm-form-group" style={{ marginBottom: '1.25rem' }}>
+                <label className="psm-field-label">
+                  Project Visibility
+                </label>
+                {project.workspace?.isPersonal ? (
+                  <div style={{
+                    padding: '0.625rem 0.875rem',
+                    background: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '6px',
+                    fontSize: '0.8125rem',
+                    color: '#475569',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                  }}>
+                    <LockIcon size={14} />
+                    <span>Restricted (Projects in personal workspaces are restricted to the owner)</span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => setVisibility('WORKSPACE')}
+                      style={{
+                        flex: '1 1 180px',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '0.625rem',
+                        padding: '0.75rem',
+                        borderRadius: '8px',
+                        border: visibility === 'WORKSPACE' ? '2px solid #3B82F6' : '1px solid #E2E8F0',
+                        backgroundColor: visibility === 'WORKSPACE' ? '#EFF6FF' : '#FFFFFF',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <GlobeIcon size={18} style={{ color: visibility === 'WORKSPACE' ? '#2563EB' : '#64748B', marginTop: '2px' }} />
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#0F172A' }}>Workspace</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '2px' }}>
+                          Visible to all members of this workspace.
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setVisibility('RESTRICTED')}
+                      style={{
+                        flex: '1 1 180px',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '0.625rem',
+                        padding: '0.75rem',
+                        borderRadius: '8px',
+                        border: visibility === 'RESTRICTED' ? '2px solid #8B5CF6' : '1px solid #E2E8F0',
+                        backgroundColor: visibility === 'RESTRICTED' ? '#F5F3FF' : '#FFFFFF',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <LockIcon size={18} style={{ color: visibility === 'RESTRICTED' ? '#7C3AED' : '#64748B', marginTop: '2px' }} />
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#0F172A' }}>Restricted</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '2px' }}>
+                          Accessible only to assigned project members.
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+                <span className="psm-field-helper">
+                  Control who in this workspace can access this project.
+                </span>
               </div>
 
               {/* Dates */}

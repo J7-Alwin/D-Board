@@ -364,7 +364,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
   // Handle Folder Deletion
   const handleDeleteFolder = async (folderId: string, folderName: string) => {
     if (folderId.startsWith('proj-')) {
-      alert('Project folders are managed via Project Settings.');
+      setFeedback({ type: 'error', message: 'Project folders are managed via Project Settings.' });
       return;
     }
     if (!window.confirm(`Delete folder "${folderName}"? Files inside will be moved to Root.`)) return;

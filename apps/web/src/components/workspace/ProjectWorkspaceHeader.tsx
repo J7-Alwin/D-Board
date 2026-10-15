@@ -12,10 +12,25 @@ import {
   ActivityIcon,
   SettingsIcon,
   ArrowRightIcon,
+  GlobeIcon,
+  LockIcon,
 } from '../ui/Icons';
 import { ProjectOverviewHeaderAtmosphere } from '../common/HeaderAtmosphereArt';
 import { ApplicationCategoryIcon } from '../common/ApplicationCategoryIcon';
 import { isLikelyImageUrl } from '../ui/ProjectAvatar';
+
+const WorkspaceBadgeIcon: React.FC<{ size?: number; className?: string }> = ({ size = 11, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M3 21h18" />
+    <path d="M9 8h1" />
+    <path d="M9 12h1" />
+    <path d="M9 16h1" />
+    <path d="M14 8h1" />
+    <path d="M14 12h1" />
+    <path d="M14 16h1" />
+    <path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" />
+  </svg>
+);
 
 interface ProjectWorkspaceHeaderProps {
   project: Project;
@@ -38,14 +53,41 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
 }) => {
   const monogram = project.name ? project.name.trim()[0].toUpperCase() : 'P';
   const roleLabel = project.userRole === 'PROJECT_ADMIN' ? 'Admin' : 'Member';
+  const isAdmin = project.userRole === 'PROJECT_ADMIN';
   const memberCount = project.memberCount || (project.members ? project.members.length : 1);
+  const isWorkspaceVisible = (project.visibility || 'WORKSPACE').toUpperCase() === 'WORKSPACE';
+  const visibilityLabel = isWorkspaceVisible ? 'Workspace' : 'Restricted';
+  const workspaceName = project.workspace?.name;
 
   const [heroImgError, setHeroImgError] = React.useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = React.useState(false);
+  const moreMenuRef = React.useRef<HTMLDivElement>(null);
+
   const avatarUrl = (project.avatarUrl || '').trim();
   const isImg = !heroImgError && Boolean(avatarUrl && isLikelyImageUrl(avatarUrl));
   const isEmojiOrPreset = !heroImgError && !isImg && avatarUrl.length > 0 && avatarUrl.length <= 8;
   const shouldRenderHero = showHeroCard !== false;
+
+  // Close more menu on outside click or Escape key
+  React.useEffect(() => {
+    if (!moreMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setMoreMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMoreMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [moreMenuOpen]);
 
   return (
     <div className="project-workspace-header-container">
@@ -78,12 +120,35 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
           </div>
 
           <div className="project-hero-info">
-            <div className="project-hero-title-row">
+            <div className="project-hero-title-row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               <h1 className="project-hero-title">{project.name}</h1>
               <span className={`project-hero-status-pill status-${project.status?.toLowerCase() || 'active'}`}>
                 {project.status || 'ACTIVE'}
               </span>
               <span className="project-hero-role-pill">{roleLabel}</span>
+
+              {/* Visibility badge */}
+              <span
+                className={`proj-visibility-pill ${
+                  isWorkspaceVisible ? 'visibility-workspace' : 'visibility-restricted'
+                }`}
+                title={
+                  isWorkspaceVisible
+                    ? 'Visible to all Workspace Members'
+                    : 'Restricted: Accessible only to assigned project members'
+                }
+              >
+                {isWorkspaceVisible ? <GlobeIcon size={11} /> : <LockIcon size={11} />}
+                <span>{visibilityLabel}</span>
+              </span>
+
+              {/* Parent Workspace attribution badge */}
+              {workspaceName && (
+                <span className="proj-workspace-attribution-pill" title={`Workspace: ${workspaceName}`}>
+                  <WorkspaceBadgeIcon size={11} />
+                  <span>{workspaceName}</span>
+                </span>
+              )}
             </div>
 
             {project.description && (
@@ -106,11 +171,14 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
 
         {/* Right Actions */}
         <div className="project-hero-right" style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-          <div className="po-more-menu-container">
+          <div className="po-more-menu-container" ref={moreMenuRef}>
             <button
               type="button"
               className="po-more-btn"
               onClick={() => setMoreMenuOpen((prev) => !prev)}
+              aria-haspopup="true"
+              aria-expanded={moreMenuOpen}
+              aria-label="More project options"
             >
               <span>••• More</span>
               <span className="po-caret-down">▾</span>
@@ -118,7 +186,7 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
 
             {moreMenuOpen && (
               <div className="po-more-dropdown-menu">
-                {onOpenSettingsModal && (
+                {isAdmin && onOpenSettingsModal && (
                   <button
                     type="button"
                     className="po-more-dropdown-item"
@@ -131,7 +199,7 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
                     <span>Project Settings</span>
                   </button>
                 )}
-                {onOpenInviteModal ? (
+                {isAdmin && onOpenInviteModal && (
                   <button
                     type="button"
                     className="po-more-dropdown-item"
@@ -143,17 +211,16 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
                     <UsersIcon size={14} />
                     <span>Invite Members</span>
                   </button>
-                ) : (
-                  <Link
-                    to={`/app/projects/${project.id}/members`}
-                    className="po-more-dropdown-item"
-                    onClick={() => setMoreMenuOpen(false)}
-                  >
-                    <UsersIcon size={14} />
-                    <span>Team Members</span>
-                  </Link>
                 )}
-                {onOpenTransferModal && (
+                <Link
+                  to={`/app/projects/${project.id}/members`}
+                  className="po-more-dropdown-item"
+                  onClick={() => setMoreMenuOpen(false)}
+                >
+                  <UsersIcon size={14} />
+                  <span>Team Members</span>
+                </Link>
+                {isAdmin && onOpenTransferModal && (
                   <button
                     type="button"
                     className="po-more-dropdown-item"

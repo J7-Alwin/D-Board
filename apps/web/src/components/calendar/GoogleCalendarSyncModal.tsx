@@ -81,9 +81,28 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
   const [loadingToken, setLoadingToken] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [rotatingToken, setRotatingToken] = useState(false);
+  const [notice, setNotice] = useState<{ type: 'info' | 'error'; message: string } | null>(null);
+
+  // Accessibility: Escape key and body scroll lock
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
+    setNotice(null);
     let isMounted = true;
     const loadToken = async () => {
       setLoadingToken(true);
@@ -108,13 +127,14 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
   const handleRegenerateToken = async () => {
     if (rotatingToken) return;
     setRotatingToken(true);
+    setNotice(null);
     try {
       const res = await calendarApi.createFeedToken(projectId);
       if (res.success && res.data?.token) {
         setFeedToken(res.data.token);
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to rotate subscription token');
+      setNotice({ type: 'error', message: err.message || 'Failed to rotate subscription token' });
     } finally {
       setRotatingToken(false);
     }
@@ -200,7 +220,11 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
   };
 
   const handleDirectOAuthSync = () => {
-    alert('Direct 2-way Google Calendar OAuth synchronization is currently in development. You can immediately import your calendar using the .ics file download or subscribe to the live auto-updating feed URL below!');
+    setNotice({
+      type: 'info',
+      message:
+        'Direct 2-way Google Calendar OAuth synchronization is currently in development. You can immediately import your calendar using the .ics file download or subscribe to the live auto-updating feed URL below!',
+    });
   };
 
 
@@ -235,6 +259,20 @@ export const GoogleCalendarSyncModal: React.FC<GoogleCalendarSyncModalProps> = (
 
         {/* Modal Body */}
         <div className="gcal-modal-body">
+          {notice && (
+            <div
+              className={notice.type === 'error' ? 'form-error-banner' : 'gcal-success-banner'}
+              style={{
+                marginBottom: '1rem',
+                backgroundColor: notice.type === 'info' ? '#EFF6FF' : undefined,
+                borderColor: notice.type === 'info' ? '#BFDBFE' : undefined,
+                color: notice.type === 'info' ? '#1E40AF' : undefined,
+              }}
+            >
+              <span>{notice.message}</span>
+            </div>
+          )}
+
           {syncSuccess && (
             <div className="gcal-success-banner">
               <span className="gcal-check-circle-sm">

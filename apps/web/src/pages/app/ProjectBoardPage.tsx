@@ -113,6 +113,7 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
@@ -263,7 +264,7 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
       }
     } catch (err: any) {
       loadBoardData();
-      alert(err.message || 'Failed to change status');
+      setActionError(err.message || 'Failed to change status');
     }
   };
 
@@ -363,6 +364,35 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
       )}
 
       <div className="kb-main-wrapper">
+        {actionError && (
+          <div
+            className="form-error-banner"
+            style={{
+              marginBottom: '1rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <span>{actionError}</span>
+            <button
+              type="button"
+              onClick={() => setActionError(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                lineHeight: 1,
+                color: 'inherit',
+              }}
+              aria-label="Dismiss error"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Modern 2-Row Filter & Action Toolbar inside Small White Top Section */}
         <div className="kb-toolbar-card">
           {/* Row 1: Search on left, Actions on right */}

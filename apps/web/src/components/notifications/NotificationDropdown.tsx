@@ -60,17 +60,26 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
     setIsOpen(!isOpen);
   };
 
-  // Close on outside click
+  // Close on outside click or Escape key
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
     if (isOpen) {
       document.addEventListener('mousedown', handleOutsideClick);
+      window.addEventListener('keydown', handleKeyDown);
     }
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [isOpen]);
 
   const handleNotificationClick = async (notif: NotificationItem) => {

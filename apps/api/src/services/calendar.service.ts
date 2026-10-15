@@ -11,62 +11,19 @@ import type {
 } from '../schemas/calendar.schema.js';
 import { workspaceService } from './workspace.service.js';
 import { authService } from './auth.service.js';
+import { projectService } from './project.service.js';
 
 export class CalendarService {
   /**
    * Helper to verify project membership and determine admin status.
    */
   private async getMembershipAndProject(projectId: string, userId: string) {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: {
-        id: true,
-        name: true,
-        createdById: true,
-        status: true,
-        visibility: true,
-        workspaceId: true,
-        workspace: {
-          select: {
-            id: true,
-            ownerId: true,
-            isPersonal: true,
-            deletedAt: true,
-            members: { where: { userId } },
-          },
-        },
-      },
-    });
-
-    if (!project) {
-      throw new AppError('Project not found', 404);
-    }
-
-    if (project.workspace.deletedAt) {
-      throw new AppError('The workspace containing this project has been deleted', 404);
-    }
-
-    const membership = await prisma.projectMember.findUnique({
-      where: {
-        projectId_userId: {
-          projectId,
-          userId,
-        },
-      },
-    });
-
-    const isWsOwner = project.workspace.ownerId === userId;
-    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
-    const isWsMember = project.workspace.members.length > 0;
-    const isMember = !!membership || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember && !project.workspace.isPersonal);
-
-    if (!isMember) {
-      throw new AppError('You are not authorized to access this project calendar', 403);
-    }
-
-    const isAdmin = membership?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
-
-    return { project, membership, isAdmin };
+    const access = await projectService.verifyProjectAccess(projectId, userId);
+    return {
+      project: access.project,
+      membership: access.membership,
+      isAdmin: access.isAdmin,
+    };
   }
 
   /**
@@ -160,52 +117,12 @@ export class CalendarService {
       targetWorkspaceId = personalWs.id;
     }
 
-    // 1. Determine accessible projects in the active workspace
-    let isWsOwnerOrAdmin = false;
-    if (targetWorkspaceId) {
-      const ws = await prisma.workspace.findUnique({
-        where: { id: targetWorkspaceId },
-        select: {
-          ownerId: true,
-          members: {
-            where: { userId },
-            select: { role: true },
-          },
-        },
-      });
-      if (ws && (ws.ownerId === userId || ws.members[0]?.role === 'WORKSPACE_ADMIN')) {
-        isWsOwnerOrAdmin = true;
-      }
-    }
-
-    const [memberships, wsProjects] = await Promise.all([
-      prisma.projectMember.findMany({
-        where: {
-          userId,
-          ...(targetWorkspaceId ? { project: { workspaceId: targetWorkspaceId } } : {}),
-        },
-        select: { projectId: true },
-      }),
-      isWsOwnerOrAdmin && targetWorkspaceId
-        ? prisma.project.findMany({
-            where: { workspaceId: targetWorkspaceId },
-            select: { id: true },
-          })
-        : Promise.resolve([]),
-    ]);
-
-    const accessibleProjectIds = Array.from(
-      new Set([
-        ...memberships.map((m) => m.projectId),
-        ...wsProjects.map((p) => p.id),
-      ])
-    );
-
     let targetProjectIds: string[] = [];
     if (params.projectId) {
       await this.getMembershipAndProject(params.projectId, userId);
       targetProjectIds = [params.projectId];
     } else {
+      const accessibleProjectIds = await projectService.getAccessibleProjectIds(userId, targetWorkspaceId);
       if (accessibleProjectIds.length === 0) {
         return { items: [], range: { start: '', end: '' } };
       }
@@ -1054,88 +971,14 @@ export class CalendarService {
       if (feedToken.projectId && feedToken.projectId !== expectedProjectId) {
         throw new AppError('Calendar feed token is not authorized for this project', 403);
       }
-
-      // Verify that user is still an active member of this project
-      const project = await prisma.project.findUnique({
-        where: { id: expectedProjectId },
-        select: { createdById: true, workspaceId: true },
-      });
-
-      if (!project) {
-        throw new AppError('Project not found', 404);
-      }
-
-      const membership = await prisma.projectMember.findUnique({
-        where: {
-          projectId_userId: {
-            projectId: expectedProjectId,
-            userId: feedToken.userId,
-          },
-        },
-      });
-
-      const ws = await prisma.workspace.findUnique({
-        where: { id: project.workspaceId },
-        include: { members: { where: { userId: feedToken.userId } } },
-      });
-      const isWsOwner = ws?.ownerId === feedToken.userId;
-      const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
-      const isAuthorized = !!membership || isWsOwner || isWsAdmin;
-
-      if (!isAuthorized) {
-        throw new AppError('User is no longer an active member of this project', 403);
-      }
-
-      resolvedWorkspaceId = project.workspaceId;
+      const access = await projectService.verifyProjectAccess(expectedProjectId, feedToken.userId);
+      resolvedWorkspaceId = access.project.workspaceId;
     } else if (feedToken.projectId) {
-      const project = await prisma.project.findUnique({
-        where: { id: feedToken.projectId },
-        select: { createdById: true, workspaceId: true },
-      });
-
-      if (!project) {
-        throw new AppError('Project not found', 404);
-      }
-
-      const membership = await prisma.projectMember.findUnique({
-        where: {
-          projectId_userId: {
-            projectId: feedToken.projectId,
-            userId: feedToken.userId,
-          },
-        },
-      });
-
-      const ws = await prisma.workspace.findUnique({
-        where: { id: project.workspaceId },
-        include: { members: { where: { userId: feedToken.userId } } },
-      });
-      const isWsOwner = ws?.ownerId === feedToken.userId;
-      const isWsAdmin = ws?.members[0]?.role === 'WORKSPACE_ADMIN';
-      const isAuthorized = !!membership || isWsOwner || isWsAdmin;
-
-      if (!isAuthorized) {
-        throw new AppError('User is no longer an active member of this project', 403);
-      }
-
-      resolvedWorkspaceId = project.workspaceId;
+      const access = await projectService.verifyProjectAccess(feedToken.projectId, feedToken.userId);
+      resolvedWorkspaceId = access.project.workspaceId;
     } else if (resolvedWorkspaceId) {
-      // Workspace-scoped feed token: verify user is still an active member of the workspace
-      const wsMember = await prisma.workspaceMember.findUnique({
-        where: {
-          workspaceId_userId: {
-            workspaceId: resolvedWorkspaceId,
-            userId: feedToken.userId,
-          },
-        },
-      });
-
-      if (!wsMember) {
-        throw new AppError('User is no longer an active member of this workspace', 403);
-      }
+      await workspaceService.verifyWorkspaceAccess(resolvedWorkspaceId, feedToken.userId);
     } else {
-      // Legacy token without explicit workspaceId:
-      // Controlled safe transition: scope strictly to user's personal workspace
       const personalWs = await authService.ensurePersonalWorkspace(feedToken.userId);
       resolvedWorkspaceId = personalWs.id;
     }

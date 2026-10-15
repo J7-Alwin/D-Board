@@ -7,40 +7,18 @@ import { notificationService } from './notification.service.js';
 import { publishToProject, publishToUser } from '../realtime/realtime.service.js';
 import { enqueueEmailJob } from '../jobs/queues.js';
 import { ActivityType, InvitationStatus } from '../generated/prisma/index.js';
+import { projectService } from './project.service.js';
 
 export class InvitationService {
   /**
    * Helper to verify if user is admin on project
    */
   private static async verifyProjectAdmin(projectId: string, userId: string) {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      include: {
-        workspace: {
-          select: {
-            id: true,
-            ownerId: true,
-            members: { where: { userId } },
-          },
-        },
-        members: { where: { userId } },
-        createdBy: { select: { id: true, fullName: true, username: true } },
-      },
-    });
-
-    if (!project) {
-      throw new AppError('Project not found', 404);
-    }
-
-    const isWsOwner = project.workspace.ownerId === userId;
-    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
-    const membership = project.members[0];
-
-    if (!isWsOwner && !isWsAdmin && membership?.role !== 'PROJECT_ADMIN') {
+    const access = await projectService.verifyProjectAccess(projectId, userId);
+    if (!access.isAdmin) {
       throw new AppError('Only project administrators can manage invitations', 403);
     }
-
-    return { project };
+    return { project: access.project };
   }
 
   /**

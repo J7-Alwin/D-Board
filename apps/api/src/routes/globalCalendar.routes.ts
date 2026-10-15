@@ -22,7 +22,10 @@ router.delete('/feed/token', (req, res, next) => {
   calendarController.revokeFeedToken(req as any, res, next);
 });
 
-// GET /api/calendar/events - Get unified calendar items across accessible projects
+// GET /api/calendar & GET /api/calendar/events - Get unified calendar items across accessible projects
+router.get('/', (req, res, next) => {
+  calendarController.getGlobalCalendar(req as any, res, next);
+});
 router.get('/events', (req, res, next) => {
   calendarController.getGlobalCalendar(req as any, res, next);
 });

@@ -1,4 +1,5 @@
 import { prisma } from '../prisma.js';
+import { projectService } from './project.service.js';
 
 export interface SearchResult {
   projects: Array<{
@@ -56,72 +57,15 @@ export class SearchService {
 
     const maxLimit = Math.min(Math.max(limit, 1), 20);
 
-    let projectWhere: any;
-    if (workspaceId) {
-      const ws = await prisma.workspace.findUnique({
-        where: { id: workspaceId },
-        include: { members: { where: { userId } } },
-      });
-      if (!ws || ws.deletedAt) {
-        return emptyResult;
-      }
-      const isWsOwner = ws.ownerId === userId;
-      const isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
-      const isWsMember = ws.members.length > 0;
+    const projectIds = await projectService.getAccessibleProjectIds(userId, workspaceId);
 
-      if (!isWsOwner && !isWsAdmin && !isWsMember) {
-        return emptyResult;
-      }
-
-      if (isWsOwner || isWsAdmin) {
-        projectWhere = { workspaceId };
-      } else if (ws.isPersonal) {
-        projectWhere = {
-          workspaceId,
-          members: { some: { userId } },
-        };
-      } else {
-        projectWhere = {
-          workspaceId,
-          OR: [
-            { visibility: 'WORKSPACE' },
-            { members: { some: { userId } } },
-          ],
-        };
-      }
-    } else {
-      const adminWorkspaces = await prisma.workspace.findMany({
-        where: {
-          deletedAt: null,
-          OR: [
-            { ownerId: userId },
-            { members: { some: { userId, role: 'WORKSPACE_ADMIN' } } },
-          ],
-        },
-        select: { id: true },
-      });
-      const adminWorkspaceIds = adminWorkspaces.map((w) => w.id);
-
-      projectWhere = {
-        workspace: { deletedAt: null },
-        OR: [
-          { workspaceId: { in: adminWorkspaceIds } },
-          { members: { some: { userId } } },
-          {
-            visibility: 'WORKSPACE',
-            workspace: {
-              deletedAt: null,
-              isPersonal: false,
-              members: { some: { userId } },
-            },
-          },
-        ],
-      };
+    if (projectIds.length === 0) {
+      return emptyResult;
     }
 
     // 1. Fetch user's accessible projects in the active workspace
     const userProjects = await prisma.project.findMany({
-      where: projectWhere,
+      where: { id: { in: projectIds } },
       select: { id: true, name: true, key: true, description: true, status: true, createdById: true, createdAt: true },
     });
 
@@ -130,7 +74,6 @@ export class SearchService {
     }
 
     const projectMap = new Map(userProjects.map((p) => [p.id, p]));
-    const projectIds = userProjects.map((p) => p.id);
     const ownedProjectIds = new Set(userProjects.filter((p) => p.createdById === userId).map((p) => p.id));
 
     // 2. Parallel searches across accessible projects

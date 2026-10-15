@@ -13,73 +13,17 @@ export class WorkService {
    * Helper to verify project membership
    */
   private async verifyProjectMember(projectId: string, userId: string) {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      include: {
-        workspace: {
-          select: {
-            id: true,
-            ownerId: true,
-            isPersonal: true,
-            deletedAt: true,
-            members: { where: { userId } },
-          },
-        },
-        members: { where: { userId } },
-      },
-    });
-
-    if (!project) {
-      throw new AppError('Project not found', 404);
-    }
-
-    if (project.workspace.deletedAt) {
-      throw new AppError('The workspace containing this project has been deleted', 404);
-    }
-
-    const member = project.members[0];
-    const isWsOwner = project.workspace.ownerId === userId;
-    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
-    const isWsMember = project.workspace.members.length > 0;
-    const isMember = !!member || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember && !project.workspace.isPersonal);
-
-    if (!isMember) {
-      throw new AppError('You are not a member of this project', 403);
-    }
-
-    const role = member ? member.role : (isWsOwner || isWsAdmin) ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
-    return { project, role, isAdmin: role === 'PROJECT_ADMIN' };
+    const access = await projectService.verifyProjectAccess(projectId, userId);
+    return { project: access.project, role: access.role, isAdmin: access.isAdmin };
   }
 
   /**
    * Helper to verify that an assigned user belongs to the project
    */
   private async verifyAssigneeInProject(projectId: string, assignedToId: string) {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      include: {
-        workspace: {
-          select: {
-            id: true,
-            ownerId: true,
-            isPersonal: true,
-            members: { where: { userId: assignedToId } },
-          },
-        },
-        members: { where: { userId: assignedToId } },
-      },
-    });
-
-    if (!project) {
-      throw new AppError('Project not found', 404);
-    }
-
-    const isMember = project.members.length > 0;
-    const isWsOwner = project.workspace.ownerId === assignedToId;
-    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
-    const isWsMember = project.workspace.members.length > 0;
-
-    if (!isMember && !isWsOwner && !isWsAdmin && !(project.visibility === 'WORKSPACE' && isWsMember && !project.workspace.isPersonal)) {
+    try {
+      await projectService.verifyProjectAccess(projectId, assignedToId);
+    } catch {
       throw new AppError('The assigned user is not a member of this project', 400);
     }
   }

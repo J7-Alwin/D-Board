@@ -3,6 +3,7 @@ import { NotificationType, Prisma } from '../generated/prisma/index.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { publishToUser } from '../realtime/realtime.service.js';
 import { sendWorkItemAssignedEmail } from './email.service.js';
+import { projectService } from './project.service.js';
 
 export interface CreateNotificationInput {
   recipientId: string;
@@ -181,18 +182,17 @@ export class NotificationService {
       where: { createdAt: { lt: sevenDaysAgo } },
     }).catch((err) => console.error('[NotificationService] 7-day auto-purge failed:', err));
 
-    // Strict IDOR protection: Always filter by recipientId & 7-day window & workspace scoping
+    const accessibleProjectIds = await projectService.getAccessibleProjectIds(userId, workspaceId);
+
+    // Strict IDOR protection: Always filter by recipientId & 7-day window & workspace scoping & accessible projects
     const where: Prisma.NotificationWhereInput = {
       recipientId: userId,
       createdAt: { gte: sevenDaysAgo },
-    };
-
-    if (workspaceId) {
-      where.OR = [
-        { project: { workspaceId } },
+      OR: [
+        { projectId: { in: accessibleProjectIds } },
         { projectId: null },
-      ];
-    }
+      ],
+    };
 
     if (params.unreadOnly || params.category === 'UNREAD') {
       where.readAt = null;
@@ -300,18 +300,17 @@ export class NotificationService {
    * Fast unread notification count query (7-day window) scoped to workspace.
    */
   async getUnreadCount(userId: string, workspaceId?: string): Promise<number> {
+    const accessibleProjectIds = await projectService.getAccessibleProjectIds(userId, workspaceId);
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const where: Prisma.NotificationWhereInput = {
       recipientId: userId,
       readAt: null,
       createdAt: { gte: sevenDaysAgo },
-    };
-    if (workspaceId) {
-      where.OR = [
-        { project: { workspaceId } },
+      OR: [
+        { projectId: { in: accessibleProjectIds } },
         { projectId: null },
-      ];
-    }
+      ],
+    };
     return await prisma.notification.count({ where });
   }
 

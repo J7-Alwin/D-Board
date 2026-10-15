@@ -5,48 +5,15 @@ import { AppError } from '../middlewares/error.middleware.js';
 import { activityService } from './activity.service.js';
 import { notificationService } from './notification.service.js';
 import { publishToProject } from '../realtime/realtime.service.js';
+import { projectService } from './project.service.js';
 
 export class CommentService {
   /**
    * Helper to verify if user has access to the project
    */
   private static async verifyAccess(userId: string, projectId: string) {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: {
-        id: true,
-        workspaceId: true,
-        createdById: true,
-        workspace: {
-          select: {
-            id: true,
-            ownerId: true,
-            deletedAt: true,
-            members: { where: { userId } },
-          },
-        },
-        members: { where: { userId } },
-      },
-    });
-
-    if (!project) {
-      throw new AppError('Project not found', 404);
-    }
-
-    if (project.workspace.deletedAt) {
-      throw new AppError('The workspace containing this project has been deleted', 404);
-    }
-
-    const membership = project.members[0];
-    const isWsOwner = project.workspace.ownerId === userId;
-    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
-
-    if (!membership && !isWsOwner && !isWsAdmin) {
-      throw new AppError('You are not authorized to access this project', 403);
-    }
-
-    const role = membership?.role || (isWsOwner || isWsAdmin ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER');
-    return { project, role };
+    const access = await projectService.verifyProjectAccess(projectId, userId);
+    return { project: access.project, role: access.role };
   }
 
   static async getComments(userId: string, projectId: string, workItemId: string) {

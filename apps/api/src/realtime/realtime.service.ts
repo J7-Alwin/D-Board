@@ -5,6 +5,7 @@ import { verifyJwt } from '../utils/security.js';
 import { RealtimeEventType } from './realtime.types.js';
 import { sessionService } from '../services/session.service.js';
 import env from '../config/env.js';
+import { projectService } from '../services/project.service.js';
 
 let io: SocketIOServer | null = null;
 
@@ -113,38 +114,8 @@ export function initRealtime(httpServer: HTTPServer): SocketIOServer {
           return;
         }
 
-        // Authorize: Check if user is active member or workspace owner/admin
-        const project = await prisma.project.findUnique({
-          where: { id: projectId },
-          select: {
-            id: true,
-            workspaceId: true,
-            visibility: true,
-            workspace: {
-              select: {
-                ownerId: true,
-                isPersonal: true,
-                members: { where: { userId } },
-              },
-            },
-            members: { where: { userId } },
-          },
-        });
-
-        if (!project) {
-          if (callback) callback({ success: false, error: 'Project not found' });
-          return;
-        }
-
-        const isMember = project.members.length > 0;
-        const isWsOwner = project.workspace.ownerId === userId;
-        const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
-        const isWsMember = project.workspace.members.length > 0;
-
-        if (!isMember && !isWsOwner && !isWsAdmin && !(project.visibility === 'WORKSPACE' && isWsMember && !project.workspace.isPersonal)) {
-          if (callback) callback({ success: false, error: 'Unauthorized to join project room' });
-          return;
-        }
+        // Authorize: Enforce workspace and project visibility rules
+        await projectService.verifyProjectAccess(projectId, userId);
 
         const projectRoom = `project:${projectId}`;
         socket.join(projectRoom);

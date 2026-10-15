@@ -2,62 +2,19 @@ import { prisma } from '../prisma.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { activityService } from './activity.service.js';
 import { publishToProject } from '../realtime/realtime.service.js';
+import { projectService } from './project.service.js';
 
 export class FolderService {
   /**
    * Helper to verify project membership
    */
   private async getMembershipAndProject(projectId: string, userId: string) {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: {
-        id: true,
-        name: true,
-        createdById: true,
-        status: true,
-        visibility: true,
-        workspaceId: true,
-        workspace: {
-          select: {
-            id: true,
-            ownerId: true,
-            isPersonal: true,
-            deletedAt: true,
-            members: { where: { userId } },
-          },
-        },
-      },
-    });
-
-    if (!project) {
-      throw new AppError('Project not found', 404);
-    }
-
-    if (project.workspace.deletedAt) {
-      throw new AppError('The workspace containing this project has been deleted', 404);
-    }
-
-    const membership = await prisma.projectMember.findUnique({
-      where: {
-        projectId_userId: {
-          projectId,
-          userId,
-        },
-      },
-    });
-
-    const isWsOwner = project.workspace.ownerId === userId;
-    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
-    const isWsMember = project.workspace.members.length > 0;
-    const isMember = !!membership || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember && !project.workspace.isPersonal);
-
-    if (!isMember) {
-      throw new AppError('You are not authorized to access this project', 403);
-    }
-
-    const isAdmin = membership?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
-
-    return { project, membership, isAdmin };
+    const access = await projectService.verifyProjectAccess(projectId, userId);
+    return {
+      project: access.project,
+      membership: access.membership,
+      isAdmin: access.isAdmin,
+    };
   }
 
   /**

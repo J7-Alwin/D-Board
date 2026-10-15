@@ -93,6 +93,7 @@ export class WorkspaceService {
             where: {
               workspaceId: ws.id,
               OR: [
+                ...(ws.isPersonal ? [] : [{ visibility: 'WORKSPACE' as const }]),
                 { createdById: userId },
                 { members: { some: { userId } } },
               ],
@@ -198,6 +199,7 @@ export class WorkspaceService {
         where: {
           workspaceId: ws.id,
           OR: [
+            ...(ws.isPersonal ? [] : [{ visibility: 'WORKSPACE' as const }]),
             { createdById: userId },
             { members: { some: { userId } } },
           ],

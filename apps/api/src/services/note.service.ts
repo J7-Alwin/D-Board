@@ -5,61 +5,19 @@ import { activityService } from './activity.service.js';
 import { notificationService } from './notification.service.js';
 import { publishToProject, publishToUsers } from '../realtime/realtime.service.js';
 import type { CreateNoteInput, UpdateNoteInput, NoteQueryParams } from '../schemas/note.schema.js';
+import { projectService } from './project.service.js';
 
 export class NoteService {
   /**
    * Helper to verify project membership and determine admin status.
    */
   private async getMembershipAndProject(projectId: string, userId: string) {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: {
-        id: true,
-        name: true,
-        createdById: true,
-        visibility: true,
-        workspaceId: true,
-        workspace: {
-          select: {
-            id: true,
-            ownerId: true,
-            isPersonal: true,
-            deletedAt: true,
-            members: { where: { userId } },
-          },
-        },
-      },
-    });
-
-    if (!project) {
-      throw new AppError('Project not found', 404);
-    }
-
-    if (project.workspace.deletedAt) {
-      throw new AppError('The workspace containing this project has been deleted', 404);
-    }
-
-    const membership = await prisma.projectMember.findUnique({
-      where: {
-        projectId_userId: {
-          projectId,
-          userId,
-        },
-      },
-    });
-
-    const isWsOwner = project.workspace.ownerId === userId;
-    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
-    const isWsMember = project.workspace.members.length > 0;
-    const isMember = !!membership || isWsOwner || isWsAdmin || (project.visibility === 'WORKSPACE' && isWsMember && !project.workspace.isPersonal);
-
-    if (!isMember) {
-      throw new AppError('You are not a member of this project', 403);
-    }
-
-    const isAdmin = membership?.role === 'PROJECT_ADMIN' || isWsOwner || isWsAdmin;
-
-    return { project, membership, isAdmin };
+    const access = await projectService.verifyProjectAccess(projectId, userId);
+    return {
+      project: access.project,
+      membership: access.membership,
+      isAdmin: access.isAdmin,
+    };
   }
 
   /**
@@ -256,41 +214,7 @@ export class NoteService {
    * List global notes across all projects the user is a member of.
    */
   async getGlobalNotes(userId: string, params: NoteQueryParams & { projectId?: string }, workspaceId?: string) {
-    // Find all projects accessible by user in the active workspace
-    const [memberships, ownedProjects] = await Promise.all([
-      prisma.projectMember.findMany({
-        where: {
-          userId,
-          ...(workspaceId ? { project: { workspaceId } } : {}),
-        },
-        select: { projectId: true, role: true },
-      }),
-      prisma.project.findMany({
-        where: {
-          createdById: userId,
-          ...(workspaceId ? { workspaceId } : {}),
-        },
-        select: { id: true },
-      }),
-    ]);
-
-    const adminProjectIds = new Set<string>();
-    const memberProjectIds = new Set<string>();
-
-    for (const op of ownedProjects) {
-      adminProjectIds.add(op.id);
-    }
-    for (const m of memberships) {
-      if (m.role === 'PROJECT_ADMIN') {
-        adminProjectIds.add(m.projectId);
-      } else {
-        memberProjectIds.add(m.projectId);
-      }
-    }
-
-    const allAccessibleProjectIds = Array.from(
-      new Set([...Array.from(adminProjectIds), ...Array.from(memberProjectIds)])
-    );
+    const allAccessibleProjectIds = await projectService.getAccessibleProjectIds(userId, workspaceId);
 
     if (allAccessibleProjectIds.length === 0) {
       return { notes: [], total: 0, limit: params.limit, offset: params.offset };
@@ -408,10 +332,7 @@ export class NoteService {
     ]);
 
     return {
-      notes: notes.map((note) => {
-        const isAdmin = adminProjectIds.has(note.projectId);
-        return this.formatNoteDto(note, userId, isAdmin);
-      }),
+      notes: notes.map((note) => this.formatNoteDto(note, userId, false)),
       total,
       limit: params.limit,
       offset: params.offset,

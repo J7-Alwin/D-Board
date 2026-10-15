@@ -3,43 +3,23 @@ import { AppError } from '../middlewares/error.middleware.js';
 import { activityService } from './activity.service.js';
 import { ActivityType, ProjectRole } from '../generated/prisma/index.js';
 import { publishToProject, evictUserFromProjectRoom, notifyUserRoleUpdated } from '../realtime/realtime.service.js';
+import { projectService } from './project.service.js';
 
 export class MemberService {
   /**
    * Helper to verify if user has access and whether they are an admin
    */
   private static async verifyProjectAccess(projectId: string, userId: string) {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      include: {
-        workspace: {
-          select: {
-            id: true,
-            ownerId: true,
-            members: { where: { userId } },
-          },
-        },
-        members: { where: { userId } },
-      },
-    });
-
-    if (!project) {
-      throw new AppError('Project not found', 404);
-    }
-
-    const isWsOwner = project.workspace.ownerId === userId;
-    const isWsAdmin = project.workspace.members[0]?.role === 'WORKSPACE_ADMIN';
-    const membership = project.members[0];
-
-    if (!membership && !isWsOwner && !isWsAdmin) {
-      throw new AppError('You are not a member of this project', 403);
-    }
-
-    const role: ProjectRole = membership?.role || (isWsOwner || isWsAdmin ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER');
-    const isAdmin = role === 'PROJECT_ADMIN';
-    const isOwner = isWsOwner;
-
-    return { project, isOwner, membership, role, isAdmin, isWsOwner, isWsAdmin };
+    const access = await projectService.verifyProjectAccess(projectId, userId);
+    return {
+      project: access.project,
+      isOwner: access.isWsOwner,
+      membership: access.membership,
+      role: access.role,
+      isAdmin: access.isAdmin,
+      isWsOwner: access.isWsOwner,
+      isWsAdmin: access.isWsAdmin,
+    };
   }
 
   /**

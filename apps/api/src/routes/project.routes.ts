@@ -37,10 +37,18 @@ router.param('projectId', async (req, res, next, projectId) => {
     }
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      select: { id: true, workspaceId: true, status: true },
+      select: {
+        id: true,
+        workspaceId: true,
+        status: true,
+        workspace: { select: { deletedAt: true } },
+      },
     });
     if (!project) {
       return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+    if (project.workspace?.deletedAt && !req.originalUrl.includes('/transfer')) {
+      return res.status(404).json({ success: false, message: 'The workspace containing this project has been deleted' });
     }
     const explicitWorkspaceId =
       (req.headers['x-workspace-id'] as string) ||

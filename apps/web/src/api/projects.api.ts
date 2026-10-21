@@ -76,6 +76,31 @@ export interface CreateProjectInput {
 
 export type UpdateProjectInput = Partial<CreateProjectInput>;
 
+export interface ProjectCompletionRequestItem {
+  id: string;
+  projectId: string;
+  projectName: string;
+  projectKey: string;
+  requestedById: string;
+  requestedByName: string;
+  requestedByEmail?: string;
+  requestedByAvatar?: string | null;
+  reason?: string | null;
+  requestedAt: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  reviewedById?: string;
+  reviewedAt?: string;
+  reviewNote?: string | null;
+}
+
+export interface ProjectCompletionStatusResponse {
+  status: 'ACTIVE' | 'ARCHIVED' | 'COMPLETED';
+  pendingRequest: ProjectCompletionRequestItem | null;
+  canDirectlyComplete: boolean;
+  canRequestComplete: boolean;
+  isWsOwnerOrAdmin: boolean;
+}
+
 import { apiClient } from './client';
 
 export const projectsApi = {
@@ -119,6 +144,96 @@ export const projectsApi = {
 
   async deleteProject(projectId: string): Promise<{ success: boolean; data: { id: string; name?: string } }> {
     return apiClient<{ success: boolean; data: { id: string; name?: string } }>(`/projects/${projectId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async archiveProject(projectId: string): Promise<{ success: boolean; data: { project: Project } }> {
+    return apiClient<{ success: boolean; data: { project: Project } }>(`/projects/${projectId}/archive`, {
+      method: 'POST',
+    });
+  },
+
+  async unarchiveProject(projectId: string): Promise<{ success: boolean; data: { project: Project } }> {
+    return apiClient<{ success: boolean; data: { project: Project } }>(`/projects/${projectId}/unarchive`, {
+      method: 'POST',
+    });
+  },
+
+  async completeProject(
+    projectId: string,
+    reason?: string,
+    workspaceId?: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: { project: Project; completed?: boolean; requestSubmitted?: boolean; request?: ProjectCompletionRequestItem };
+  }> {
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient(`/projects/${projectId}/complete`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async reactivateProject(
+    projectId: string,
+    workspaceId?: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: { project: Project; reactivated?: boolean };
+  }> {
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient(`/projects/${projectId}/reactivate`, {
+      method: 'POST',
+      headers,
+    });
+  },
+
+  async getCompletionStatus(
+    projectId: string,
+    workspaceId?: string
+  ): Promise<{ success: boolean; data: ProjectCompletionStatusResponse }> {
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient(`/projects/${projectId}/completion-status`, { headers });
+  },
+
+  async getWorkspaceCompletionRequests(
+    workspaceId: string
+  ): Promise<{ success: boolean; data: { requests: ProjectCompletionRequestItem[]; allRequests: ProjectCompletionRequestItem[] } }> {
+    return apiClient(`/workspaces/${workspaceId}/completion-requests`);
+  },
+
+  async approveCompletionRequest(
+    workspaceId: string,
+    requestId: string
+  ): Promise<{ success: boolean; message: string; data: { projectId: string; status: string } }> {
+    return apiClient(`/workspaces/${workspaceId}/completion-requests/${requestId}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async rejectCompletionRequest(
+    workspaceId: string,
+    requestId: string,
+    reason?: string
+  ): Promise<{ success: boolean; message: string; data: { projectId: string; status: string } }> {
+    return apiClient(`/workspaces/${workspaceId}/completion-requests/${requestId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async cancelCompletionRequest(
+    workspaceId: string,
+    requestId: string
+  ): Promise<{ success: boolean; message: string }> {
+    return apiClient(`/workspaces/${workspaceId}/completion-requests/${requestId}`, {
       method: 'DELETE',
     });
   },

@@ -29,6 +29,8 @@ import { FilesPage } from './pages/app/FilesPage';
 import { NotificationsPage } from './pages/app/NotificationsPage';
 import { ActivityPage } from './pages/app/ActivityPage';
 import { AccountSettingsPage } from './pages/app/AccountSettingsPage';
+import { WorkspaceSettingsPage } from './pages/app/WorkspaceSettingsPage';
+import { AllWorkspacesPage } from './pages/app/AllWorkspacesPage';
 import { TermsPage } from './pages/TermsPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -36,6 +38,15 @@ import './App.css';
 
 const AppRoutes: React.FC = () => {
   const { path } = useRouter();
+
+  // Toggle 90% scaled density exclusively for authenticated app routes (/app/*)
+  React.useEffect(() => {
+    if (path.startsWith('/app')) {
+      document.documentElement.classList.add('app-authenticated-mode');
+    } else {
+      document.documentElement.classList.remove('app-authenticated-mode');
+    }
+  }, [path]);
 
   // Exact & Prefix Routing
   if (path === '/login') {
@@ -79,6 +90,29 @@ const AppRoutes: React.FC = () => {
     return (
       <AppLayout>
         <AccountSettingsPage />
+      </AppLayout>
+    );
+  }
+
+  if (
+    path === '/app/workspace/settings' ||
+    path.startsWith('/app/workspace/settings') ||
+    path === '/app/workspace/members' ||
+    path.startsWith('/app/workspace/members') ||
+    path === '/app/workspaces/settings' ||
+    path.startsWith('/app/workspaces/settings')
+  ) {
+    return (
+      <AppLayout>
+        <WorkspaceSettingsPage />
+      </AppLayout>
+    );
+  }
+
+  if (path === '/app/workspaces' || (path.startsWith('/app/workspaces') && !path.startsWith('/app/workspaces/settings') && !path.startsWith('/app/workspaces/invitations'))) {
+    return (
+      <AppLayout>
+        <AllWorkspacesPage />
       </AppLayout>
     );
   }

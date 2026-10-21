@@ -9,11 +9,7 @@ export default defineConfig({
     setupFiles: ['./src/tests/setup.ts'],
     testTimeout: 25000,
     hookTimeout: 25000,
+    fileParallelism: false,
     pool: 'threads',
-    poolOptions: {
-      threads: {
-        singleThread: true,
-      },
-    },
   },
 });

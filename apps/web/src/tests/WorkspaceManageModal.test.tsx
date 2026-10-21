@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { WorkspaceManageModal } from '../components/workspace/WorkspaceManageModal';
 import * as WorkspaceContextModule from '../context/WorkspaceContext';
@@ -7,6 +8,8 @@ import { workspacesApi } from '../api/workspaces.api';
 
 describe('WorkspaceManageModal Component Tests', () => {
   const mockRefreshWorkspaces = vi.fn();
+  const mockRefreshDeletedWorkspaces = vi.fn();
+  const mockRecoverWorkspace = vi.fn();
 
   const mockUser = {
     id: 'user-owner',
@@ -84,18 +87,21 @@ describe('WorkspaceManageModal Component Tests', () => {
       login: vi.fn(),
       register: vi.fn(),
       logout: vi.fn(),
-      updateUser: vi.fn(),
+      refreshUser: vi.fn(),
     });
 
     vi.spyOn(WorkspaceContextModule, 'useWorkspace').mockReturnValue({
       workspaces: { owned: [mockTeamWorkspace], joined: [] },
+      deletedWorkspaces: [],
       activeWorkspace: mockTeamWorkspace,
       activeRole: 'OWNER',
       isLoading: false,
       error: null,
       setActiveWorkspaceId: vi.fn(),
       createWorkspace: vi.fn(),
+      recoverWorkspace: mockRecoverWorkspace,
       refreshWorkspaces: mockRefreshWorkspaces,
+      refreshDeletedWorkspaces: mockRefreshDeletedWorkspaces,
     });
 
     vi.spyOn(workspacesApi, 'getMembers').mockResolvedValue({
@@ -221,13 +227,16 @@ describe('WorkspaceManageModal Component Tests', () => {
   it('hides Admin Permissions tab for non-owners', () => {
     vi.spyOn(WorkspaceContextModule, 'useWorkspace').mockReturnValue({
       workspaces: { owned: [], joined: [mockTeamWorkspace] },
+      deletedWorkspaces: [],
       activeWorkspace: { ...mockTeamWorkspace, isOwner: false, userRole: 'WORKSPACE_MEMBER' },
       activeRole: 'WORKSPACE_MEMBER',
       isLoading: false,
       error: null,
       setActiveWorkspaceId: vi.fn(),
       createWorkspace: vi.fn(),
+      recoverWorkspace: mockRecoverWorkspace,
       refreshWorkspaces: mockRefreshWorkspaces,
+      refreshDeletedWorkspaces: mockRefreshDeletedWorkspaces,
     });
 
     render(<WorkspaceManageModal isOpen={true} onClose={vi.fn()} />);
@@ -249,6 +258,69 @@ describe('WorkspaceManageModal Component Tests', () => {
     expect(
       screen.getByText(/This will immediately revoke their workspace access and all project memberships/i)
     ).toBeInTheDocument();
+  });
+
+  it('updates member role through role dropdown, confirms change with correct role labels, and displays toast notification', async () => {
+    let currentMembers = [
+      { ...mockMembers[0] },
+      { ...mockMembers[1] },
+    ];
+
+    vi.spyOn(workspacesApi, 'getMembers').mockImplementation(async () => ({
+      success: true,
+      data: { members: currentMembers as any, total: 2, page: 1, limit: 50, totalPages: 1 },
+    }));
+
+    const updateMemberRoleSpy = vi.spyOn(workspacesApi, 'updateMemberRole').mockImplementation(async (_wsId, _memberId, newRole) => {
+      currentMembers = currentMembers.map((m) =>
+        m.id === 'wm-2' ? { ...m, role: newRole as any } : m
+      );
+      return {
+        success: true,
+        data: { member: { ...mockMembers[1], role: newRole } as any },
+      };
+    });
+
+    render(<WorkspaceManageModal isOpen={true} onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Charlie Collaborator')).toBeInTheDocument();
+    });
+
+    const roleDropdown = screen.getByLabelText('Change role for charlie') as HTMLSelectElement;
+    expect(roleDropdown).toHaveValue('WORKSPACE_MEMBER');
+
+    // Check all 3 options exist inside role dropdown
+    expect(roleDropdown.querySelector('option[value="WORKSPACE_ADMIN"]')?.textContent).toBe('Workspace Admin');
+    expect(roleDropdown.querySelector('option[value="PROJECT_ADMIN"]')?.textContent).toBe('Project Admin');
+    expect(roleDropdown.querySelector('option[value="WORKSPACE_MEMBER"]')?.textContent).toBe('Workspace Member');
+
+    // 1. Change to Project Admin
+    fireEvent.change(roleDropdown, { target: { value: 'PROJECT_ADMIN' } });
+
+    expect(screen.getByText('Change Member Role?')).toBeInTheDocument();
+    expect(document.querySelector('.wmm-confirm-box')).toHaveTextContent('Project Admin');
+
+    const confirmBtn = screen.getByRole('button', { name: 'Confirm Change' });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(updateMemberRoleSpy).toHaveBeenCalledWith('ws-team-1', 'wm-2', 'PROJECT_ADMIN');
+      expect(screen.getByText('Role updated successfully')).toBeInTheDocument();
+      expect(roleDropdown).toHaveValue('PROJECT_ADMIN');
+    });
+
+    // 2. Change back to Workspace Member
+    fireEvent.change(roleDropdown, { target: { value: 'WORKSPACE_MEMBER' } });
+    expect(screen.getByText('Change Member Role?')).toBeInTheDocument();
+    const confirmBtn2 = screen.getByRole('button', { name: 'Confirm Change' });
+    fireEvent.click(confirmBtn2);
+
+    await waitFor(() => {
+      expect(updateMemberRoleSpy).toHaveBeenCalledWith('ws-team-1', 'wm-2', 'WORKSPACE_MEMBER');
+      expect(screen.getByText('Role updated successfully')).toBeInTheDocument();
+      expect(roleDropdown).toHaveValue('WORKSPACE_MEMBER');
+    });
   });
 
   it('renders Ownership Transfer tab with form for Owner', async () => {
@@ -301,13 +373,16 @@ describe('WorkspaceManageModal Component Tests', () => {
 
     vi.spyOn(WorkspaceContextModule, 'useWorkspace').mockReturnValue({
       workspaces: { owned: [personalWs], joined: [] },
+      deletedWorkspaces: [],
       activeWorkspace: personalWs,
       activeRole: 'OWNER',
       isLoading: false,
       error: null,
       setActiveWorkspaceId: vi.fn(),
       createWorkspace: vi.fn(),
+      recoverWorkspace: mockRecoverWorkspace,
       refreshWorkspaces: mockRefreshWorkspaces,
+      refreshDeletedWorkspaces: mockRefreshDeletedWorkspaces,
     });
 
     render(<WorkspaceManageModal isOpen={true} onClose={vi.fn()} initialTab="danger" />);

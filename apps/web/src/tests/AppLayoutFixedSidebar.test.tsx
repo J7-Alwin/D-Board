@@ -72,6 +72,41 @@ vi.mock('../api/notifications.api', () => ({
   },
 }));
 
+vi.mock('../context/WorkspaceContext', () => ({
+  useWorkspace: () => ({
+    activeWorkspace: {
+      id: 'ws-1',
+      name: 'Alpha Workspace',
+      slug: 'alpha-workspace',
+      isPersonal: true,
+      isOwner: true,
+      userRole: 'OWNER',
+    },
+    activeRole: 'OWNER',
+    workspaces: {
+      owned: [
+        {
+          id: 'ws-1',
+          name: 'Alpha Workspace',
+          slug: 'alpha-workspace',
+          isPersonal: true,
+          isOwner: true,
+          userRole: 'OWNER',
+        },
+      ],
+      joined: [],
+    },
+    deletedWorkspaces: [],
+    isLoading: false,
+    error: null,
+    setActiveWorkspaceId: vi.fn(),
+    createWorkspace: vi.fn(),
+    recoverWorkspace: vi.fn(),
+    refreshWorkspaces: vi.fn(),
+    refreshDeletedWorkspaces: vi.fn(),
+  }),
+}));
+
 describe('AppLayout Fixed Sidebar and Layout Integrity', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -100,7 +135,7 @@ describe('AppLayout Fixed Sidebar and Layout Integrity', () => {
     expect(nav.querySelector('a[href="/app/notifications"]')).toBeInTheDocument();
 
     // 3. Projects section header
-    expect(screen.getByText('MY PROJECTS')).toBeInTheDocument();
+    expect(screen.getByText('RECENT PROJECTS')).toBeInTheDocument();
 
     // 4. Action buttons
     const createBtn = screen.getByRole('button', { name: /create project/i });

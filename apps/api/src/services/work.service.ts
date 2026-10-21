@@ -548,7 +548,7 @@ export class WorkService {
   async getMyWorkItems(
     userId: string,
     params?: {
-      tab?: 'my-work' | 'created-work' | 'overdue' | 'due-soon' | 'completed' | 'blocked' | 'all';
+      tab?: 'my-work' | 'created-work' | 'overdue' | 'due-soon' | 'completed' | 'blocked' | 'canceled' | 'all';
       status?: string;
       priority?: string;
       type?: string;
@@ -616,6 +616,7 @@ export class WorkService {
         return new Date(i.dueDate) < now;
       }).length,
       blocked: userAssignedItems.filter((i) => i.status === 'BLOCKED').length,
+      canceled: userAssignedItems.filter((i) => i.status === 'BLOCKED').length,
       completed: userAssignedItems.filter((i) => i.status === 'COMPLETED').length,
     };
 
@@ -646,7 +647,7 @@ export class WorkService {
     } else if (tab === 'completed') {
       where.assignedToId = userId;
       where.status = 'COMPLETED';
-    } else if (tab === 'blocked') {
+    } else if (tab === 'blocked' || tab === 'canceled') {
       where.assignedToId = userId;
       where.status = 'BLOCKED';
     } else if (tab === 'all') {

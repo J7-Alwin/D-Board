@@ -14,7 +14,7 @@ const SocketContext = createContext<SocketContextType>({
 
 function resolveSocketUrl(): string {
   const envUrl = import.meta.env.VITE_API_URL;
-  if (!envUrl) return 'http://localhost:5000';
+  if (!envUrl) return 'http://127.0.0.1:5000';
   const trimmed = envUrl.trim().replace(/\/+$/, '');
   return trimmed.replace(/\/api$/, '');
 }

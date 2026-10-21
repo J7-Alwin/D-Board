@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useRouter, Link } from '../../router/Router';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -71,6 +71,29 @@ export const CreateProjectPage: React.FC = () => {
   const { navigate } = useRouter();
   const { user } = useAuth();
   const { activeWorkspace, activeRole } = useWorkspace();
+
+  const canCreateProject = useMemo(() => {
+    if (!activeWorkspace) return true;
+    if (activeWorkspace.isPersonal) return true;
+    if (activeRole === 'OWNER' || activeWorkspace.isOwner) return true;
+    const perms = activeWorkspace.adminPermissions;
+    if (activeRole === 'WORKSPACE_ADMIN') {
+      return perms?.workspaceAdmin?.canCreateProjects ?? perms?.canCreateProjects ?? true;
+    }
+    if (activeRole === 'PROJECT_ADMIN') {
+      return perms?.projectAdmin?.canCreateProjects ?? false;
+    }
+    if (activeRole === 'WORKSPACE_MEMBER') {
+      return perms?.workspaceMember?.canCreateProjects ?? false;
+    }
+    return false;
+  }, [activeWorkspace, activeRole]);
+
+  useEffect(() => {
+    if (activeWorkspace && !canCreateProject) {
+      navigate('/app/projects');
+    }
+  }, [activeWorkspace, canCreateProject, navigate]);
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [visibility, setVisibility] = useState<'WORKSPACE' | 'RESTRICTED'>('WORKSPACE');

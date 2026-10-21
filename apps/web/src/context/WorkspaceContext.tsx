@@ -28,7 +28,7 @@ interface WorkspaceContextType {
   refreshDeletedWorkspaces: () => Promise<void>;
 }
 
-const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
+export const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
@@ -227,22 +227,8 @@ const defaultWorkspaceContext: WorkspaceContextType = {
     ],
     joined: [],
   },
-  activeWorkspace: {
-    id: 'ws-default',
-    name: 'Default Workspace',
-    slug: 'default-ws',
-    avatarUrl: null,
-    ownerId: 'user-default',
-    isPersonal: true,
-    isOwner: true,
-    userRole: 'OWNER',
-    memberCount: 1,
-    projectCount: 0,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    owner: { id: 'user-default', fullName: 'User', username: 'user', avatarUrl: null },
-  },
-  activeRole: 'OWNER',
+  activeWorkspace: null,
+  activeRole: null,
   deletedWorkspaces: [],
   isLoading: false,
   error: null,

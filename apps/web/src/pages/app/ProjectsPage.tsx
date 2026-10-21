@@ -2,10 +2,13 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from '../../router/Router';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { projectsApi, type Project } from '../../api/projects.api';
+import { projectsApi, type Project, type ProjectCompletionRequestItem } from '../../api/projects.api';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ProjectAvatar } from '../../components/ui/ProjectAvatar';
 import { CustomSelect } from '../../components/ui/CustomSelect';
+import { Modal } from '../../components/ui/Modal';
+import { ProjectSettingsModal } from '../../components/workspace/ProjectSettingsModal';
+import { ProjectTransferModal } from '../../components/workspace/ProjectTransferModal';
 import {
   PlusIcon,
   FolderIcon,
@@ -22,8 +25,9 @@ import {
   LockIcon,
   GlobeIcon,
   SettingsIcon,
-  UserIcon,
   CheckCircleIcon,
+  TrashIcon,
+  ClockIcon,
 } from '../../components/ui/Icons';
 
 const WorkspaceBadgeIcon: React.FC<{ size?: number; className?: string }> = ({ size = 12, className = '' }) => (
@@ -36,6 +40,22 @@ const WorkspaceBadgeIcon: React.FC<{ size?: number; className?: string }> = ({ s
     <path d="M14 12h1" />
     <path d="M14 16h1" />
     <path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" />
+  </svg>
+);
+
+const MoreVerticalIcon: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+    <circle cx="12" cy="5" r="1.5" fill="currentColor" />
+    <circle cx="12" cy="19" r="1.5" fill="currentColor" />
+  </svg>
+);
+
+const ArchiveBoxIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect width="20" height="5" x="2" y="3" rx="1" />
+    <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+    <path d="M10 12h4" />
   </svg>
 );
 
@@ -59,6 +79,7 @@ const VISIBILITY_OPTIONS = [
 
 const SORT_OPTIONS = [
   { value: 'updated', label: 'Recently Updated' },
+  { value: 'created', label: 'Recently Created' },
   { value: 'name_asc', label: 'Name (A to Z)' },
   { value: 'name_desc', label: 'Name (Z to A)' },
   { value: 'tasks_high', label: 'Most Tasks' },
@@ -90,8 +111,69 @@ const formatDate = (dateStr?: string | null): string => {
 export const ProjectsPage: React.FC = () => {
   const { user } = useAuth();
   const { navigate } = useRouter();
-  const { activeWorkspace, isLoading: wsLoading } = useWorkspace();
+  const { activeWorkspace, activeRole, isLoading: wsLoading } = useWorkspace();
   const activeWsId = activeWorkspace?.id;
+
+  // Distinguish Workspace Owner and Workspace Admin from Project Member
+  const isWorkspaceOwner = Boolean(
+    activeRole === 'OWNER' ||
+    (activeRole as string)?.toUpperCase() === 'OWNER' ||
+    activeWorkspace?.isOwner ||
+    (activeWorkspace?.ownerId && user?.id && activeWorkspace.ownerId === user.id)
+  );
+  const isWorkspaceAdmin = Boolean(
+    activeRole === 'WORKSPACE_ADMIN' ||
+    (activeRole as string)?.toUpperCase() === 'WORKSPACE_ADMIN' ||
+    (activeRole as string)?.toUpperCase() === 'ADMIN' ||
+    activeWorkspace?.userRole === 'WORKSPACE_ADMIN' ||
+    (activeWorkspace?.userRole as string)?.toUpperCase() === 'WORKSPACE_ADMIN' ||
+    (activeWorkspace as any)?.role === 'WORKSPACE_ADMIN'
+  );
+  const isWorkspaceLeader = isWorkspaceOwner || isWorkspaceAdmin;
+
+  const canCreateProject = useMemo(() => {
+    if (isWorkspaceOwner) return true;
+    if (activeWorkspace?.isPersonal) return true;
+    const role = (activeRole as string)?.toUpperCase();
+    const adminPerms = activeWorkspace?.adminPermissions;
+    if (role === 'WORKSPACE_ADMIN' || role === 'ADMIN') {
+      if (adminPerms?.workspaceAdmin?.canCreateProjects !== undefined) {
+        return Boolean(adminPerms.workspaceAdmin.canCreateProjects);
+      }
+      if (adminPerms?.canCreateProjects !== undefined) {
+        return Boolean(adminPerms.canCreateProjects);
+      }
+      return true;
+    }
+    if (role === 'PROJECT_ADMIN') {
+      if (adminPerms?.projectAdmin?.canCreateProjects !== undefined) {
+        return Boolean(adminPerms.projectAdmin.canCreateProjects);
+      }
+      return false;
+    }
+    if (role === 'WORKSPACE_MEMBER' || role === 'MEMBER') {
+      if (adminPerms?.workspaceMember?.canCreateProjects !== undefined) {
+        return Boolean(adminPerms.workspaceMember.canCreateProjects);
+      }
+      return false;
+    }
+    return false;
+  }, [isWorkspaceOwner, activeRole, activeWorkspace]);
+
+  const canArchiveProjects = useMemo(() => {
+    if (isWorkspaceOwner) return true;
+    if (isWorkspaceAdmin) {
+      const adminPerms = activeWorkspace?.adminPermissions;
+      if (adminPerms?.workspaceAdmin?.canArchiveProjects !== undefined) {
+        return Boolean(adminPerms.workspaceAdmin.canArchiveProjects);
+      }
+      if (adminPerms?.canArchiveProjects !== undefined) {
+        return Boolean(adminPerms.canArchiveProjects);
+      }
+      return true;
+    }
+    return false;
+  }, [isWorkspaceOwner, isWorkspaceAdmin, activeWorkspace]);
 
   // Data states
   const [projects, setProjects] = useState<Project[]>([]);
@@ -99,7 +181,7 @@ export const ProjectsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Filter & Search states
-  const [activeTab, setActiveTab] = useState<'all' | 'owned' | 'joined' | 'active' | 'archived'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'owned' | 'joined' | 'active' | 'completed' | 'archived'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedVisibility, setSelectedVisibility] = useState('ALL');
@@ -109,6 +191,96 @@ export const ProjectsPage: React.FC = () => {
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = viewMode === 'grid' ? 6 : 8;
+
+  // Active 3-dot dropdown menu project id
+  const [activeMenuProjectId, setActiveMenuProjectId] = useState<string | null>(null);
+
+  // Action & Modal states
+  const [archiveTarget, setArchiveTarget] = useState<Project | null>(null);
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [unarchiveTarget, setUnarchiveTarget] = useState<Project | null>(null);
+  const [isUnarchiving, setIsUnarchiving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [settingsModalProject, setSettingsModalProject] = useState<Project | null>(null);
+  const [transferModalProject, setTransferModalProject] = useState<Project | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Completion requests state for Workspace Owner / Admin
+  const [completionRequests, setCompletionRequests] = useState<ProjectCompletionRequestItem[]>([]);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
+
+  const fetchCompletionRequests = useCallback(async () => {
+    if (!activeWsId || !isWorkspaceLeader) {
+      setCompletionRequests([]);
+      return;
+    }
+    try {
+      const res = await projectsApi.getWorkspaceCompletionRequests(activeWsId);
+      if (res.success && res.data) {
+        setCompletionRequests(res.data.requests || []);
+      }
+    } catch {
+      // Ignore
+    }
+  }, [activeWsId, isWorkspaceLeader]);
+
+  useEffect(() => {
+    fetchCompletionRequests();
+  }, [fetchCompletionRequests]);
+
+  const handleApproveCompletionRequest = async (requestId: string) => {
+    if (!activeWsId) return;
+    setProcessingRequestId(requestId);
+    try {
+      const res = await projectsApi.approveCompletionRequest(activeWsId, requestId);
+      if (res.success) {
+        await Promise.all([fetchProjects(), fetchCompletionRequests()]);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to approve completion request');
+    } finally {
+      setProcessingRequestId(null);
+    }
+  };
+
+  const handleDeclineCompletionRequest = async (requestId: string) => {
+    if (!activeWsId) return;
+    const reason = window.prompt('Please enter a reason for declining (optional):');
+    setProcessingRequestId(requestId);
+    try {
+      const res = await projectsApi.rejectCompletionRequest(activeWsId, requestId, reason || undefined);
+      if (res.success) {
+        await Promise.all([fetchProjects(), fetchCompletionRequests()]);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to decline completion request');
+    } finally {
+      setProcessingRequestId(null);
+    }
+  };
+
+  // Close menus on outside click and Escape key
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.closest('.proj-more-btn') || target.closest('.proj-card-menu-dropdown'))) {
+        return;
+      }
+      setActiveMenuProjectId(null);
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveMenuProjectId(null);
+      }
+    };
+    window.addEventListener('click', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('click', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // Fetch projects scoped to active workspace with cancellation guard
   const fetchProjects = useCallback(async (targetWsId?: string) => {
@@ -136,6 +308,15 @@ export const ProjectsPage: React.FC = () => {
     if (wsLoading) return;
     let isCancelled = false;
     const currentWsId = activeWsId;
+
+    // Reset modals and active menu when switching workspaces
+    setActiveMenuProjectId(null);
+    setArchiveTarget(null);
+    setUnarchiveTarget(null);
+    setDeleteTarget(null);
+    setSettingsModalProject(null);
+    setTransferModalProject(null);
+    setActionError(null);
 
     const load = async () => {
       setProjects([]);
@@ -166,6 +347,13 @@ export const ProjectsPage: React.FC = () => {
     };
   }, [activeWsId, wsLoading]);
 
+  // Reset tab if current tab is not applicable
+  useEffect(() => {
+    if (activeTab === 'owned' || activeTab === 'joined') {
+      setActiveTab('all');
+    }
+  }, [activeTab]);
+
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
@@ -176,12 +364,13 @@ export const ProjectsPage: React.FC = () => {
     let result = [...projects];
 
     // Tab filter
-    if (activeTab === 'owned') {
-      result = result.filter((p) => p.createdById === user?.id);
-    } else if (activeTab === 'joined') {
-      result = result.filter((p) => p.createdById !== user?.id);
+    if (activeTab === 'all') {
+      // All non-archived projects
+      result = result.filter((p) => p.status !== 'ARCHIVED');
     } else if (activeTab === 'active') {
       result = result.filter((p) => (p.status || 'ACTIVE') === 'ACTIVE');
+    } else if (activeTab === 'completed') {
+      result = result.filter((p) => p.status === 'COMPLETED');
     } else if (activeTab === 'archived') {
       result = result.filter((p) => p.status === 'ARCHIVED');
     }
@@ -214,6 +403,9 @@ export const ProjectsPage: React.FC = () => {
 
     // Sorting
     result.sort((a, b) => {
+      if (selectedSort === 'created') {
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      }
       if (selectedSort === 'name_asc') {
         return a.name.localeCompare(b.name);
       }
@@ -236,7 +428,7 @@ export const ProjectsPage: React.FC = () => {
     });
 
     return result;
-  }, [projects, activeTab, searchQuery, selectedCategory, selectedVisibility, selectedSort, user?.id, activeWorkspace?.name]);
+  }, [projects, activeTab, isWorkspaceLeader, searchQuery, selectedCategory, selectedVisibility, selectedSort, user?.id, activeWorkspace?.name]);
 
   // Summary Metrics
   const metrics = useMemo(() => {
@@ -244,13 +436,73 @@ export const ProjectsPage: React.FC = () => {
     const owned = projects.filter((p) => p.createdById === user?.id).length;
     const joined = total - owned;
     const active = projects.filter((p) => (p.status || 'ACTIVE') === 'ACTIVE').length;
+    const completed = projects.filter((p) => p.status === 'COMPLETED').length;
     const archived = projects.filter((p) => p.status === 'ARCHIVED').length;
+    const nonArchived = total - archived;
     const totalTasks = projects.reduce((acc, p) => acc + (p.taskCount || 0), 0);
     const completedTasks = projects.reduce((acc, p) => acc + (p.completedTaskCount || 0), 0);
     const avgProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-    return { total, owned, joined, active, archived, totalTasks, completedTasks, avgProgress };
+    return { total, owned, joined, active, completed, archived, nonArchived, totalTasks, completedTasks, avgProgress };
   }, [projects, user?.id]);
+
+  // Archive & Unarchive Handlers
+  const handleConfirmArchive = async () => {
+    if (!archiveTarget) return;
+    setIsArchiving(true);
+    setActionError(null);
+    try {
+      const res = await projectsApi.archiveProject(archiveTarget.id);
+      if (res.success) {
+        setArchiveTarget(null);
+        await fetchProjects();
+      } else {
+        setActionError('Failed to archive project');
+      }
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to archive project');
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
+  const handleConfirmUnarchive = async () => {
+    if (!unarchiveTarget) return;
+    setIsUnarchiving(true);
+    setActionError(null);
+    try {
+      const res = await projectsApi.unarchiveProject(unarchiveTarget.id);
+      if (res.success) {
+        setUnarchiveTarget(null);
+        await fetchProjects();
+      } else {
+        setActionError('Failed to unarchive project');
+      }
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to unarchive project');
+    } finally {
+      setIsUnarchiving(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    setActionError(null);
+    try {
+      const res = await projectsApi.deleteProject(deleteTarget.id);
+      if (res.success) {
+        setDeleteTarget(null);
+        await fetchProjects();
+      } else {
+        setActionError('Failed to delete project');
+      }
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to delete project');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Pagination calculation
   const totalItems = filteredProjects.length;
@@ -274,6 +526,253 @@ export const ProjectsPage: React.FC = () => {
 
   return (
     <div className="mywork-page-container projects-page-container">
+      {/* Scoped CSS for Owner's 4-card grid, status pills, and 3-dot dropdown */}
+      <style>{`
+        .projects-stats-row.owner-four-cards {
+          grid-template-columns: repeat(4, 1fr) !important;
+        }
+        @media (max-width: 1024px) {
+          .projects-stats-row.owner-four-cards {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+        }
+        @media (max-width: 640px) {
+          .projects-stats-row.owner-four-cards {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        .proj-card-menu-dropdown {
+          position: absolute;
+          top: calc(100% + 4px);
+          right: 0;
+          min-width: 180px;
+          background: #FFFFFF;
+          border: 1px solid #E2E8F0;
+          border-radius: 8px;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+          z-index: 50;
+          padding: 0.35rem;
+          display: flex;
+          flex-direction: column;
+          animation: fadeIn 0.12s ease-out;
+        }
+        .proj-menu-item {
+          display: flex;
+          align-items: center;
+          gap: 0.55rem;
+          padding: 0.5rem 0.65rem;
+          font-size: 0.8125rem;
+          font-weight: 500;
+          color: #334155;
+          background: transparent;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          width: 100%;
+          text-align: left;
+          transition: all 0.12s ease;
+        }
+        .proj-menu-item:hover {
+          background: #F8FAFC;
+          color: #0F172A;
+        }
+        .proj-menu-item.danger-item {
+          color: #EF4444;
+        }
+        .proj-menu-item.danger-item:hover {
+          background: #FEF2F2;
+          color: #DC2626;
+        }
+        .proj-menu-divider {
+          height: 1px;
+          background: #F1F5F9;
+          margin: 0.3rem 0;
+        }
+        .proj-status-pill {
+          font-size: 0.675rem;
+          font-weight: 600;
+          padding: 0.2rem 0.55rem;
+          border-radius: 9999px;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          letter-spacing: 0.02em;
+        }
+        .proj-status-pill.status-active {
+          background: #ECFDF5;
+          color: #059669;
+          border: 1px solid #A7F3D0;
+        }
+        .proj-status-pill.status-completed {
+          background: #EFF6FF;
+          color: #2563EB;
+          border: 1px solid #BFDBFE;
+        }
+        .proj-status-pill.status-archived {
+          background: #FEF3C7;
+          color: #B45309;
+          border: 1px solid #FCD34D;
+        }
+        .proj-updated-row {
+          font-size: 0.75rem;
+          color: #94A3B8;
+          display: flex;
+          align-items: center;
+          gap: 0.35rem;
+        }
+        /* PIC 1 NAVIGATION TABS DESIGN: Underline border, icons, transparent background */
+        .projects-tabs-nav-bar {
+          display: flex !important;
+          align-items: center !important;
+          gap: 0.5rem !important;
+          border-bottom: 1px solid #E2E8F0 !important;
+          margin-bottom: 1.25rem !important;
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          scrollbar-width: none !important;
+          -ms-overflow-style: none !important;
+          padding-bottom: 0 !important;
+          background: transparent !important;
+        }
+        .projects-tabs-nav-bar::-webkit-scrollbar {
+          display: none !important;
+          width: 0 !important;
+          height: 0 !important;
+        }
+        .projects-nav-tab-btn {
+          display: inline-flex !important;
+          align-items: center !important;
+          gap: 0.5rem !important;
+          padding: 0.65rem 1rem !important;
+          font-size: 0.84375rem !important;
+          font-weight: 600 !important;
+          color: #64748B !important;
+          background: transparent !important;
+          border: none !important;
+          border-radius: 0 !important;
+          border-bottom: 2px solid transparent !important;
+          cursor: pointer !important;
+          transition: all 0.15s ease !important;
+          white-space: nowrap !important;
+          text-decoration: none !important;
+          margin-bottom: -1px !important;
+          box-shadow: none !important;
+        }
+        .projects-nav-tab-btn:hover {
+          color: #0F172A !important;
+          background: transparent !important;
+        }
+        .projects-nav-tab-btn.active {
+          color: #0F172A !important;
+          font-weight: 700 !important;
+          background: transparent !important;
+          border-bottom-color: #0F172A !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+        }
+        /* Completion requests review panel */
+        .proj-completion-requests-panel {
+          background: #FFFBEB;
+          border: 1px solid #FDE68A;
+          border-radius: 12px;
+          padding: 1.25rem;
+          margin-bottom: 1.5rem;
+        }
+        .proj-cr-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 0.75rem;
+        }
+        .proj-cr-title-row {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          font-size: 0.9375rem;
+          font-weight: 700;
+          color: #92400E;
+        }
+        .proj-cr-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+        }
+        .proj-cr-card {
+          background: #FFFFFF;
+          border: 1px solid #FCD34D;
+          border-radius: 8px;
+          padding: 0.875rem 1rem;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 1rem;
+          flex-wrap: wrap;
+        }
+        .proj-cr-info {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .proj-cr-name {
+          font-size: 0.875rem;
+          font-weight: 700;
+          color: #0F172A;
+        }
+        .proj-cr-meta {
+          font-size: 0.75rem;
+          color: #64748B;
+        }
+        .proj-cr-reason {
+          font-size: 0.8125rem;
+          color: #475569;
+          font-style: italic;
+          background: #F8FAFC;
+          padding: 0.25rem 0.5rem;
+          border-radius: 4px;
+          margin-top: 0.25rem;
+        }
+        .proj-cr-actions {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+        .proj-cr-approve-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          background: #059669;
+          color: #FFFFFF;
+          border: none;
+          border-radius: 6px;
+          padding: 0.45rem 0.85rem;
+          font-size: 0.8125rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.15s ease;
+        }
+        .proj-cr-approve-btn:hover {
+          background: #047857;
+        }
+        .proj-cr-decline-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          background: #FFFFFF;
+          color: #DC2626;
+          border: 1px solid #FCA5A5;
+          border-radius: 6px;
+          padding: 0.45rem 0.85rem;
+          font-size: 0.8125rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .proj-cr-decline-btn:hover {
+          background: #FEF2F2;
+          border-color: #EF4444;
+        }
+      `}</style>
+
       {/* ==========================================================================
           HEADER: MATCHING PIC 2 (MyWork) DESIGN SYSTEM
           ========================================================================== */}
@@ -289,8 +788,9 @@ export const ProjectsPage: React.FC = () => {
             </span>
           </div>
           <p className="mywork-subtitle">
-            Manage, collaborate, and monitor all authorized projects within{' '}
-            <strong>{activeWorkspace?.name || 'the active workspace'}</strong>.
+            {isWorkspaceLeader
+              ? `Manage, monitor, and oversee the entire project portfolio for ${activeWorkspace?.name || 'the active workspace'}.`
+              : `Manage, collaborate, and monitor all authorized projects within ${activeWorkspace?.name || 'the active workspace'}.`}
           </p>
         </div>
 
@@ -313,14 +813,16 @@ export const ProjectsPage: React.FC = () => {
 
         {/* Far Right Create Project Action */}
         <div className="mywork-header-right">
-          <button
-            type="button"
-            className="mywork-create-btn"
-            onClick={() => navigate('/app/projects/create')}
-          >
-            <PlusIcon size={16} />
-            <span>Create Project</span>
-          </button>
+          {canCreateProject && (
+            <button
+              type="button"
+              className="mywork-create-btn"
+              onClick={() => navigate('/app/projects/create')}
+            >
+              <PlusIcon size={16} />
+              <span>Create Project</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -354,13 +856,13 @@ export const ProjectsPage: React.FC = () => {
       )}
 
       {/* ==========================================================================
-          METRICS STATS ROW: MATCHING PIC 2 (MyWork) 6-CARD SUMMARY GRID
+          METRICS STATS ROW: EXACTLY 4 METRIC CARDS (Total, Active, Completed, Archived)
           ========================================================================== */}
       {!loading && projects.length > 0 && (
-        <div className="mywork-summary-grid projects-stats-row">
+        <div className="mywork-summary-grid projects-stats-row owner-four-cards">
           {/* 1. Total Projects */}
           <div
-            className="mywork-summary-card card-total cursor-pointer"
+            className={`mywork-summary-card card-total cursor-pointer ${activeTab === 'all' ? 'active-metric-card' : ''}`}
             onClick={() => setActiveTab('all')}
             role="button"
             tabIndex={0}
@@ -373,51 +875,13 @@ export const ProjectsPage: React.FC = () => {
             </div>
             <div className="summary-card-bottom">
               <div className="summary-value">{metrics.total}</div>
-              <div className="summary-sub">In this workspace</div>
+              <div className="summary-sub">{isWorkspaceLeader ? 'In workspace portfolio' : 'Projects you are part of'}</div>
             </div>
           </div>
 
-          {/* 2. Owned Projects */}
+          {/* 2. Active Projects */}
           <div
-            className="mywork-summary-card card-created cursor-pointer"
-            onClick={() => setActiveTab('owned')}
-            role="button"
-            tabIndex={0}
-          >
-            <div className="summary-card-top">
-              <div className="summary-icon-pill icon-created">
-                <UserIcon size={16} />
-              </div>
-              <span className="summary-label">Owned Projects</span>
-            </div>
-            <div className="summary-card-bottom">
-              <div className="summary-value text-purple">{metrics.owned}</div>
-              <div className="summary-sub">Admin access</div>
-            </div>
-          </div>
-
-          {/* 3. Joined Projects */}
-          <div
-            className="mywork-summary-card card-in-progress cursor-pointer"
-            onClick={() => setActiveTab('joined')}
-            role="button"
-            tabIndex={0}
-          >
-            <div className="summary-card-top">
-              <div className="summary-icon-pill icon-in-progress">
-                <UsersIcon size={16} />
-              </div>
-              <span className="summary-label">Joined Projects</span>
-            </div>
-            <div className="summary-card-bottom">
-              <div className="summary-value text-accent">{metrics.joined}</div>
-              <div className="summary-sub">Collaborator access</div>
-            </div>
-          </div>
-
-          {/* 4. Active Projects */}
-          <div
-            className="mywork-summary-card card-completed cursor-pointer"
+            className={`mywork-summary-card card-completed cursor-pointer ${activeTab === 'active' ? 'active-metric-card' : ''}`}
             onClick={() => setActiveTab('active')}
             role="button"
             tabIndex={0}
@@ -430,27 +894,32 @@ export const ProjectsPage: React.FC = () => {
             </div>
             <div className="summary-card-bottom">
               <div className="summary-value text-success">{metrics.active}</div>
-              <div className="summary-sub">In development</div>
+              <div className="summary-sub">Currently in progress</div>
             </div>
           </div>
 
-          {/* 5. Total Tasks */}
-          <div className="mywork-summary-card card-due-soon cursor-pointer">
+          {/* 3. Completed Projects */}
+          <div
+            className={`mywork-summary-card card-due-soon cursor-pointer ${activeTab === 'completed' ? 'active-metric-card' : ''}`}
+            onClick={() => setActiveTab('completed')}
+            role="button"
+            tabIndex={0}
+          >
             <div className="summary-card-top">
               <div className="summary-icon-pill icon-due-soon">
                 <CheckSquareIcon size={16} />
               </div>
-              <span className="summary-label">Tasks ({metrics.avgProgress}% done)</span>
+              <span className="summary-label">Completed Projects</span>
             </div>
             <div className="summary-card-bottom">
-              <div className="summary-value text-amber">{metrics.totalTasks}</div>
-              <div className="summary-sub">Progress across projects</div>
+              <div className="summary-value text-purple">{metrics.completed}</div>
+              <div className="summary-sub">Successfully finalized</div>
             </div>
           </div>
 
-          {/* 6. Archived Projects */}
+          {/* 4. Archived Projects */}
           <div
-            className="mywork-summary-card card-overdue cursor-pointer"
+            className={`mywork-summary-card card-overdue cursor-pointer ${activeTab === 'archived' ? 'active-metric-card' : ''}`}
             onClick={() => setActiveTab('archived')}
             role="button"
             tabIndex={0}
@@ -459,59 +928,111 @@ export const ProjectsPage: React.FC = () => {
               <div className="summary-icon-pill icon-overdue">
                 <FolderIcon size={16} />
               </div>
-              <span className="summary-label">Archived</span>
+              <span className="summary-label">Archived Projects</span>
             </div>
             <div className="summary-card-bottom">
               <div className="summary-value text-danger-neutral">{metrics.archived}</div>
-              <div className="summary-sub">Completed or frozen</div>
+              <div className="summary-sub">Archived & preserved</div>
             </div>
           </div>
         </div>
       )}
 
       {/* ==========================================================================
-          TABS ROW: MATCHING PIC 2 (MyWork) UNDERLINE TABS
+          PENDING COMPLETION REQUESTS SECTION (WORKSPACE OWNER & WORKSPACE ADMIN)
           ========================================================================== */}
-      <div className="mywork-tabs-bar">
+      {isWorkspaceLeader && completionRequests.length > 0 && (
+        <div className="proj-completion-requests-panel">
+          <div className="proj-cr-head">
+            <div className="proj-cr-title-row">
+              <CheckCircleIcon size={18} />
+              <span>Pending Project Completion Requests ({completionRequests.length})</span>
+            </div>
+            <span style={{ fontSize: '0.75rem', color: '#B45309', fontWeight: 600 }}>
+              Action Required
+            </span>
+          </div>
+          <div className="proj-cr-list">
+            {completionRequests.map((req) => (
+              <div key={req.id} className="proj-cr-card">
+                <div className="proj-cr-info">
+                  <div className="proj-cr-name">
+                    {req.projectName} {req.projectKey && <span style={{ color: '#64748B', fontWeight: 500 }}>({req.projectKey})</span>}
+                  </div>
+                  <div className="proj-cr-meta">
+                    Requested by <strong>{req.requestedByName}</strong> • {new Date(req.requestedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  {req.reason && (
+                    <div className="proj-cr-reason">
+                      &quot;{req.reason}&quot;
+                    </div>
+                  )}
+                </div>
+                <div className="proj-cr-actions">
+                  <button
+                    type="button"
+                    className="proj-cr-approve-btn"
+                    disabled={processingRequestId === req.id}
+                    onClick={() => handleApproveCompletionRequest(req.id)}
+                  >
+                    <CheckSquareIcon size={14} />
+                    <span>{processingRequestId === req.id ? 'Approving...' : 'Approve & Complete'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="proj-cr-decline-btn"
+                    disabled={processingRequestId === req.id}
+                    onClick={() => handleDeclineCompletionRequest(req.id)}
+                  >
+                    <span>Decline</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================================================
+          TABS ROW - 4 PRIMARY FILTERS (All Projects, Active, Completed, Archived)
+          ========================================================================== */}
+      <div className="mywork-tabs-bar projects-tabs-nav-bar">
         <button
           type="button"
-          className={`mywork-tab dash-tab-btn ${activeTab === 'all' ? 'active' : ''}`}
+          className={`mywork-tab dash-tab-btn projects-nav-tab-btn ${activeTab === 'all' ? 'active' : ''}`}
           onClick={() => setActiveTab('all')}
         >
-          All Projects ({metrics.total})
+          <LayersIcon size={15} />
+          <span>All Projects ({metrics.nonArchived})</span>
         </button>
         <button
           type="button"
-          className={`mywork-tab dash-tab-btn ${activeTab === 'owned' ? 'active' : ''}`}
-          onClick={() => setActiveTab('owned')}
-        >
-          Owned ({metrics.owned})
-        </button>
-        <button
-          type="button"
-          className={`mywork-tab dash-tab-btn ${activeTab === 'joined' ? 'active' : ''}`}
-          onClick={() => setActiveTab('joined')}
-        >
-          Joined ({metrics.joined})
-        </button>
-        <button
-          type="button"
-          className={`mywork-tab dash-tab-btn ${activeTab === 'active' ? 'active' : ''}`}
+          className={`mywork-tab dash-tab-btn projects-nav-tab-btn ${activeTab === 'active' ? 'active' : ''}`}
           onClick={() => setActiveTab('active')}
         >
-          Active ({metrics.active})
+          <CheckCircleIcon size={15} />
+          <span>Active ({metrics.active})</span>
         </button>
         <button
           type="button"
-          className={`mywork-tab dash-tab-btn ${activeTab === 'archived' ? 'active' : ''}`}
+          className={`mywork-tab dash-tab-btn projects-nav-tab-btn ${activeTab === 'completed' ? 'active' : ''}`}
+          onClick={() => setActiveTab('completed')}
+        >
+          <CheckSquareIcon size={15} />
+          <span>Completed ({metrics.completed})</span>
+        </button>
+        <button
+          type="button"
+          className={`mywork-tab dash-tab-btn projects-nav-tab-btn ${activeTab === 'archived' ? 'active' : ''}`}
           onClick={() => setActiveTab('archived')}
         >
-          Archived ({metrics.archived})
+          <FolderIcon size={15} />
+          <span>Archived ({metrics.archived})</span>
         </button>
       </div>
 
       {/* ==========================================================================
-          FILTER TOOLBAR: MATCHING PIC 2 (MyWork) SEARCH BOX & SELECTS
+          FILTER TOOLBAR: SEARCH BOX & SELECTS
           ========================================================================== */}
       <div className="mywork-filters-row">
         {/* Left: Search Box */}
@@ -616,8 +1137,8 @@ export const ProjectsPage: React.FC = () => {
           icon={<FolderPlusIcon size={48} />}
           title="No projects in this workspace"
           description="Projects represent collaborative codebases, task boards, architectural notes, and repositories. Create your first project to get started!"
-          actionText="+ Create Project"
-          onAction={() => navigate('/app/projects/create')}
+          actionText={canCreateProject ? "+ Create Project" : undefined}
+          onAction={canCreateProject ? () => navigate('/app/projects/create') : undefined}
         />
       ) : filteredProjects.length === 0 ? (
         <EmptyState
@@ -639,11 +1160,11 @@ export const ProjectsPage: React.FC = () => {
             const userRole = project.userRole || (isOwner ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER');
             const isAdmin = userRole === 'PROJECT_ADMIN';
             const memberCount = project.memberCount || project.members?.length || 1;
-            const isWorkspaceVisible = (project.visibility || 'Workspace') === 'Workspace';
             const totalTasks = project.taskCount || 0;
             const completedTasks = project.completedTaskCount || 0;
             const progress = project.progress !== undefined ? project.progress : 0;
             const deadlineFormatted = formatDate(project.endDate);
+            const updatedFormatted = formatDate(project.updatedAt);
             const workspaceName = project.workspace?.name || activeWorkspace?.name || 'Workspace';
 
             return (
@@ -652,7 +1173,6 @@ export const ProjectsPage: React.FC = () => {
                 className="proj-card"
                 onClick={() => navigate(`/app/projects/${project.id}`)}
                 tabIndex={0}
-                role="button"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     navigate(`/app/projects/${project.id}`);
@@ -675,50 +1195,144 @@ export const ProjectsPage: React.FC = () => {
                         )}
                       </div>
 
-                      {/* Workspace Attribution Badge (Requested by user) */}
+                      {/* Workspace Attribution Badge */}
                       <span className="proj-workspace-attribution-pill" title={`Workspace: ${workspaceName}`}>
                         <WorkspaceBadgeIcon size={11} />
                         <span>{workspaceName}</span>
                       </span>
                     </div>
-                  </div>
-
-                  <div className="proj-card-top-right" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    {/* Visibility badge */}
-                    <span
-                      className={`proj-visibility-pill ${
-                        isWorkspaceVisible ? 'visibility-workspace' : 'visibility-restricted'
-                      }`}
-                      title={
-                        isWorkspaceVisible
-                          ? 'Visible to all Workspace Members'
-                          : 'Restricted: Accessible only to assigned members'
-                      }
-                    >
-                      {isWorkspaceVisible ? <GlobeIcon size={11} /> : <LockIcon size={11} />}
-                      <span>{project.visibility || 'Workspace'}</span>
+                  </div>                  {/* Top-Right Badges & Actions */}
+                  <div className="proj-card-top-right" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'flex-end', position: 'relative' }}>
+                    <span className={`proj-status-pill status-${(project.status || 'ACTIVE').toLowerCase()}`}>
+                      {project.status === 'COMPLETED' ? 'Completed' : project.status === 'ARCHIVED' ? 'Archived' : 'Active'}
                     </span>
 
-                    {/* Role badge */}
-                    <span className={`proj-role-badge ${isAdmin ? 'role-admin' : 'role-member'}`}>
-                      {isAdmin ? 'ADMIN' : 'MEMBER'}
-                    </span>
-
-                    {/* Manage icon button for admins */}
-                    {isAdmin && (
+                    {/* Three-dot dropdown menu */}
+                    <div style={{ position: 'relative' }}>
                       <button
                         type="button"
                         className="proj-more-btn"
-                        title="Manage Project"
+                        title="Project options"
+                        aria-label="Project options"
+                        aria-expanded={activeMenuProjectId === project.id}
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/app/projects/${project.id}`);
+                          setActiveMenuProjectId(activeMenuProjectId === project.id ? null : project.id);
                         }}
-                        aria-label="Manage project options"
                       >
-                        <SettingsIcon size={14} />
+                        <MoreVerticalIcon size={16} />
                       </button>
-                    )}
+
+                      {activeMenuProjectId === project.id && (
+                        <div className="proj-card-menu-dropdown" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            className="proj-menu-item"
+                            onClick={() => {
+                              setActiveMenuProjectId(null);
+                              navigate(`/app/projects/${project.id}`);
+                            }}
+                          >
+                            <ArrowRightIcon size={14} />
+                            <span>Open Project</span>
+                          </button>
+
+                          {(isWorkspaceLeader || isAdmin) && (
+                            <button
+                              type="button"
+                              className="proj-menu-item"
+                              onClick={() => {
+                                setActiveMenuProjectId(null);
+                                setSettingsModalProject(project);
+                              }}
+                            >
+                              <SettingsIcon size={14} />
+                              <span>Project Settings</span>
+                            </button>
+                          )}
+
+                          {project.status !== 'ARCHIVED' ? (
+                            <>
+                              {(isWorkspaceLeader || isAdmin) && (
+                                <button
+                                  type="button"
+                                  className="proj-menu-item"
+                                  onClick={() => {
+                                    setActiveMenuProjectId(null);
+                                    navigate(`/app/projects/${project.id}/members`);
+                                  }}
+                                >
+                                  <UsersIcon size={14} />
+                                  <span>Manage Members</span>
+                                </button>
+                              )}
+
+                              {isWorkspaceLeader && (
+                                <button
+                                  type="button"
+                                  className="proj-menu-item"
+                                  onClick={() => {
+                                    setActiveMenuProjectId(null);
+                                    setTransferModalProject(project);
+                                  }}
+                                >
+                                  <ArrowRightIcon size={14} />
+                                  <span>Transfer Project</span>
+                                </button>
+                              )}
+
+                              {(isWorkspaceLeader || (isAdmin && canArchiveProjects)) && (
+                                <button
+                                  type="button"
+                                  className="proj-menu-item"
+                                  onClick={() => {
+                                    setActiveMenuProjectId(null);
+                                    setActionError(null);
+                                    setArchiveTarget(project);
+                                  }}
+                                >
+                                  <ArchiveBoxIcon size={14} />
+                                  <span>Archive Project</span>
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            (isWorkspaceLeader || (isAdmin && canArchiveProjects)) && (
+                              <button
+                                type="button"
+                                className="proj-menu-item"
+                                onClick={() => {
+                                  setActiveMenuProjectId(null);
+                                  setActionError(null);
+                                  setUnarchiveTarget(project);
+                                }}
+                              >
+                                <ArchiveBoxIcon size={14} />
+                                <span>Unarchive Project</span>
+                              </button>
+                            )
+                          )}
+
+                          {isWorkspaceLeader && (
+                            <>
+                              <div className="proj-menu-divider" />
+                              <button
+                                type="button"
+                                className="proj-menu-item danger-item"
+                                onClick={() => {
+                                  setActiveMenuProjectId(null);
+                                  setActionError(null);
+                                  setDeleteTarget(project);
+                                }}
+                              >
+                                <TrashIcon size={14} />
+                                <span>Delete Project</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -756,9 +1370,7 @@ export const ProjectsPage: React.FC = () => {
                 <div className="proj-progress-section">
                   <div className="proj-progress-labels">
                     <span className="proj-progress-task-count">
-                      {totalTasks > 0
-                        ? `${completedTasks}/${totalTasks} tasks`
-                        : '0/0 tasks'}
+                      {totalTasks > 0 ? `${completedTasks} of ${totalTasks} tasks completed` : '0 of 0 tasks completed'}
                     </span>
                     <span className="proj-progress-percentage">{progress}%</span>
                   </div>
@@ -778,16 +1390,26 @@ export const ProjectsPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* Card Footer: Members & Link */}
+                {/* Card Footer: Members, Updated time & Link */}
                 <div className="proj-card-foot">
-                  <div className="proj-meta-item">
-                    <UsersIcon size={14} />
-                    <span>
-                      {memberCount} {memberCount === 1 ? 'member' : 'members'}
-                    </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <div className="proj-meta-item">
+                      <UsersIcon size={14} />
+                      <span>
+                        {memberCount} {memberCount === 1 ? 'member' : 'members'}
+                      </span>
+                    </div>
+
+                    {updatedFormatted && (
+                      <div className="proj-updated-row" title="Last updated time">
+                        <ClockIcon size={12} />
+                        <span>Updated {updatedFormatted}</span>
+                      </div>
+                    )}
                   </div>
+
                   <div className="proj-view-link">
-                    <span>Open workspace</span>
+                    <span>Open Project</span>
                     <ArrowRightIcon size={14} />
                   </div>
                 </div>
@@ -796,7 +1418,7 @@ export const ProjectsPage: React.FC = () => {
           })}
         </div>
       ) : (
-        /* ===================== LIST VIEW: MATCHING PIC 2 TABLE ===================== */
+        /* ===================== LIST VIEW ===================== */
         <div className="workspace-list-view" style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
           {paginatedProjects.map((project) => {
             const isOwner = project.createdById === user?.id;
@@ -808,6 +1430,7 @@ export const ProjectsPage: React.FC = () => {
             const completedTasks = project.completedTaskCount || 0;
             const progress = project.progress !== undefined ? project.progress : 0;
             const deadlineFormatted = formatDate(project.endDate);
+            const updatedFormatted = formatDate(project.updatedAt);
             const workspaceName = project.workspace?.name || activeWorkspace?.name || 'Workspace';
 
             return (
@@ -816,7 +1439,6 @@ export const ProjectsPage: React.FC = () => {
                 className="proj-list-item"
                 onClick={() => navigate(`/app/projects/${project.id}`)}
                 tabIndex={0}
-                role="button"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     navigate(`/app/projects/${project.id}`);
@@ -834,17 +1456,26 @@ export const ProjectsPage: React.FC = () => {
                         <WorkspaceBadgeIcon size={11} />
                         <span>{workspaceName}</span>
                       </span>
-                      <span
-                        className={`proj-visibility-pill ${
-                          isWorkspaceVisible ? 'visibility-workspace' : 'visibility-restricted'
-                        }`}
-                      >
-                        {isWorkspaceVisible ? <GlobeIcon size={11} /> : <LockIcon size={11} />}
-                        <span>{project.visibility || 'Workspace'}</span>
-                      </span>
-                      <span className={`proj-role-badge ${isAdmin ? 'role-admin' : 'role-member'}`}>
-                        {isAdmin ? 'ADMIN' : 'MEMBER'}
-                      </span>
+
+                      {isWorkspaceLeader ? (
+                        <span className={`proj-status-pill status-${(project.status || 'ACTIVE').toLowerCase()}`}>
+                          {project.status === 'COMPLETED' ? 'Completed' : project.status === 'ARCHIVED' ? 'Archived' : 'Active'}
+                        </span>
+                      ) : (
+                        <>
+                          <span
+                            className={`proj-visibility-pill ${
+                              isWorkspaceVisible ? 'visibility-workspace' : 'visibility-restricted'
+                            }`}
+                          >
+                            {isWorkspaceVisible ? <GlobeIcon size={11} /> : <LockIcon size={11} />}
+                            <span>{project.visibility || 'Workspace'}</span>
+                          </span>
+                          <span className={`proj-role-badge ${isAdmin ? 'role-admin' : 'role-member'}`}>
+                            {isAdmin ? 'ADMIN' : 'MEMBER'}
+                          </span>
+                        </>
+                      )}
                     </div>
                     <p className="proj-list-desc" title={project.description || undefined}>
                       {project.description || 'No description provided.'}
@@ -852,11 +1483,11 @@ export const ProjectsPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="proj-list-right" style={{ gap: '1.25rem' }}>
+                <div className="proj-list-right" style={{ gap: '1.25rem', alignItems: 'center' }}>
                   {/* Progress info in list */}
                   <div className="proj-list-progress-box">
                     <span className="proj-list-progress-txt">
-                      {totalTasks > 0 ? `${completedTasks}/${totalTasks} tasks` : '0 tasks'}
+                      {totalTasks > 0 ? `${completedTasks} of ${totalTasks} completed` : '0 completed'}
                     </span>
                     <div className="proj-progress-bar-track" style={{ width: '80px', height: '4px' }}>
                       <div
@@ -866,7 +1497,12 @@ export const ProjectsPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {deadlineFormatted && (
+                  {updatedFormatted ? (
+                    <div className="proj-meta-item" title="Last Updated">
+                      <ClockIcon size={13} />
+                      <span style={{ fontSize: '0.75rem' }}>{updatedFormatted}</span>
+                    </div>
+                  ) : deadlineFormatted && (
                     <div className="proj-meta-item" title="Target Deadline">
                       <CalendarIcon size={13} />
                       <span style={{ fontSize: '0.75rem' }}>{deadlineFormatted}</span>
@@ -876,6 +1512,133 @@ export const ProjectsPage: React.FC = () => {
                   <div className="proj-meta-item">
                     <UsersIcon size={14} />
                     <span>{memberCount}</span>
+                  </div>
+
+                  {/* Three-dot menu in list view */}
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      type="button"
+                      className="proj-more-btn"
+                      title="Project options"
+                      aria-label="Project options"
+                      aria-expanded={activeMenuProjectId === project.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveMenuProjectId(activeMenuProjectId === project.id ? null : project.id);
+                      }}
+                    >
+                      <MoreVerticalIcon size={16} />
+                    </button>
+
+                    {activeMenuProjectId === project.id && (
+                      <div className="proj-card-menu-dropdown" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          className="proj-menu-item"
+                          onClick={() => {
+                            setActiveMenuProjectId(null);
+                            navigate(`/app/projects/${project.id}`);
+                          }}
+                        >
+                          <ArrowRightIcon size={14} />
+                          <span>Open Project</span>
+                        </button>
+
+                        {(isWorkspaceLeader || isAdmin) && (
+                          <button
+                            type="button"
+                            className="proj-menu-item"
+                            onClick={() => {
+                              setActiveMenuProjectId(null);
+                              setSettingsModalProject(project);
+                            }}
+                          >
+                            <SettingsIcon size={14} />
+                            <span>Project Settings</span>
+                          </button>
+                        )}
+
+                        {project.status !== 'ARCHIVED' ? (
+                          <>
+                            {(isWorkspaceLeader || isAdmin) && (
+                              <button
+                                type="button"
+                                className="proj-menu-item"
+                                onClick={() => {
+                                  setActiveMenuProjectId(null);
+                                  navigate(`/app/projects/${project.id}/members`);
+                                }}
+                              >
+                                <UsersIcon size={14} />
+                                <span>Manage Members</span>
+                              </button>
+                            )}
+
+                            {isWorkspaceLeader && (
+                              <button
+                                type="button"
+                                className="proj-menu-item"
+                                onClick={() => {
+                                  setActiveMenuProjectId(null);
+                                  setTransferModalProject(project);
+                                }}
+                              >
+                                <ArrowRightIcon size={14} />
+                                <span>Transfer Project</span>
+                              </button>
+                            )}
+
+                            {(isWorkspaceLeader || (isAdmin && canArchiveProjects)) && (
+                              <button
+                                type="button"
+                                className="proj-menu-item"
+                                onClick={() => {
+                                  setActiveMenuProjectId(null);
+                                  setActionError(null);
+                                  setArchiveTarget(project);
+                                }}
+                              >
+                                <ArchiveBoxIcon size={14} />
+                                <span>Archive Project</span>
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          (isWorkspaceLeader || (isAdmin && canArchiveProjects)) && (
+                            <button
+                              type="button"
+                              className="proj-menu-item"
+                              onClick={() => {
+                                setActiveMenuProjectId(null);
+                                setActionError(null);
+                                setUnarchiveTarget(project);
+                              }}
+                            >
+                              <ArchiveBoxIcon size={14} />
+                              <span>Unarchive Project</span>
+                            </button>
+                          )
+                        )}
+
+                        {isWorkspaceLeader && (
+                          <>
+                            <div className="proj-menu-divider" />
+                            <button
+                              type="button"
+                              className="proj-menu-item danger-item"
+                              onClick={() => {
+                                setActiveMenuProjectId(null);
+                                setActionError(null);
+                                setDeleteTarget(project);
+                              }}
+                            >
+                              <TrashIcon size={14} />
+                              <span>Delete Project</span>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <ArrowRightIcon size={15} className="proj-list-arrow" />
@@ -932,6 +1695,228 @@ export const ProjectsPage: React.FC = () => {
             </button>
           </div>
         </div>
+      )}
+
+      {/* ==========================================================================
+          MODALS FOR WORKSPACE OWNER ACTIONS
+          ========================================================================== */}
+      {/* 1. Archive Confirmation Modal */}
+      {archiveTarget && (
+        <Modal
+          isOpen={!!archiveTarget}
+          onClose={() => !isArchiving && setArchiveTarget(null)}
+          title="Archive Project"
+          maxWidth="sm"
+        >
+          <div style={{ padding: '0.5rem 0' }}>
+            <div
+              style={{
+                backgroundColor: '#FFFBEB',
+                border: '1px solid #FDE68A',
+                borderRadius: '8px',
+                padding: '0.85rem',
+                marginBottom: '1rem',
+                color: '#92400E',
+                fontSize: '0.875rem',
+                lineHeight: '1.45',
+              }}
+            >
+              <strong>Preserve project records:</strong> Archiving moves this project to the Archived tab. All tasks, files, notes, members, and historical records remain preserved.
+            </div>
+            <p style={{ color: '#334155', fontSize: '0.9rem', marginBottom: '1.25rem' }}>
+              Are you sure you want to archive <strong>{archiveTarget.name}</strong>? You can unarchive it at any time.
+            </p>
+            {actionError && (
+              <div style={{ color: '#DC2626', fontSize: '0.8125rem', marginBottom: '0.75rem' }}>
+                {actionError}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setArchiveTarget(null)}
+                disabled={isArchiving}
+                style={{ padding: '0.45rem 1rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleConfirmArchive}
+                disabled={isArchiving}
+                style={{
+                  padding: '0.45rem 1rem',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: '#D97706',
+                  color: '#FFFFFF',
+                  fontWeight: 600,
+                  cursor: isArchiving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isArchiving ? 'Archiving...' : 'Archive Project'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 2. Unarchive Confirmation Modal */}
+      {unarchiveTarget && (
+        <Modal
+          isOpen={!!unarchiveTarget}
+          onClose={() => !isUnarchiving && setUnarchiveTarget(null)}
+          title="Unarchive Project"
+          maxWidth="sm"
+        >
+          <div style={{ padding: '0.5rem 0' }}>
+            <div
+              style={{
+                backgroundColor: '#F0FDF4',
+                border: '1px solid #BBF7D0',
+                borderRadius: '8px',
+                padding: '0.85rem',
+                marginBottom: '1rem',
+                color: '#166534',
+                fontSize: '0.875rem',
+                lineHeight: '1.45',
+              }}
+            >
+              <strong>Restore project:</strong> This project will be restored to the active workspace project list with all its tasks and data intact.
+            </div>
+            <p style={{ color: '#334155', fontSize: '0.9rem', marginBottom: '1.25rem' }}>
+              Are you sure you want to restore <strong>{unarchiveTarget.name}</strong> to the active workspace project list?
+            </p>
+            {actionError && (
+              <div style={{ color: '#DC2626', fontSize: '0.8125rem', marginBottom: '0.75rem' }}>
+                {actionError}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setUnarchiveTarget(null)}
+                disabled={isUnarchiving}
+                style={{ padding: '0.45rem 1rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleConfirmUnarchive}
+                disabled={isUnarchiving}
+                style={{
+                  padding: '0.45rem 1rem',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: '#059669',
+                  color: '#FFFFFF',
+                  fontWeight: 600,
+                  cursor: isUnarchiving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isUnarchiving ? 'Unarchiving...' : 'Unarchive Project'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 3. Delete Confirmation Modal */}
+      {deleteTarget && (
+        <Modal
+          isOpen={!!deleteTarget}
+          onClose={() => !isDeleting && setDeleteTarget(null)}
+          title="Delete Project Permanently"
+          maxWidth="sm"
+        >
+          <div style={{ padding: '0.5rem 0' }}>
+            <div
+              style={{
+                backgroundColor: '#FEF2F2',
+                border: '1px solid #FECACA',
+                borderRadius: '8px',
+                padding: '0.85rem',
+                marginBottom: '1rem',
+                color: '#991B1B',
+                fontSize: '0.875rem',
+                lineHeight: '1.45',
+              }}
+            >
+              <strong>Warning:</strong> This action cannot be undone. Permanent deletion removes this project and all associated tasks, files, notes, and activity.
+            </div>
+            <p style={{ color: '#334155', fontSize: '0.9rem', marginBottom: '1.25rem' }}>
+              Are you sure you want to permanently delete <strong>{deleteTarget.name}</strong>?
+            </p>
+            {actionError && (
+              <div style={{ color: '#DC2626', fontSize: '0.8125rem', marginBottom: '0.75rem' }}>
+                {actionError}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setDeleteTarget(null)}
+                disabled={isDeleting}
+                style={{ padding: '0.45rem 1rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                style={{
+                  padding: '0.45rem 1rem',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: '#DC2626',
+                  color: '#FFFFFF',
+                  fontWeight: 600,
+                  cursor: isDeleting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isDeleting ? 'Deleting...' : 'Delete Project'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 4. Project Settings Modal */}
+      {settingsModalProject && (
+        <ProjectSettingsModal
+          project={settingsModalProject}
+          isOpen={!!settingsModalProject}
+          onClose={() => setSettingsModalProject(null)}
+          onUpdated={() => {
+            setSettingsModalProject(null);
+            fetchProjects();
+          }}
+          onDeleted={() => {
+            setSettingsModalProject(null);
+            fetchProjects();
+          }}
+        />
+      )}
+
+      {/* 5. Project Transfer Modal */}
+      {transferModalProject && (
+        <ProjectTransferModal
+          isOpen={!!transferModalProject}
+          onClose={() => setTransferModalProject(null)}
+          project={transferModalProject}
+          onTransferred={() => {
+            setTransferModalProject(null);
+            fetchProjects();
+          }}
+        />
       )}
     </div>
   );

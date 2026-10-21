@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from '../../router/Router';
 import { useAuth } from '../../context/AuthContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { projectsApi, type Project } from '../../api/projects.api';
 import { membersApi, type ProjectMemberDetail } from '../../api/members.api';
 import { invitationsApi, type ProjectInvitation } from '../../api/invitations.api';
@@ -121,7 +122,23 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
     return () => document.removeEventListener('click', handleDocClick);
   }, []);
 
-  const isAdmin = userRole === 'PROJECT_ADMIN' || project?.createdById === user?.id;
+  const { activeWorkspace, activeRole } = useWorkspace();
+  const isWsOwner = Boolean(
+    activeRole === 'OWNER' ||
+    (activeRole as string)?.toUpperCase() === 'OWNER' ||
+    activeWorkspace?.isOwner ||
+    (activeWorkspace?.ownerId && user?.id && activeWorkspace.ownerId === user.id)
+  );
+  const isWsAdmin = Boolean(
+    activeRole === 'WORKSPACE_ADMIN' ||
+    (activeRole as string)?.toUpperCase() === 'WORKSPACE_ADMIN' ||
+    (activeRole as string)?.toUpperCase() === 'ADMIN' ||
+    activeWorkspace?.userRole === 'WORKSPACE_ADMIN' ||
+    (activeWorkspace?.userRole as string)?.toUpperCase() === 'WORKSPACE_ADMIN' ||
+    (activeWorkspace as any)?.role === 'WORKSPACE_ADMIN'
+  );
+  const isWsLeader = isWsOwner || isWsAdmin;
+  const isAdmin = isWsLeader || userRole === 'PROJECT_ADMIN' || project?.createdById === user?.id;
 
   const handleRoleChange = async (memberId: string, newRole: 'PROJECT_ADMIN' | 'PROJECT_MEMBER') => {
     try {

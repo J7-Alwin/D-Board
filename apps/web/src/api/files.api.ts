@@ -134,8 +134,10 @@ export const filesApi = {
   /**
    * Get storage statistics and 200 MB quota breakdown for the current user.
    */
-  async getStorageStats(): Promise<{ success: boolean; data: StorageStatsDTO }> {
-    return apiClient<{ success: boolean; data: StorageStatsDTO }>('/files/storage/stats');
+  async getStorageStats(workspaceId?: string): Promise<{ success: boolean; data: StorageStatsDTO }> {
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: StorageStatsDTO }>('/files/storage/stats', { headers });
   },
 
   /**
@@ -159,7 +161,7 @@ export const filesApi = {
   /**
    * List files globally across all accessible projects.
    */
-  async getGlobalFiles(params: FileQueryParams = {}): Promise<{ success: boolean; data: FileListResponse }> {
+  async getGlobalFiles(params: FileQueryParams = {}, workspaceId?: string): Promise<{ success: boolean; data: FileListResponse }> {
     const query = new URLSearchParams();
     if (params.projectId) query.append('projectId', params.projectId);
     if (params.category && params.category !== 'ALL') query.append('category', params.category);
@@ -172,7 +174,9 @@ export const filesApi = {
     if (params.sortOrder) query.append('sortOrder', params.sortOrder);
 
     const qs = query.toString() ? `?${query.toString()}` : '';
-    return apiClient<{ success: boolean; data: FileListResponse }>(`/files${qs}`);
+    const headers: Record<string, string> = {};
+    if (workspaceId) headers['X-Workspace-Id'] = workspaceId;
+    return apiClient<{ success: boolean; data: FileListResponse }>(`/files${qs}`, { headers });
   },
 
   /**

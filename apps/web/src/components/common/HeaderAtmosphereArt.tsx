@@ -1748,6 +1748,117 @@ export const ActivityHeaderAtmosphere: React.FC = () => {
   );
 };
 
+export const WorkspaceSettingsHeaderAtmosphere: React.FC = () => {
+  return (
+    <div className="as-atmosphere-group" aria-hidden="true">
+      <div className="as-atmosphere-quote-wrap">
+        <span className="as-atmosphere-quote-line">Your team.</span>
+        <span className="as-atmosphere-quote-line">Your workspace.</span>
+        <span className="as-atmosphere-quote-line">Your mission.</span>
+        <svg
+          className="as-quote-underline-svg"
+          viewBox="0 0 85 14"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M3 6.5C24 2 52 2.5 76 5.5M16 10C36 7.5 58 6.5 74 8.5"
+            stroke="#22C55E"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+          />
+        </svg>
+      </div>
+
+      <svg
+        className="as-atmosphere-art-svg"
+        viewBox="0 0 165 85"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <filter id="ws-card-shadow" x="-15%" y="-15%" width="130%" height="130%">
+            <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#0F172A" floodOpacity="0.05" />
+          </filter>
+        </defs>
+
+        {/* Soft pastel green rolling ground */}
+        <path
+          d="M0 85 C30 68 75 62 165 68 L165 85 L0 85 Z"
+          fill="#DCFCE7"
+          opacity="0.85"
+        />
+
+        {/* Soft background clouds */}
+        <path
+          d="M10 50 C10 46 13 43 17 43 C19 43 21 44 22 46 C24 45 27 46 28 48 C29 50 28 52 26 52 L12 52 C10 52 10 50 10 50 Z"
+          fill="#F1F5F9"
+          opacity="0.9"
+        />
+        <path
+          d="M130 45 C130 41 133 38 137 38 C139 38 141 39 142 41 C144 40 147 41 148 43 C149 45 148 47 146 47 L132 47 C130 47 130 45 130 45 Z"
+          fill="#F1F5F9"
+          opacity="0.9"
+        />
+
+        {/* Yellow Sunburst Rays */}
+        <line x1="94" y1="12" x2="94" y2="4" stroke="#FBBF24" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="102" y1="16" x2="111" y2="10" stroke="#FBBF24" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="106" y1="25" x2="116" y2="23" stroke="#FBBF24" strokeWidth="2.5" strokeLinecap="round" />
+
+        {/* Back Card (Layered depth effect) */}
+        <rect
+          x="46"
+          y="15"
+          width="54"
+          height="48"
+          rx="8"
+          fill="#F8FAFC"
+          stroke="#E2E8F0"
+          strokeWidth="1.2"
+        />
+        <rect x="52" y="24" width="22" height="4" rx="2" fill="#E2E8F0" />
+        <rect x="52" y="32" width="36" height="3" rx="1.5" fill="#EEF2F6" />
+        <rect x="52" y="39" width="30" height="3" rx="1.5" fill="#EEF2F6" />
+
+        {/* Front Workspace ID / Team Card */}
+        <g filter="url(#ws-card-shadow)">
+          <rect
+            x="64"
+            y="22"
+            width="68"
+            height="46"
+            rx="9"
+            fill="#FFFFFF"
+            stroke="#E2E8F0"
+            strokeWidth="1.2"
+          />
+
+          {/* Workspace Avatar/Icon inside Card */}
+          <rect x="74" y="30" width="18" height="18" rx="5" fill="#4F46E5" />
+          <circle cx="83" cy="37" r="3" fill="#FFFFFF" />
+          <path d="M78 45 C78 42 80 40 83 40 C86 40 88 42 88 45 Z" fill="#FFFFFF" opacity="0.9" />
+
+          {/* Card Text lines */}
+          <rect x="97" y="32" width="26" height="5" rx="2.5" fill="#0F172A" />
+          <rect x="97" y="41" width="20" height="3.5" rx="1.75" fill="#94A3B8" />
+
+          {/* Verified / Active check badge */}
+          <circle cx="120" cy="56" r="7" fill="#10B981" />
+          <path
+            d="M117 56.2 L119.2 58.4 L123.5 54.1"
+            stroke="#FFFFFF"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </g>
+      </svg>
+    </div>
+  );
+};
+
+
 
 
 

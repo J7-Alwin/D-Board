@@ -59,11 +59,15 @@ export async function ensurePersonalWorkspace(
   const client = txClient || prisma;
   const userId = typeof user === 'string' ? user : user.id;
 
-  // 1. Check if personal workspace already exists
-  const existing = await client.workspace.findFirst({
-    where: { ownerId: userId, isPersonal: true },
+  // 1. Check if personal workspace already exists (prefer isDefault: true)
+  const existing = (await client.workspace.findFirst({
+    where: { ownerId: userId, isDefault: true },
     select: { id: true, name: true, slug: true },
-  });
+  })) || (await client.workspace.findFirst({
+    where: { ownerId: userId, isPersonal: true },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, name: true, slug: true },
+  }));
 
   if (existing) {
     // Ensure owner membership row is present
@@ -119,6 +123,7 @@ export async function ensurePersonalWorkspace(
           slug,
           ownerId: userId,
           isPersonal: true,
+          isDefault: true,
           adminPermissions: {
             canInviteMembers: false,
             canRemoveMembers: false,

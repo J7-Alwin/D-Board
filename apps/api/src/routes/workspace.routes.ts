@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { workspaceController } from '../controllers/workspace.controller.js';
+import { projectController } from '../controllers/project.controller.js';
 import { projectTransferController } from '../controllers/projectTransfer.controller.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
 import { validateBody } from '../middlewares/validate.middleware.js';
@@ -163,6 +164,63 @@ router.delete('/:workspaceId', (req, res, next) =>
 
 router.post('/:workspaceId/recover', (req, res, next) =>
   workspaceController.recoverWorkspace(req, res, next)
+);
+
+// ===========================================================================
+// Workspace Leave & Clear Data Endpoints
+// ===========================================================================
+
+// Voluntarily leave workspace (Non-owners only)
+router.post('/:workspaceId/leave', (req, res, next) =>
+  workspaceController.leaveWorkspace(req, res, next)
+);
+
+// Clear all data in workspace (Reset Sandbox)
+router.post('/:workspaceId/clear-data', (req, res, next) =>
+  workspaceController.clearPersonalWorkspaceData(req, res, next)
+);
+router.post('/:workspaceId/clear-personal-data', (req, res, next) =>
+  workspaceController.clearPersonalWorkspaceData(req, res, next)
+);
+
+// ===========================================================================
+// Workspace Deletion Request Endpoints (Admin request, Owner review)
+// ===========================================================================
+
+router.post('/:workspaceId/deletion-request', (req, res, next) =>
+  workspaceController.requestWorkspaceDeletion(req, res, next)
+);
+
+router.get('/:workspaceId/deletion-request', (req, res, next) =>
+  workspaceController.getWorkspaceDeletionRequest(req, res, next)
+);
+
+router.post('/:workspaceId/deletion-request/decline', (req, res, next) =>
+  workspaceController.declineWorkspaceDeletionRequest(req, res, next)
+);
+
+router.delete('/:workspaceId/deletion-request', (req, res, next) =>
+  workspaceController.cancelWorkspaceDeletionRequest(req, res, next)
+);
+
+// ===========================================================================
+// Project Completion Request Endpoints (Project Admin request, Owner/Admin review)
+// ===========================================================================
+
+router.get('/:workspaceId/completion-requests', (req, res, next) =>
+  projectController.getWorkspaceCompletionRequests(req, res, next)
+);
+
+router.post('/:workspaceId/completion-requests/:requestId/approve', (req, res, next) =>
+  projectController.approveCompletionRequest(req, res, next)
+);
+
+router.post('/:workspaceId/completion-requests/:requestId/reject', (req, res, next) =>
+  projectController.rejectCompletionRequest(req, res, next)
+);
+
+router.delete('/:workspaceId/completion-requests/:requestId', (req, res, next) =>
+  projectController.cancelCompletionRequest(req, res, next)
 );
 
 // ===========================================================================

@@ -59,7 +59,7 @@ export const MyWorkPage: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Filters
-  const [activeTab, setActiveTab] = useState<'my-work' | 'created-work' | 'overdue' | 'due-soon' | 'completed' | 'blocked' | 'all'>('my-work');
+  const [activeTab, setActiveTab] = useState<'my-work' | 'created-work' | 'overdue' | 'due-soon' | 'completed' | 'blocked' | 'canceled' | 'all'>('my-work');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('');
@@ -72,7 +72,7 @@ export const MyWorkPage: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
-    if (tabParam && ['my-work', 'created-work', 'overdue', 'due-soon', 'completed', 'blocked', 'all'].includes(tabParam)) {
+    if (tabParam && ['my-work', 'created-work', 'overdue', 'due-soon', 'completed', 'blocked', 'canceled', 'all'].includes(tabParam)) {
       setActiveTab(tabParam as any);
     }
     const statusParam = params.get('status');
@@ -281,10 +281,12 @@ export const MyWorkPage: React.FC = () => {
     const s = (status || 'TODO').toUpperCase();
     switch (s) {
       case 'BLOCKED':
+      case 'CANCELED':
+      case 'CANCELLED':
         return (
           <span className="mywork-status-pill status-blocked">
             <span className="mywork-status-dot dot-blocked" />
-            <span>Blocked</span>
+            <span>Canceled</span>
           </span>
         );
       case 'IN_PROGRESS':
@@ -510,31 +512,6 @@ export const MyWorkPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Blocked */}
-        <div
-          className="mywork-summary-card card-blocked cursor-pointer"
-          onClick={() => {
-            setActiveTab('blocked');
-            setCurrentPage(1);
-          }}
-          tabIndex={0}
-          role="button"
-          onKeyDown={(e) => e.key === 'Enter' && (setActiveTab('blocked'), setCurrentPage(1))}
-        >
-          <div className="summary-card-top">
-            <div className="summary-icon-pill icon-blocked">
-              <ClockIcon size={16} />
-            </div>
-            <span className="summary-label">Blocked</span>
-          </div>
-          <div className="summary-card-bottom">
-            <div className={`summary-value ${data && (data.summary.blocked || 0) > 0 ? 'text-amber' : 'text-neutral'}`}>
-              {data?.summary.blocked || 0}
-            </div>
-            <div className="summary-sub">Blocked items</div>
-          </div>
-        </div>
-
         {/* Completed */}
         <div
           className="mywork-summary-card card-completed cursor-pointer"
@@ -603,13 +580,13 @@ export const MyWorkPage: React.FC = () => {
         </button>
         <button
           type="button"
-          className={`mywork-tab ${activeTab === 'blocked' ? 'active' : ''}`}
+          className={`mywork-tab ${activeTab === 'blocked' || (activeTab as string) === 'canceled' ? 'active' : ''}`}
           onClick={() => {
-            setActiveTab('blocked');
+            setActiveTab('canceled');
             setCurrentPage(1);
           }}
         >
-          Blocked ({data?.summary.blocked || 0})
+          Canceled ({data?.summary.blocked || 0})
         </button>
         <button
           type="button"

@@ -3,8 +3,8 @@
 .workspace-switcher-wrapper {
   position: relative;
   width: 100%;
-  margin: 0.5rem 0 0.875rem 0;
-  padding: 0 0.5rem;
+  margin: 0.15rem 0 0.35rem 0;
+  padding: 0 0.15rem;
 }
 
 /* Skeleton Loading */

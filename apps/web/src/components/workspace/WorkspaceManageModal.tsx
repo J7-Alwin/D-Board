@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import {
@@ -37,13 +37,40 @@ export interface WorkspaceManageModalProps {
   initialTab?: 'members' | 'invitations' | 'permissions' | 'transfers' | 'ownership' | 'audit' | 'danger';
 }
 
+const WORKSPACE_ROLE_ORDER: Record<string, number> = {
+  OWNER: 1,
+  WORKSPACE_ADMIN: 2,
+  PROJECT_ADMIN: 3,
+  WORKSPACE_MEMBER: 4,
+};
+
+const getMemberRoleOrder = (m: { role?: string; isOwner?: boolean }) => {
+  if (m.isOwner || m.role === 'OWNER') return 1;
+  return WORKSPACE_ROLE_ORDER[m.role || ''] ?? 99;
+};
+
+const sortWorkspaceMembers = (items: WorkspaceMemberItem[]): WorkspaceMemberItem[] => {
+  return [...items].sort((a, b) => {
+    const orderA = getMemberRoleOrder(a);
+    const orderB = getMemberRoleOrder(b);
+    if (orderA !== orderB) return orderA - orderB;
+    if (a.joinedAt && b.joinedAt) {
+      const timeDiff = new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime();
+      if (timeDiff !== 0) return timeDiff;
+    }
+    const nameA = (a.user?.fullName || a.user?.username || '').toLowerCase();
+    const nameB = (b.user?.fullName || b.user?.username || '').toLowerCase();
+    return nameA.localeCompare(nameB);
+  });
+};
+
 export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
   isOpen,
   onClose,
   initialTab = 'members',
 }) => {
   const { user } = useAuth();
-  const { activeWorkspace, activeRole, refreshWorkspaces, refreshDeletedWorkspaces } = useWorkspace();
+  const { activeWorkspace, activeRole, workspaces, setActiveWorkspaceId, refreshWorkspaces, refreshDeletedWorkspaces } = useWorkspace();
 
   const [activeTab, setActiveTab] = useState<'members' | 'invitations' | 'permissions' | 'transfers' | 'ownership' | 'audit' | 'danger'>(initialTab);
 
@@ -55,12 +82,43 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [totalMembers, setTotalMembers] = useState(0);
 
+  // Sorted members respecting role hierarchy: Owner -> Workspace Admin -> Project Admin -> Workspace Member
+  const sortedMembers = useMemo(() => {
+    return sortWorkspaceMembers(members);
+  }, [members]);
+
   // Role Change Confirmation
   const [targetMemberForRole, setTargetMemberForRole] = useState<{
     member: WorkspaceMemberItem;
     newRole: WorkspaceRole;
   } | null>(null);
   const [isUpdatingRole, setIsUpdatingRole] = useState(false);
+
+  // Floating Toast Notification
+  const [toastMessage, setToastMessage] = useState<{
+    type: 'success' | 'error';
+    title: string;
+    message?: string;
+  } | null>(null);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showToast = useCallback((type: 'success' | 'error', title: string, message?: string) => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToastMessage({ type, title, message });
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 3500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Remove Member Confirmation
   const [memberToRemove, setMemberToRemove] = useState<WorkspaceMemberItem | null>(null);
@@ -137,10 +195,28 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // Leave Workspace State
+  const [leaveModalOpen, setLeaveModalOpen] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
+
+  // Clear Personal Workspace Data State
+  const [clearModalOpen, setClearModalOpen] = useState(false);
+  const [clearConfirmText, setClearConfirmText] = useState('');
+  const [isClearing, setIsClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+
   // Authority Flags
   const isOwner = useMemo(() => {
+    if (activeRole === 'WORKSPACE_ADMIN' || activeRole === 'PROJECT_ADMIN' || activeRole === 'WORKSPACE_MEMBER') {
+      return false;
+    }
+    if (user && activeWorkspace && activeWorkspace.ownerId && user.id) {
+      if (activeWorkspace.ownerId !== user.id) {
+        return false;
+      }
+    }
     return activeRole === 'OWNER' || activeWorkspace?.isOwner === true;
-  }, [activeRole, activeWorkspace]);
+  }, [activeRole, activeWorkspace, user]);
 
   const canTransfer = useMemo(() => {
     return isOwner || activeRole === 'WORKSPACE_ADMIN';
@@ -176,7 +252,7 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
         limit: 50,
       });
       if (res.success && res.data) {
-        setMembers(res.data.members || []);
+        setMembers(sortWorkspaceMembers(res.data.members || []));
         setTotalMembers(res.data.total || 0);
       }
     } catch (err: any) {
@@ -548,23 +624,83 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
     }
   };
 
+  // Handle Leave Workspace
+  const handleLeaveWorkspace = async () => {
+    if (!activeWorkspace || isOwner || activeWorkspace.isPersonal) return;
+    try {
+      setIsLeaving(true);
+      const res = await workspacesApi.leaveWorkspace(activeWorkspace.id);
+      if (res.success) {
+        setLeaveModalOpen(false);
+        const personalWs = workspaces.owned.find((w) => w.isPersonal);
+        const targetWs = personalWs || workspaces.owned[0] || workspaces.joined[0];
+        if (targetWs) {
+          setActiveWorkspaceId(targetWs.id);
+        }
+        await refreshWorkspaces();
+        onClose();
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to leave workspace');
+    } finally {
+      setIsLeaving(false);
+    }
+  };
+
+  // Handle Clear Personal Workspace Data
+  const handleClearPersonalData = async () => {
+    if (!activeWorkspace || !activeWorkspace.isPersonal || !isOwner) return;
+    if (clearConfirmText.trim().toUpperCase() !== 'CLEAR') {
+      setClearError('Please type CLEAR to confirm');
+      return;
+    }
+    try {
+      setIsClearing(true);
+      setClearError(null);
+      const res = await workspacesApi.clearPersonalWorkspaceData(activeWorkspace.id);
+      if (res.success) {
+        setClearModalOpen(false);
+        setClearConfirmText('');
+        await refreshWorkspaces();
+        onClose();
+      }
+    } catch (err: any) {
+      setClearError(err.message || 'Failed to clear personal workspace data');
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   // Handle Role Change
   const confirmRoleChange = async () => {
     if (!activeWorkspace || !targetMemberForRole) return;
+    const { member, newRole } = targetMemberForRole;
+    const memberName = member.user?.fullName || member.user?.username || member.user?.email || 'Member';
+    const roleLabel = newRole === 'WORKSPACE_ADMIN' ? 'Workspace Admin' : newRole === 'PROJECT_ADMIN' ? 'Project Admin' : 'Workspace Member';
     try {
       setIsUpdatingRole(true);
+      setTargetMemberForRole(null);
       const res = await workspacesApi.updateMemberRole(
         activeWorkspace.id,
-        targetMemberForRole.member.id,
-        targetMemberForRole.newRole
+        member.id,
+        newRole
       );
       if (res.success) {
-        setTargetMemberForRole(null);
+        setMembers((prev) =>
+          sortWorkspaceMembers(
+            prev.map((item) => (item.id === member.id ? { ...item, role: newRole } : item))
+          )
+        );
+        setMembersError(null);
+        showToast('success', 'Role updated successfully', `${memberName} is now a ${roleLabel}.`);
         await loadMembers();
         await refreshWorkspaces();
+      } else {
+        showToast('error', 'Role update failed', res.message || 'Failed to update member role');
       }
     } catch (err: any) {
-      setMembersError(err.message || 'Failed to update member role');
+      showToast('error', 'Role update failed', err.message || 'Failed to update member role');
+      await loadMembers();
     } finally {
       setIsUpdatingRole(false);
     }
@@ -730,6 +866,45 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
   return (
     <div className="wmm-backdrop" onClick={onClose} role="dialog" aria-modal="true">
       <div className="wmm-container" onClick={(e) => e.stopPropagation()}>
+        {/* Floating Toast Notification */}
+        {toastMessage && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '20px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 9999,
+              pointerEvents: 'auto',
+              minWidth: '320px',
+              maxWidth: '480px',
+            }}
+          >
+            <div
+              className={`project-created-toast-banner ${
+                toastMessage.type === 'success' ? 'toast-success' : 'toast-error'
+              } animate-slide-down`}
+              role="alert"
+            >
+              <div className="toast-icon-wrapper">
+                {toastMessage.type === 'success' ? <CheckIcon size={18} /> : <AlertCircleIcon size={18} />}
+              </div>
+              <div className="toast-content">
+                <span className="toast-title">{toastMessage.title}</span>
+                {toastMessage.message && <span className="toast-desc">{toastMessage.message}</span>}
+              </div>
+              <button
+                type="button"
+                className="toast-close-btn"
+                onClick={() => setToastMessage(null)}
+                aria-label="Close notification"
+              >
+                <CloseIcon size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="wmm-header">
           <div className="wmm-header-left">
@@ -745,10 +920,22 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                 <h2 className="wmm-header-title">{activeWorkspace.name}</h2>
                 <span
                   className={`wmm-tag-role ${
-                    isOwner ? 'wmm-tag-owner' : activeRole === 'WORKSPACE_ADMIN' ? 'wmm-tag-admin' : 'wmm-tag-member'
+                    isOwner
+                      ? 'wmm-tag-owner'
+                      : activeRole === 'WORKSPACE_ADMIN'
+                      ? 'wmm-tag-admin'
+                      : activeRole === 'PROJECT_ADMIN'
+                      ? 'wmm-tag-project-admin'
+                      : 'wmm-tag-member'
                   }`}
                 >
-                  {isOwner ? 'Owner' : activeRole === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}
+                  {isOwner
+                    ? 'Owner'
+                    : activeRole === 'WORKSPACE_ADMIN'
+                    ? 'Workspace Admin'
+                    : activeRole === 'PROJECT_ADMIN'
+                    ? 'Project Admin'
+                    : 'Workspace Member'}
                 </span>
               </div>
               <span className="wmm-header-subtitle">
@@ -845,17 +1032,15 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
             </button>
           )}
 
-          {/* Phase 5B: Workspace Deletion / Danger Zone */}
-          {isOwner && (
-            <button
-              type="button"
-              className={`wmm-tab-btn ${activeTab === 'danger' ? 'is-active' : ''}`}
-              onClick={() => setActiveTab('danger')}
-            >
-              <TrashIcon size={16} />
-              <span>Danger Zone</span>
-            </button>
-          )}
+          {/* Phase 5B: Workspace Deletion / Danger Zone / Clear Workspace Data */}
+          <button
+            type="button"
+            className={`wmm-tab-btn ${activeTab === 'danger' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('danger')}
+          >
+            <TrashIcon size={16} />
+            <span>{activeWorkspace.isPersonal ? 'Clear Workspace Data' : 'Danger Zone'}</span>
+          </button>
         </div>
 
         {/* Modal Body */}
@@ -881,8 +1066,9 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                 >
                   <option value="ALL">All Roles</option>
                   <option value="OWNER">Owner</option>
-                  <option value="WORKSPACE_ADMIN">Admin</option>
-                  <option value="WORKSPACE_MEMBER">Member</option>
+                  <option value="WORKSPACE_ADMIN">Workspace Admin</option>
+                  <option value="PROJECT_ADMIN">Project Admin</option>
+                  <option value="WORKSPACE_MEMBER">Workspace Member</option>
                 </select>
               </div>
 
@@ -904,7 +1090,7 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                 </div>
               ) : (
                 <div className="wmm-members-list">
-                  {members.map((m) => {
+                  {sortedMembers.map((m) => {
                     const isSelf = m.userId === user?.id;
                     const isMemberOwner = m.isOwner || m.role === 'OWNER';
                     const memberInitials = m.user.fullName
@@ -944,16 +1130,31 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                             <select
                               className="wmm-role-dropdown"
                               value={m.role}
-                              disabled={!canManageRoles || isSelf}
+                              disabled={!canManageRoles || isSelf || (!isOwner && m.role === 'WORKSPACE_ADMIN')}
                               onChange={(e) => {
                                 const newRole = e.target.value as WorkspaceRole;
-                                setTargetMemberForRole({ member: m, newRole });
+                                if (newRole !== m.role) {
+                                  setTargetMemberForRole({ member: m, newRole });
+                                }
                               }}
                               aria-label={`Change role for ${m.user.username}`}
                             >
-                              <option value="WORKSPACE_ADMIN">Admin</option>
-                              <option value="WORKSPACE_MEMBER">Member</option>
+                              <option value="WORKSPACE_ADMIN">Workspace Admin</option>
+                              <option value="PROJECT_ADMIN">Project Admin</option>
+                              <option value="WORKSPACE_MEMBER">Workspace Member</option>
                             </select>
+                          )}
+
+                          {isSelf && !isMemberOwner && !activeWorkspace.isPersonal && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              style={{ color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.4)', fontSize: '0.75rem', height: '28px', padding: '0 8px' }}
+                              onClick={() => setLeaveModalOpen(true)}
+                            >
+                              Leave
+                            </Button>
                           )}
 
                           {!isMemberOwner && !isSelf && canRemove && (
@@ -1061,8 +1262,9 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                             disabled={isInviting || isLimitReached}
                             style={{ width: '100%' }}
                           >
-                            <option value="WORKSPACE_MEMBER">Workspace Member</option>
                             {isOwner && <option value="WORKSPACE_ADMIN">Workspace Admin</option>}
+                            <option value="PROJECT_ADMIN">Project Admin</option>
+                            <option value="WORKSPACE_MEMBER">Workspace Member</option>
                           </select>
                         </div>
                         <div>
@@ -1121,7 +1323,11 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                               {inv.status}
                             </span>
                             <span className="wmm-tag-role wmm-tag-member">
-                              {inv.role === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}
+                              {inv.role === 'WORKSPACE_ADMIN'
+                                ? 'Workspace Admin'
+                                : inv.role === 'PROJECT_ADMIN'
+                                ? 'Project Admin'
+                                : 'Workspace Member'}
                             </span>
                           </div>
                           <span className="wmm-inv-meta">
@@ -1866,16 +2072,43 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
           {activeTab === 'danger' && (
             <div className="wmm-danger-section">
               {activeWorkspace.isPersonal ? (
-                <div className="wmm-danger-protected">
-                  <h4 style={{ margin: 0, color: '#60a5fa', fontSize: '0.9375rem', fontWeight: 600 }}>
-                    Personal Workspace Protected
-                  </h4>
-                  <p style={{ margin: 0, fontSize: '0.8125rem', color: '#d4d4d8', lineHeight: 1.5 }}>
-                    This workspace is your personal default workspace tied directly to your user account.
-                    It cannot be deleted.
-                  </p>
+                <div>
+                  <div className="wmm-danger-protected" style={{ marginBottom: '1rem' }}>
+                    <h4 style={{ margin: 0, color: '#60a5fa', fontSize: '0.9375rem', fontWeight: 600 }}>
+                      Personal Workspace Protected
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '0.8125rem', color: '#d4d4d8', lineHeight: 1.5 }}>
+                      This workspace is your personal default workspace tied directly to your user account.
+                      It cannot be deleted. You can clear your workspace data below instead.
+                    </p>
+                  </div>
+                  <div className="wmm-danger-card">
+                    <div className="wmm-danger-header">
+                      <TrashIcon size={20} className="wmm-danger-title" />
+                      <h4 className="wmm-danger-title">Clear Workspace Data</h4>
+                    </div>
+                    <p className="wmm-danger-desc">
+                      Permanently wipes all projects, tasks, comments, notes, uploaded files, and calendar events from <strong>{activeWorkspace.name}</strong> while keeping your personal workspace shell intact.
+                    </p>
+                    <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '0.5rem' }}>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}
+                        onClick={() => {
+                          setClearModalOpen(true);
+                          setClearConfirmText('');
+                          setClearError(null);
+                        }}
+                        id="wmm-clear-personal-btn"
+                      >
+                        Clear Workspace Data
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-              ) : (
+              ) : isOwner ? (
                 <div className="wmm-danger-card">
                   <div className="wmm-danger-header">
                     <TrashIcon size={20} className="wmm-danger-title" />
@@ -1901,8 +2134,31 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                         setDeleteError(null);
                         setDeleteModalOpen(true);
                       }}
+                      id="wmm-delete-workspace-btn"
                     >
                       Delete This Workspace
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="wmm-danger-card">
+                  <div className="wmm-danger-header">
+                    <TrashIcon size={20} className="wmm-danger-title" />
+                    <h4 className="wmm-danger-title">Leave this workspace</h4>
+                  </div>
+                  <p className="wmm-danger-desc">
+                    Voluntarily leave <strong>{activeWorkspace.name}</strong>. Your tasks, notes, comments, and uploaded files will remain preserved for team continuity. In-flight task assignments will be unassigned. You will lose access to all projects in this workspace, and can only rejoin if an Owner or Admin sends you an invitation.
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '0.5rem' }}>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}
+                      onClick={() => setLeaveModalOpen(true)}
+                      id="wmm-leave-workspace-btn"
+                    >
+                      Leave Workspace
                     </Button>
                   </div>
                 </div>
@@ -1918,7 +2174,14 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
               <h4 className="wmm-confirm-title">Change Member Role?</h4>
               <p className="wmm-confirm-desc">
                 Are you sure you want to change <strong>{targetMemberForRole.member.user.username}</strong>&apos;s role to{' '}
-                <strong>{targetMemberForRole.newRole === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}</strong>?
+                <strong>
+                  {targetMemberForRole.newRole === 'WORKSPACE_ADMIN'
+                    ? 'Workspace Admin'
+                    : targetMemberForRole.newRole === 'PROJECT_ADMIN'
+                    ? 'Project Admin'
+                    : 'Workspace Member'}
+                </strong>
+                ?
               </p>
               <div className="wmm-confirm-actions">
                 <Button
@@ -2166,6 +2429,113 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                   onClick={handleConfirmDeleteWorkspace}
                 >
                   Delete Workspace
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirmation Overlay: Leave Workspace */}
+        {leaveModalOpen && (
+          <div className="wmm-confirm-backdrop">
+            <div className="wmm-confirm-box" style={{ maxWidth: '440px' }}>
+              <h4 className="wmm-confirm-title" style={{ color: '#f87171' }}>
+                Leave Workspace?
+              </h4>
+              <p className="wmm-confirm-desc">
+                Are you sure you want to leave <strong>{activeWorkspace.name}</strong>?
+                <br /><br />
+                • Created tasks, notes, comments, and files remain preserved.
+                <br />
+                • In-flight assigned tasks will be unassigned.
+                <br />
+                • You will lose access to all projects in this workspace.
+              </p>
+              <div className="wmm-confirm-actions">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLeaveModalOpen(false)}
+                  disabled={isLeaving}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}
+                  isLoading={isLeaving}
+                  onClick={handleLeaveWorkspace}
+                  id="wmm-confirm-leave-btn"
+                >
+                  Leave Workspace
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirmation Overlay: Clear Personal Workspace Data */}
+        {clearModalOpen && (
+          <div className="wmm-confirm-backdrop">
+            <div className="wmm-confirm-box" style={{ maxWidth: '440px' }}>
+              <h4 className="wmm-confirm-title" style={{ color: '#f87171' }}>
+                Clear Workspace Data?
+              </h4>
+              <p className="wmm-confirm-desc">
+                Are you sure you want to clear all data in <strong>{activeWorkspace.name}</strong>?
+                <br /><br />
+                This will permanently delete all projects, tasks, comments, notes, files, and calendar events from this personal workspace. This cannot be undone.
+              </p>
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ fontSize: '0.75rem', color: '#a1a1aa', display: 'block', marginBottom: '0.375rem' }}>
+                  Please type <strong>CLEAR</strong> to confirm:
+                </label>
+                <input
+                  type="text"
+                  className="wmm-confirm-input"
+                  placeholder="CLEAR"
+                  value={clearConfirmText}
+                  onChange={(e) => {
+                    setClearConfirmText(e.target.value);
+                    setClearError(null);
+                  }}
+                  disabled={isClearing}
+                  id="wmm-clear-confirm-input"
+                />
+                {clearError && (
+                  <span style={{ fontSize: '0.75rem', color: '#f87171', display: 'block', marginTop: '0.375rem' }}>
+                    {clearError}
+                  </span>
+                )}
+              </div>
+              <div className="wmm-confirm-actions">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setClearModalOpen(false);
+                    setClearConfirmText('');
+                    setClearError(null);
+                  }}
+                  disabled={isClearing}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}
+                  isLoading={isClearing}
+                  disabled={clearConfirmText.trim().toUpperCase() !== 'CLEAR'}
+                  onClick={handleClearPersonalData}
+                  id="wmm-confirm-clear-btn"
+                >
+                  Clear Workspace Data
                 </Button>
               </div>
             </div>

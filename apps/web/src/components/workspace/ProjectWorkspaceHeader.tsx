@@ -1,6 +1,8 @@
 import React from 'react';
 import { Link } from '../../router/Router';
 import type { Project } from '../../api/projects.api';
+import { useWorkspace } from '../../context/WorkspaceContext';
+import { useAuth } from '../../context/AuthContext';
 import {
   PlusIcon,
   CheckSquareIcon,
@@ -51,9 +53,31 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
   onOpenTransferModal,
   showHeroCard,
 }) => {
+  const { activeWorkspace, activeRole } = useWorkspace();
+  const { user } = useAuth();
+
+  const isWsOwner = Boolean(
+    activeRole === 'OWNER' ||
+    (activeRole as string)?.toUpperCase() === 'OWNER' ||
+    activeWorkspace?.isOwner ||
+    (activeWorkspace?.ownerId && user?.id && activeWorkspace.ownerId === user.id)
+  );
+  const isWsAdmin = Boolean(
+    activeRole === 'WORKSPACE_ADMIN' ||
+    (activeRole as string)?.toUpperCase() === 'WORKSPACE_ADMIN' ||
+    (activeRole as string)?.toUpperCase() === 'ADMIN' ||
+    activeWorkspace?.userRole === 'WORKSPACE_ADMIN' ||
+    (activeWorkspace?.userRole as string)?.toUpperCase() === 'WORKSPACE_ADMIN' ||
+    (activeWorkspace as any)?.role === 'WORKSPACE_ADMIN'
+  );
+  const isWsLeader = isWsOwner || isWsAdmin;
+  const isAdmin = Boolean(
+    isWsLeader ||
+    project.userRole === 'PROJECT_ADMIN' ||
+    (project.createdById && user?.id && project.createdById === user.id)
+  );
   const monogram = project.name ? project.name.trim()[0].toUpperCase() : 'P';
-  const roleLabel = project.userRole === 'PROJECT_ADMIN' ? 'Admin' : 'Member';
-  const isAdmin = project.userRole === 'PROJECT_ADMIN';
+  const roleLabel = isAdmin ? 'Admin' : 'Member';
   const memberCount = project.memberCount || (project.members ? project.members.length : 1);
   const isWorkspaceVisible = (project.visibility || 'WORKSPACE').toUpperCase() === 'WORKSPACE';
   const visibilityLabel = isWorkspaceVisible ? 'Workspace' : 'Restricted';
@@ -93,7 +117,7 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
     <div className="project-workspace-header-container">
       {/* Top Back Navigation Link */}
       <div className="po-top-nav-bar">
-        <Link to="/app/dashboard" className="po-back-to-projects-link">
+        <Link to="/app/projects" className="po-back-to-projects-link">
           <span className="po-back-arrow">←</span>
           <span>Back to Projects</span>
         </Link>

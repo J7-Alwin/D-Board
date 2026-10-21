@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useRouter } from '../../router/Router';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { type WorkspaceSummary } from '../../api/workspaces.api';
 import { Modal } from '../ui/Modal';
@@ -10,6 +11,7 @@ import {
   CheckIcon,
   PlusIcon,
   UsersIcon,
+  LayersIcon,
 } from '../ui/Icons';
 import { WorkspaceManageModal } from './WorkspaceManageModal';
 import './WorkspaceSwitcher.css';
@@ -19,6 +21,7 @@ export interface WorkspaceSwitcherProps {
 }
 
 export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspaceSwitched }) => {
+  const { navigate } = useRouter();
   const {
     workspaces,
     deletedWorkspaces,
@@ -34,6 +37,7 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
   const [isOpen, setIsOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [manageModalOpen, setManageModalOpen] = useState(false);
+  const [workspaceType, setWorkspaceType] = useState<'PERSONAL' | 'TEAM'>('TEAM');
   const [newWsName, setNewWsName] = useState('');
   const [newWsDescription, setNewWsDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -64,6 +68,18 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
   }, []);
 
   const handleSelect = (ws: WorkspaceSummary) => {
+    try {
+      if (ws.isPersonal) {
+        if (!ws.isDefault) {
+          localStorage.setItem('dboard_recent_personal_ws', ws.id);
+        }
+      } else {
+        localStorage.setItem('dboard_recent_team_ws', ws.id);
+      }
+    } catch {
+      // ignore storage errors
+    }
+
     if (activeWorkspace?.id === ws.id) {
       setIsOpen(false);
       return;
@@ -77,6 +93,7 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
 
   const handleOpenCreateModal = () => {
     setIsOpen(false);
+    setWorkspaceType('TEAM');
     setNewWsName('');
     setNewWsDescription('');
     setFormError(null);
@@ -98,9 +115,11 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
     try {
       setIsSubmitting(true);
       setFormError(null);
+      const isPersonal = workspaceType === 'PERSONAL';
       const created = await createWorkspace({
         name: trimmed,
         description: newWsDescription.trim() || undefined,
+        isPersonal,
       });
       setModalOpen(false);
       if (onWorkspaceSwitched) {
@@ -121,6 +140,78 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
     return name.slice(0, 2).toUpperCase();
   };
 
+  // Group Workspaces
+  // 1. All Personal Workspaces
+  const allPersonalWorkspaces = useMemo(() => {
+    const combined = [...workspaces.owned, ...workspaces.joined];
+    const seen = new Set<string>();
+    return combined.filter((w) => {
+      if (!w.isPersonal || seen.has(w.id)) return false;
+      seen.add(w.id);
+      return true;
+    });
+  }, [workspaces.owned, workspaces.joined]);
+
+  // Default personal workspace
+  const defaultPersonalWs = useMemo(() => {
+    return allPersonalWorkspaces.find((w) => w.isDefault) || allPersonalWorkspaces[0];
+  }, [allPersonalWorkspaces]);
+
+  // Max 1 recently opened non-default personal workspace
+  const secondaryPersonalWs = useMemo(() => {
+    const other = allPersonalWorkspaces.filter((w) => w.id !== defaultPersonalWs?.id);
+    if (other.length === 0) return null;
+    let recentId: string | null = null;
+    try {
+      recentId = localStorage.getItem('dboard_recent_personal_ws');
+    } catch {
+      // ignore
+    }
+    return other.find((w) => w.id === recentId) || other[0];
+  }, [allPersonalWorkspaces, defaultPersonalWs]);
+
+  const displayedPersonalWorkspaces = useMemo(() => {
+    const list: WorkspaceSummary[] = [];
+    if (defaultPersonalWs) list.push(defaultPersonalWs);
+    if (secondaryPersonalWs && secondaryPersonalWs.id !== defaultPersonalWs?.id) {
+      list.push(secondaryPersonalWs);
+    }
+    return list;
+  }, [defaultPersonalWs, secondaryPersonalWs]);
+
+  // 2. All Team Workspaces (Owned & Joined)
+  const allTeamWorkspaces = useMemo(() => {
+    const combined = [...workspaces.owned, ...workspaces.joined];
+    const seen = new Set<string>();
+    return combined.filter((w) => {
+      if (w.isPersonal || seen.has(w.id)) return false;
+      seen.add(w.id);
+      return true;
+    });
+  }, [workspaces.owned, workspaces.joined]);
+
+  const displayedTeamWorkspaces = useMemo(() => {
+    let recentId: string | null = null;
+    try {
+      recentId = localStorage.getItem('dboard_recent_team_ws');
+    } catch {
+      // ignore
+    }
+    const sorted = [...allTeamWorkspaces].sort((a, b) => {
+      if (a.id === recentId) return -1;
+      if (b.id === recentId) return 1;
+      return 0;
+    });
+    return sorted.slice(0, 5);
+  }, [allTeamWorkspaces]);
+
+  const getRoleLabel = (ws: WorkspaceSummary) => {
+    if (ws.isOwner || ws.userRole === 'OWNER') return 'Owner';
+    if (ws.userRole === 'WORKSPACE_ADMIN') return 'Admin';
+    if (ws.userRole === 'PROJECT_ADMIN') return 'Project Admin';
+    return 'Member';
+  };
+
   if (isLoading && !activeWorkspace) {
     return (
       <div className="workspace-switcher-skeleton">
@@ -135,6 +226,7 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
     if (activeWorkspace.isPersonal) return 'Personal';
     if (activeRole === 'OWNER') return 'Owner';
     if (activeRole === 'WORKSPACE_ADMIN') return 'Admin';
+    if (activeRole === 'PROJECT_ADMIN') return 'Project Admin';
     return 'Member';
   };
 
@@ -182,16 +274,16 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
           )}
 
           <div className="workspace-switcher-scroll">
-            {/* My Workspaces (Owned) */}
+            {/* My Workspaces (Personal) */}
             <div className="workspace-section-header">
               <span>MY WORKSPACES</span>
-              <span className="workspace-section-count">({workspaces.owned.length})</span>
+              <span className="workspace-section-count">({allPersonalWorkspaces.length})</span>
             </div>
 
-            {workspaces.owned.length === 0 ? (
-              <div className="workspace-item-empty">No owned workspaces</div>
+            {displayedPersonalWorkspaces.length === 0 ? (
+              <div className="workspace-item-empty">No personal workspaces</div>
             ) : (
-              workspaces.owned.map((ws) => {
+              displayedPersonalWorkspaces.map((ws) => {
                 const isSelected = activeWorkspace?.id === ws.id;
                 return (
                   <button
@@ -212,7 +304,11 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
                     <div className="workspace-option-details">
                       <div className="workspace-option-title-row">
                         <span className="workspace-option-name">{ws.name}</span>
-                        {ws.isPersonal && (
+                        {ws.isDefault ? (
+                          <span className="workspace-tag-personal" style={{ backgroundColor: '#DBEAFE', color: '#1E40AF' }}>
+                            Default
+                          </span>
+                        ) : (
                           <span className="workspace-tag-personal">Personal</span>
                         )}
                       </div>
@@ -230,16 +326,16 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
               })
             )}
 
-            {/* Team Workspaces (Joined) */}
+            {/* Team Workspaces */}
             <div className="workspace-section-header" style={{ marginTop: '0.75rem' }}>
               <span>TEAM WORKSPACES</span>
-              <span className="workspace-section-count">({workspaces.joined.length})</span>
+              <span className="workspace-section-count">({allTeamWorkspaces.length})</span>
             </div>
 
-            {workspaces.joined.length === 0 ? (
+            {displayedTeamWorkspaces.length === 0 ? (
               <div className="workspace-item-empty">No team workspaces joined</div>
             ) : (
-              workspaces.joined.map((ws) => {
+              displayedTeamWorkspaces.map((ws) => {
                 const isSelected = activeWorkspace?.id === ws.id;
                 return (
                   <button
@@ -261,11 +357,15 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
                       <div className="workspace-option-title-row">
                         <span className="workspace-option-name">{ws.name}</span>
                         <span className="workspace-tag-role">
-                          {ws.userRole === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}
+                          {getRoleLabel(ws)}
                         </span>
                       </div>
                       <span className="workspace-option-meta">
-                        by @{ws.owner.username} • {ws.projectCount} {ws.projectCount === 1 ? 'project' : 'projects'}
+                        {ws.isOwner ? (
+                          `${ws.projectCount} ${ws.projectCount === 1 ? 'project' : 'projects'} • ${ws.memberCount} ${ws.memberCount === 1 ? 'member' : 'members'}`
+                        ) : (
+                          `by @${ws.owner.username} • ${ws.projectCount} ${ws.projectCount === 1 ? 'project' : 'projects'}`
+                        )}
                       </span>
                     </div>
                     {isSelected && (
@@ -358,13 +458,25 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
                 className="workspace-manage-btn"
                 onClick={() => {
                   setIsOpen(false);
-                  setManageModalOpen(true);
+                  navigate('/app/workspace/settings');
                 }}
               >
                 <UsersIcon size={14} />
                 <span>Members & Settings</span>
               </button>
             )}
+            <button
+              type="button"
+              id="workspace-all-btn"
+              className="workspace-manage-btn"
+              onClick={() => {
+                setIsOpen(false);
+                navigate('/app/workspaces');
+              }}
+            >
+              <LayersIcon size={14} />
+              <span>All Workspaces</span>
+            </button>
             <button
               type="button"
               className="workspace-create-btn"
@@ -390,6 +502,56 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
               {formError}
             </div>
           )}
+
+          {/* Workspace Type Selector */}
+          <div style={{ marginBottom: '1.25rem' }}>
+            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#334155', marginBottom: '0.5rem' }}>
+              Workspace Type
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <button
+                type="button"
+                style={{
+                  padding: '0.75rem',
+                  borderRadius: '8px',
+                  border: workspaceType === 'PERSONAL' ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                  backgroundColor: workspaceType === 'PERSONAL' ? '#EFF6FF' : '#FFFFFF',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+                onClick={() => setWorkspaceType('PERSONAL')}
+              >
+                <div style={{ fontWeight: 700, fontSize: '0.875rem', color: workspaceType === 'PERSONAL' ? '#1E40AF' : '#1E293B' }}>
+                  Personal
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '2px', lineHeight: 1.3 }}>
+                  Categorized under My Workspaces
+                </div>
+              </button>
+
+              <button
+                type="button"
+                style={{
+                  padding: '0.75rem',
+                  borderRadius: '8px',
+                  border: workspaceType === 'TEAM' ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                  backgroundColor: workspaceType === 'TEAM' ? '#EFF6FF' : '#FFFFFF',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+                onClick={() => setWorkspaceType('TEAM')}
+              >
+                <div style={{ fontWeight: 700, fontSize: '0.875rem', color: workspaceType === 'TEAM' ? '#1E40AF' : '#1E293B' }}>
+                  Team
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '2px', lineHeight: 1.3 }}>
+                  Categorized under Team Workspaces
+                </div>
+              </button>
+            </div>
+          </div>
 
           <div style={{ marginBottom: '1rem' }}>
             <Input
@@ -447,3 +609,4 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
     </div>
   );
 };
+

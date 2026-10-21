@@ -134,8 +134,8 @@ export class WorkspaceController {
       const { workspaceId, memberId } = req.params;
       const { role } = req.body;
 
-      if (!role || !['WORKSPACE_ADMIN', 'WORKSPACE_MEMBER'].includes(role)) {
-        throw new AppError('Valid role (WORKSPACE_ADMIN or WORKSPACE_MEMBER) is required', 400);
+      if (!role || !['WORKSPACE_ADMIN', 'PROJECT_ADMIN', 'WORKSPACE_MEMBER'].includes(role)) {
+        throw new AppError('Valid role (WORKSPACE_ADMIN, PROJECT_ADMIN, or WORKSPACE_MEMBER) is required', 400);
       }
 
       const updated = await workspaceMemberService.updateMemberRole(
@@ -599,6 +599,105 @@ export class WorkspaceController {
         success: true,
         data: result,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/workspaces/:workspaceId/leave
+   * Voluntarily leave a workspace (Non-owners only)
+   */
+  async leaveWorkspace(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+      const result = await workspaceMemberService.leaveWorkspace(workspaceId, req.user.userId);
+      res.status(200).json({
+        success: true,
+        message: result.message,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/workspaces/:workspaceId/clear-data
+   * Reset sandbox / clear all data in personal workspace
+   */
+  async clearPersonalWorkspaceData(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+      const result = await workspaceService.clearPersonalWorkspaceData(workspaceId, req.user.userId);
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/workspaces/:workspaceId/deletion-request
+   * Workspace Admin requests workspace deletion
+   */
+  async requestWorkspaceDeletion(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+      const { reason } = req.body || {};
+      const result = await workspaceService.requestWorkspaceDeletion(workspaceId, req.user.userId, reason);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/workspaces/:workspaceId/deletion-request
+   * Fetch current deletion request status
+   */
+  async getWorkspaceDeletionRequest(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+      const result = await workspaceService.getWorkspaceDeletionRequest(workspaceId, req.user.userId);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/workspaces/:workspaceId/deletion-request/decline
+   * Owner declines deletion request
+   */
+  async declineWorkspaceDeletionRequest(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+      const { reason } = req.body || {};
+      const result = await workspaceService.declineWorkspaceDeletionRequest(workspaceId, req.user.userId, reason);
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * DELETE /api/workspaces/:workspaceId/deletion-request
+   * Requester or Owner cancels deletion request
+   */
+  async cancelWorkspaceDeletionRequest(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const workspaceId = req.params.workspaceId as string;
+      const result = await workspaceService.cancelWorkspaceDeletionRequest(workspaceId, req.user.userId);
+      res.status(200).json(result);
     } catch (err) {
       next(err);
     }

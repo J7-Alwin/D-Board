@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import prisma from '../prisma.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { workspaceAuditService } from './workspaceAudit.service.js';
+import { notificationService } from './notification.service.js';
 import { cacheService } from '../redis/cache.service.js';
 import type {
   CreateWorkspaceInput,
@@ -9,7 +10,7 @@ import type {
   WorkspaceAdminPermissions,
   UpdateWorkspaceAdminPermissionsInput,
 } from '../schemas/workspace.schema.js';
-import { resolveAdminPermissions } from '../schemas/workspace.schema.js';
+import { resolveAdminPermissions, resolveFullWorkspacePermissions } from '../schemas/workspace.schema.js';
 import type { WorkspaceRole } from '../generated/prisma/index.js';
 
 export interface WorkspaceSummaryDto {
@@ -19,6 +20,7 @@ export interface WorkspaceSummaryDto {
   avatarUrl: string | null;
   ownerId: string;
   isPersonal: boolean;
+  isDefault: boolean;
   maxMembers?: number | null;
   isOwner: boolean;
   userRole: WorkspaceRole;
@@ -124,6 +126,7 @@ export class WorkspaceService {
           avatarUrl: ws.avatarUrl,
           ownerId: ws.ownerId,
           isPersonal: ws.isPersonal,
+          isDefault: ws.isDefault,
           maxMembers: ws.maxMembers,
           isOwner,
           userRole: m.role,
@@ -136,10 +139,12 @@ export class WorkspaceService {
       })
     );
 
-    // Owned: where ownerId === userId (Personal workspace first, then by updatedAt desc)
+    // Owned: where ownerId === userId (Default personal workspace first, then personal, then by updatedAt desc)
     const owned = formatted
       .filter((w) => w.isOwner)
       .sort((a, b) => {
+        if (a.isDefault && !b.isDefault) return -1;
+        if (!a.isDefault && b.isDefault) return 1;
         if (a.isPersonal && !b.isPersonal) return -1;
         if (!a.isPersonal && b.isPersonal) return 1;
         return b.updatedAt.getTime() - a.updatedAt.getTime();
@@ -230,6 +235,7 @@ export class WorkspaceService {
       avatarUrl: ws.avatarUrl,
       ownerId: ws.ownerId,
       isPersonal: ws.isPersonal,
+      isDefault: ws.isDefault,
       maxMembers: ws.maxMembers,
       isOwner,
       userRole: membership.role,
@@ -243,7 +249,7 @@ export class WorkspaceService {
   }
 
   /**
-   * Create a new team workspace with the caller as OWNER.
+   * Create a new workspace (Personal or Team) with the caller as OWNER.
    */
   async createWorkspace(userId: string, data: CreateWorkspaceInput): Promise<WorkspaceSummaryDto> {
     const trimmedName = data.name.trim();
@@ -259,6 +265,8 @@ export class WorkspaceService {
     const entropy = crypto.randomBytes(4).toString('hex');
     const slug = `${cleanStem}-${entropy}`;
 
+    const isPersonal = Boolean(data.isPersonal);
+
     const created = await prisma.$transaction(async (tx) => {
       const ws = await tx.workspace.create({
         data: {
@@ -267,7 +275,8 @@ export class WorkspaceService {
           avatarUrl: data.avatarUrl || null,
           maxMembers: data.maxMembers ?? null,
           ownerId: userId,
-          isPersonal: false,
+          isPersonal,
+          isDefault: false,
         },
         include: {
           owner: {
@@ -297,11 +306,13 @@ export class WorkspaceService {
       avatarUrl: created.avatarUrl,
       ownerId: created.ownerId,
       isPersonal: created.isPersonal,
+      isDefault: created.isDefault,
       maxMembers: created.maxMembers,
       isOwner: true,
       userRole: 'OWNER',
       memberCount: 1,
       projectCount: 0,
+      adminPermissions: resolveAdminPermissions(created),
       createdAt: created.createdAt,
       updatedAt: created.updatedAt,
       owner: created.owner,
@@ -411,6 +422,7 @@ export class WorkspaceService {
       avatarUrl: updated.avatarUrl,
       ownerId: updated.ownerId,
       isPersonal: updated.isPersonal,
+      isDefault: updated.isDefault,
       maxMembers: updated.maxMembers,
       isOwner: true,
       userRole: 'OWNER',
@@ -476,7 +488,7 @@ export class WorkspaceService {
   }
 
   /**
-   * Update workspace admin permissions (Strictly Workspace Owner only)
+   * Update workspace admin permissions (Owner, or Workspace Admin with canManagePermissions for sub-roles)
    */
   async updateAdminPermissions(
     workspaceId: string,
@@ -495,16 +507,59 @@ export class WorkspaceService {
       throw new AppError('Personal workspaces do not support administrator delegation', 400);
     }
 
-    if (ws.ownerId !== userId) {
-      throw new AppError('Only the workspace owner can modify administrator permissions', 403);
+    const isOwner = ws.ownerId === userId;
+    const wsMember = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+    });
+    const isWsAdmin = wsMember?.role === 'WORKSPACE_ADMIN';
+    const current = resolveFullWorkspacePermissions(ws);
+
+    if (!isOwner) {
+      if (!isWsAdmin || !current.workspaceAdmin.canManagePermissions) {
+        throw new AppError('Only the workspace owner or authorized workspace administrators can modify permissions', 403);
+      }
+      // If Workspace Admin is updating, they cannot modify workspaceAdmin permissions
+      if (
+        input.workspaceAdmin ||
+        input.canInviteMembers !== undefined ||
+        input.canRemoveMembers !== undefined ||
+        input.canCreateProjects !== undefined ||
+        input.canManageRoles !== undefined ||
+        input.canDirectlyCompleteProject !== undefined ||
+        input.canArchiveProjects !== undefined ||
+        input.canManagePermissions !== undefined
+      ) {
+        throw new AppError('Workspace administrators cannot modify administrator permissions', 403);
+      }
     }
 
-    const current = resolveAdminPermissions(ws);
+    const updatedWsAdmin = {
+      canInviteMembers: input.workspaceAdmin?.canInviteMembers ?? input.canInviteMembers ?? current.workspaceAdmin.canInviteMembers,
+      canRemoveMembers: input.workspaceAdmin?.canRemoveMembers ?? input.canRemoveMembers ?? current.workspaceAdmin.canRemoveMembers,
+      canCreateProjects: input.workspaceAdmin?.canCreateProjects ?? input.canCreateProjects ?? current.workspaceAdmin.canCreateProjects,
+      canManageRoles: input.workspaceAdmin?.canManageRoles ?? input.canManageRoles ?? current.workspaceAdmin.canManageRoles,
+      canDirectlyCompleteProject: input.workspaceAdmin?.canDirectlyCompleteProject ?? input.canDirectlyCompleteProject ?? current.workspaceAdmin.canDirectlyCompleteProject,
+      canArchiveProjects: input.workspaceAdmin?.canArchiveProjects ?? input.canArchiveProjects ?? current.workspaceAdmin.canArchiveProjects,
+      canManagePermissions: input.workspaceAdmin?.canManagePermissions ?? input.canManagePermissions ?? current.workspaceAdmin.canManagePermissions,
+    };
+
+    const updatedProjAdmin = {
+      canCreateProjects: input.projectAdmin?.canCreateProjects ?? current.projectAdmin.canCreateProjects,
+      canRequestProjectCompletion: input.projectAdmin?.canRequestProjectCompletion ?? current.projectAdmin.canRequestProjectCompletion,
+    };
+
+    const updatedWsMember = {
+      canCreateProjects: input.workspaceMember?.canCreateProjects ?? current.workspaceMember.canCreateProjects,
+    };
+
+    const rawCurrentPerms = (ws.adminPermissions && typeof ws.adminPermissions === 'object') ? (ws.adminPermissions as any) : {};
+
     const updated = {
-      canInviteMembers: input.canInviteMembers !== undefined ? input.canInviteMembers : current.canInviteMembers,
-      canRemoveMembers: input.canRemoveMembers !== undefined ? input.canRemoveMembers : current.canRemoveMembers,
-      canCreateProjects: input.canCreateProjects !== undefined ? input.canCreateProjects : current.canCreateProjects,
-      canManageRoles: input.canManageRoles !== undefined ? input.canManageRoles : current.canManageRoles,
+      ...rawCurrentPerms,
+      ...updatedWsAdmin,
+      workspaceAdmin: updatedWsAdmin,
+      projectAdmin: updatedProjAdmin,
+      workspaceMember: updatedWsMember,
     };
 
     await prisma.$transaction(async (tx) => {
@@ -528,12 +583,12 @@ export class WorkspaceService {
       });
     });
 
-    return updated;
+    return resolveAdminPermissions({ isPersonal: ws.isPersonal, adminPermissions: updated });
   }
 
   /**
    * Soft-delete workspace with 30-day recovery deadline (Owner only).
-   * Personal workspaces are permanently protected from deletion.
+   * The default personal workspace is permanently protected from deletion.
    * Cancels/revokes pending transfers and invitations transactionally.
    */
   async deleteWorkspace(
@@ -549,9 +604,9 @@ export class WorkspaceService {
     if (!ws) throw new AppError('Workspace not found', 404);
     if (ws.deletedAt) throw new AppError('Workspace is already scheduled for deletion', 400);
 
-    if (ws.isPersonal) {
+    if (ws.isDefault) {
       throw new AppError(
-        'Personal workspaces cannot be deleted to preserve core user workspace invariants.',
+        'Personal workspaces cannot be deleted. The default personal workspace is permanently protected. You can clear its data instead.',
         400
       );
     }
@@ -786,6 +841,246 @@ export class WorkspaceService {
     }
 
     return result;
+  }
+
+  /**
+   * Clear all projects and data within a Workspace (Owner only)
+   */
+  async clearWorkspaceData(workspaceId: string, userId: string) {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+    });
+
+    if (!ws) throw new AppError('Workspace not found', 404);
+
+    if (ws.ownerId !== userId) {
+      throw new AppError('Only the workspace owner can clear workspace data', 403);
+    }
+
+    const projects = await prisma.project.findMany({
+      where: { workspaceId },
+      select: { id: true },
+    });
+    const projectIds = projects.map((p) => p.id);
+
+    if (projectIds.length > 0) {
+      await prisma.$transaction(async (tx) => {
+        // Cascade delete work items, comments, activities, notes, calendar events, attachments, folders, members
+        await tx.comment.deleteMany({
+          where: { workItem: { projectId: { in: projectIds } } },
+        });
+        await tx.workItem.deleteMany({
+          where: { projectId: { in: projectIds } },
+        });
+        await tx.noteMention.deleteMany({
+          where: { note: { projectId: { in: projectIds } } },
+        });
+        await tx.note.deleteMany({
+          where: { projectId: { in: projectIds } },
+        });
+        await tx.calendarEventAttendee.deleteMany({
+          where: { calendarEvent: { projectId: { in: projectIds } } },
+        });
+        await tx.calendarEvent.deleteMany({
+          where: { projectId: { in: projectIds } },
+        });
+        await tx.attachment.deleteMany({
+          where: { projectId: { in: projectIds } },
+        });
+        await tx.fileFolder.deleteMany({
+          where: { projectId: { in: projectIds } },
+        });
+        await tx.invitation.deleteMany({
+          where: { projectId: { in: projectIds } },
+        });
+        await tx.activity.deleteMany({
+          where: { projectId: { in: projectIds } },
+        });
+        await tx.projectMember.deleteMany({
+          where: { projectId: { in: projectIds } },
+        });
+        await tx.project.deleteMany({
+          where: { id: { in: projectIds } },
+        });
+      }, { timeout: 30000 });
+    }
+
+    return {
+      success: true,
+      message: 'Workspace data cleared successfully',
+      clearedProjectCount: projectIds.length,
+    };
+  }
+
+  /**
+   * Clear all projects and data within a Personal Workspace (Reset Sandbox) - Backward-compatible alias
+   */
+  async clearPersonalWorkspaceData(workspaceId: string, userId: string) {
+    return this.clearWorkspaceData(workspaceId, userId);
+  }
+
+  /**
+   * Request workspace deletion (Workspace Admin only)
+   */
+  async requestWorkspaceDeletion(workspaceId: string, userId: string, reason?: string) {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: {
+        members: { where: { userId } },
+        owner: { select: { id: true, fullName: true, username: true, email: true } },
+      },
+    });
+
+    if (!ws) throw new AppError('Workspace not found', 404);
+    if (ws.isPersonal) throw new AppError('Cannot request deletion of a personal workspace', 400);
+
+    const membership = ws.members[0];
+    if (!membership || membership.role !== 'WORKSPACE_ADMIN') {
+      throw new AppError('Only workspace administrators can request workspace deletion', 403);
+    }
+
+    const requester = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, fullName: true, username: true, email: true, avatarUrl: true },
+    });
+
+    const currentPerms = (ws.adminPermissions as any) || {};
+    const deletionRequest = {
+      id: crypto.randomUUID(),
+      requestedById: userId,
+      requestedByName: requester?.fullName || requester?.username || 'Administrator',
+      requestedByEmail: requester?.email || '',
+      requestedByAvatar: requester?.avatarUrl || null,
+      reason: reason?.trim() || null,
+      requestedAt: new Date().toISOString(),
+      status: 'PENDING',
+    };
+
+    const updatedPerms = {
+      ...currentPerms,
+      deletionRequest,
+    };
+
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { adminPermissions: updatedPerms },
+    });
+
+    // Notify workspace owner
+    await notificationService.createNotification({
+      recipientId: ws.ownerId,
+      actorId: userId,
+      type: 'SYSTEM' as any,
+      title: 'Workspace Deletion Requested',
+      message: `${deletionRequest.requestedByName} requested deletion of workspace "${ws.name}"`,
+      link: `/app/workspace/settings?tab=deletion-request`,
+    }).catch(() => {});
+
+    return {
+      success: true,
+      data: { deletionRequest },
+      message: 'Deletion request submitted to workspace owner',
+    };
+  }
+
+  /**
+   * Get pending deletion request if present
+   */
+  async getWorkspaceDeletionRequest(workspaceId: string, userId: string) {
+    await this.verifyWorkspaceAccess(workspaceId, userId);
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { adminPermissions: true, ownerId: true },
+    });
+    if (!ws) throw new AppError('Workspace not found', 404);
+
+    const perms = (ws.adminPermissions as any) || {};
+    return {
+      success: true,
+      data: {
+        deletionRequest: perms.deletionRequest || null,
+      },
+    };
+  }
+
+  /**
+   * Decline deletion request (Workspace Owner only)
+   */
+  async declineWorkspaceDeletionRequest(workspaceId: string, userId: string, declineReason?: string) {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+    });
+    if (!ws) throw new AppError('Workspace not found', 404);
+    if (ws.ownerId !== userId) {
+      throw new AppError('Only the workspace owner can decline deletion requests', 403);
+    }
+
+    const currentPerms = (ws.adminPermissions as any) || {};
+    const existingRequest = currentPerms.deletionRequest;
+
+    const updatedPerms = {
+      ...currentPerms,
+      deletionRequest: null,
+    };
+
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { adminPermissions: updatedPerms },
+    });
+
+    if (existingRequest?.requestedById) {
+      await notificationService.createNotification({
+        recipientId: existingRequest.requestedById,
+        actorId: userId,
+        type: 'SYSTEM' as any,
+        title: 'Workspace Deletion Request Declined',
+        message: declineReason
+          ? `The owner declined the workspace deletion request: "${declineReason}"`
+          : `The owner declined the workspace deletion request for "${ws.name}"`,
+        link: `/app/workspace/settings?tab=general`,
+      }).catch(() => {});
+    }
+
+    return {
+      success: true,
+      message: 'Deletion request declined',
+    };
+  }
+
+  /**
+   * Cancel deletion request (Requesting Admin only)
+   */
+  async cancelWorkspaceDeletionRequest(workspaceId: string, userId: string) {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+    });
+    if (!ws) throw new AppError('Workspace not found', 404);
+
+    const currentPerms = (ws.adminPermissions as any) || {};
+    const existingRequest = currentPerms.deletionRequest;
+
+    if (!existingRequest) {
+      return { success: true, message: 'No deletion request pending' };
+    }
+
+    if (existingRequest.requestedById !== userId && ws.ownerId !== userId) {
+      throw new AppError('Only the requester or owner can cancel the deletion request', 403);
+    }
+
+    const updatedPerms = {
+      ...currentPerms,
+      deletionRequest: null,
+    };
+
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { adminPermissions: updatedPerms },
+    });
+
+    return {
+      success: true,
+      message: 'Deletion request cancelled',
+    };
   }
 }
 

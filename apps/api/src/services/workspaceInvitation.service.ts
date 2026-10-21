@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import prisma from '../prisma.js';
 import { AppError } from '../middlewares/error.middleware.js';
-import { resolveAdminPermissions, type CreateWorkspaceInvitationInput } from '../schemas/workspace.schema.js';
+import { resolveAdminPermissions, resolveFullWorkspacePermissions, type CreateWorkspaceInvitationInput } from '../schemas/workspace.schema.js';
 import { enqueueEmailJob } from '../jobs/queues.js';
 import { notificationService } from './notification.service.js';
 import { publishToUser } from '../realtime/realtime.service.js';
@@ -83,13 +83,13 @@ export class WorkspaceInvitationService {
       role = membership.role;
     }
 
-    if (role === 'WORKSPACE_MEMBER') {
-      throw new AppError('Workspace members cannot invite other members', 403);
+    if (role === 'WORKSPACE_MEMBER' || role === 'PROJECT_ADMIN') {
+      throw new AppError('Only workspace owners and authorized workspace administrators can invite members', 403);
     }
 
     if (role === 'WORKSPACE_ADMIN') {
-      const permissions = resolveAdminPermissions(ws);
-      if (!permissions.canInviteMembers) {
+      const permissions = resolveFullWorkspacePermissions(ws);
+      if (!permissions.workspaceAdmin.canInviteMembers) {
         throw new AppError('Workspace administrator does not have permission to invite members', 403);
       }
     }
@@ -133,7 +133,11 @@ export class WorkspaceInvitationService {
     // 4. Atomic transaction with FOR UPDATE row locking on Workspace
     const { invitation, workspace } = await prisma.$transaction(async (tx) => {
       // Locks workspace row FOR UPDATE and verifies actor authority
-      const { workspace: ws } = await this.verifyInviteAuthority(workspaceId, actorId, tx);
+      const { workspace: ws, isOwner } = await this.verifyInviteAuthority(workspaceId, actorId, tx);
+
+      if (!isOwner && input.role === 'WORKSPACE_ADMIN') {
+        throw new AppError('Only the workspace owner can invite workspace administrators', 403);
+      }
 
       if (targetUser && ws.ownerId === targetUser.id) {
         throw new AppError('This user is already the owner of this workspace', 400);

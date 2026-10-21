@@ -88,6 +88,9 @@ router.get('/:projectId', projectController.getProjectById);
 router.patch('/:projectId', validate(updateProjectSchema), projectController.updateProject);
 router.post('/:projectId/archive', projectController.archiveProject);
 router.post('/:projectId/unarchive', projectController.unarchiveProject);
+router.post('/:projectId/complete', (req, res, next) => projectController.completeProject(req, res, next));
+router.post('/:projectId/reactivate', (req, res, next) => projectController.reactivateProject(req, res, next));
+router.get('/:projectId/completion-status', (req, res, next) => projectController.getCompletionStatus(req, res, next));
 router.post('/:projectId/transfer-ownership', projectController.transferOwnership);
 
 // Project Transfer between workspaces (Phase 4)

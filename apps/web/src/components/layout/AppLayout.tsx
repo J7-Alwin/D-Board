@@ -35,7 +35,7 @@ export interface AppLayoutProps {
 
 export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const { user, isLoading, logout } = useAuth();
-  const { activeWorkspace } = useWorkspace();
+  const { activeWorkspace, activeRole } = useWorkspace();
   const { socket, isConnected } = useSocket();
   const { path, navigate } = useRouter();
 
@@ -57,6 +57,16 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Ensure 90% scaled density is active while inside AppLayout
+  useEffect(() => {
+    document.documentElement.classList.add('app-authenticated-mode');
+    return () => {
+      if (!window.location.pathname.startsWith('/app')) {
+        document.documentElement.classList.remove('app-authenticated-mode');
+      }
+    };
+  }, []);
 
   // Close dropdown on outside click or Escape key
   useEffect(() => {
@@ -228,6 +238,82 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     navigate('/login');
   };
 
+  const canCreateProject = useMemo(() => {
+    if (!activeWorkspace) return false;
+    if (activeWorkspace.isPersonal) return true;
+    if (activeRole === 'OWNER' || activeWorkspace.isOwner) return true;
+
+    const perms = activeWorkspace.adminPermissions;
+    if (activeRole === 'WORKSPACE_ADMIN') {
+      return perms?.workspaceAdmin?.canCreateProjects ?? perms?.canCreateProjects ?? true;
+    }
+    if (activeRole === 'PROJECT_ADMIN') {
+      return perms?.projectAdmin?.canCreateProjects ?? false;
+    }
+    if (activeRole === 'WORKSPACE_MEMBER') {
+      return perms?.workspaceMember?.canCreateProjects ?? false;
+    }
+    return false;
+  }, [activeWorkspace, activeRole]);
+
+  const allWsProjects = useMemo(() => [...projects.owned, ...projects.joined], [projects.owned, projects.joined]);
+
+  const [recentProjectIds, setRecentProjectIds] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem(`dboard_recent_projects_${user?.id}_${activeWorkspace?.id}`);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (!user?.id || !activeWorkspace?.id) return;
+    try {
+      const stored = localStorage.getItem(`dboard_recent_projects_${user.id}_${activeWorkspace.id}`);
+      setRecentProjectIds(stored ? JSON.parse(stored) : []);
+    } catch {
+      setRecentProjectIds([]);
+    }
+  }, [user?.id, activeWorkspace?.id]);
+
+  useEffect(() => {
+    const match = path.match(/^\/app\/projects\/([a-zA-Z0-9_-]+)/);
+    if (match && match[1] && match[1] !== 'create' && user?.id && activeWorkspace?.id) {
+      const openedId = match[1];
+      setRecentProjectIds((prev) => {
+        const next = [openedId, ...prev.filter((id) => id !== openedId)].slice(0, 5);
+        try {
+          localStorage.setItem(`dboard_recent_projects_${user.id}_${activeWorkspace.id}`, JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    }
+  }, [path, user?.id, activeWorkspace?.id]);
+
+  const recentProjects = useMemo(() => {
+    if (allWsProjects.length === 0) return [];
+    const recent: typeof allWsProjects = [];
+    for (const id of recentProjectIds) {
+      const found = allWsProjects.find((p) => p.id === id);
+      if (found && !recent.some((p) => p.id === found.id)) {
+        recent.push(found);
+      }
+      if (recent.length >= 3) break;
+    }
+    if (recent.length < 3) {
+      for (const p of allWsProjects) {
+        if (!recent.some((r) => r.id === p.id)) {
+          recent.push(p);
+        }
+        if (recent.length >= 3) break;
+      }
+    }
+    return recent.slice(0, 3);
+  }, [allWsProjects, recentProjectIds]);
+
   if (isLoading) {
     return (
       <div className="app-loading-screen">
@@ -351,24 +437,27 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             </Link>
           </nav>
 
-          {/* Project Navigation Area */}
+          {/* Project Navigation Area - RECENT PROJECTS */}
           <div className="workspace-projects-list">
             <div className="projects-header-row">
-              <span className="projects-label">MY PROJECTS</span>
-              <Link
-                to="/app/projects/create"
-                className="projects-add-btn"
-                title="Create new project"
-                onClick={() => setSidebarOpen(false)}
-              >
-                <PlusIcon size={14} />
-              </Link>
+              <span className="projects-label">RECENT PROJECTS</span>
+              {canCreateProject && (
+                <Link
+                  to="/app/projects/create"
+                  className="projects-add-btn"
+                  title="Create new project"
+                  onClick={() => setSidebarOpen(false)}
+                  id="sidebar-create-project-plus-btn"
+                >
+                  <PlusIcon size={14} />
+                </Link>
+              )}
             </div>
 
-            {projects.owned.length === 0 ? (
-              <div className="sidebar-empty-projects">No owned projects</div>
+            {recentProjects.length === 0 ? (
+              <div className="sidebar-empty-projects">No recent projects</div>
             ) : (
-              projects.owned.map((p) => {
+              recentProjects.map((p) => {
                 const isActive = path === `/app/projects/${p.id}` || path.startsWith(`/app/projects/${p.id}/`);
                 return (
                   <Link
@@ -383,45 +472,26 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                 );
               })
             )}
-
-            {projects.joined.length > 0 && (
-              <>
-                <div className="projects-header-row" style={{ marginTop: '1rem' }}>
-                  <span className="projects-label">JOINED PROJECTS</span>
-                </div>
-                {projects.joined.map((p) => {
-                  const isActive = path === `/app/projects/${p.id}` || path.startsWith(`/app/projects/${p.id}/`);
-                  return (
-                    <Link
-                      key={p.id}
-                      to={`/app/projects/${p.id}`}
-                      className={`workspace-project-pill ${isActive ? 'active' : ''}`}
-                      onClick={() => setSidebarOpen(false)}
-                    >
-                      <ProjectAvatar project={p} size="xs" />
-                      <span className="proj-name">{p.name}</span>
-                    </Link>
-                  );
-                })}
-              </>
-            )}
           </div>
         </div>
 
         {/* Action Area */}
         <div className="workspace-action-area">
-          <Button
-            variant="primary"
-            size="sm"
-            fullWidth
-            leftIcon={<PlusIcon size={16} />}
-            onClick={() => {
-              setSidebarOpen(false);
-              navigate('/app/projects/create');
-            }}
-          >
-            Create Project
-          </Button>
+          {canCreateProject && (
+            <Button
+              variant="primary"
+              size="sm"
+              fullWidth
+              leftIcon={<PlusIcon size={16} />}
+              onClick={() => {
+                setSidebarOpen(false);
+                navigate('/app/projects/create');
+              }}
+              id="sidebar-create-project-action-btn"
+            >
+              Create Project
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"

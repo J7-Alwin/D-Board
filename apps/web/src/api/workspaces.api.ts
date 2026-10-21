@@ -1,6 +1,6 @@
 import { apiClient, type ApiResponse } from './client';
 
-export type WorkspaceRole = 'OWNER' | 'WORKSPACE_ADMIN' | 'WORKSPACE_MEMBER';
+export type WorkspaceRole = 'OWNER' | 'WORKSPACE_ADMIN' | 'PROJECT_ADMIN' | 'WORKSPACE_MEMBER';
 export type WorkspaceMemberOrigin = 'DIRECT' | 'PROJECT_DERIVED';
 
 export interface WorkspaceAdminPermissions {
@@ -8,15 +8,36 @@ export interface WorkspaceAdminPermissions {
   canRemoveMembers: boolean;
   canCreateProjects: boolean;
   canManageRoles: boolean;
+  canDirectlyCompleteProject?: boolean;
+  canArchiveProjects?: boolean;
+  canManagePermissions?: boolean;
+  workspaceAdmin?: {
+    canInviteMembers: boolean;
+    canRemoveMembers: boolean;
+    canCreateProjects: boolean;
+    canManageRoles: boolean;
+    canDirectlyCompleteProject: boolean;
+    canArchiveProjects: boolean;
+    canManagePermissions: boolean;
+  };
+  projectAdmin?: {
+    canCreateProjects: boolean;
+    canRequestProjectCompletion: boolean;
+  };
+  workspaceMember?: {
+    canCreateProjects: boolean;
+  };
 }
 
 export interface WorkspaceSummary {
   id: string;
   name: string;
   slug: string;
+  description?: string | null;
   avatarUrl: string | null;
   ownerId: string;
   isPersonal: boolean;
+  isDefault?: boolean;
   isOwner: boolean;
   userRole: WorkspaceRole;
   memberCount: number;
@@ -119,15 +140,16 @@ export interface PendingWorkspaceInvitation {
 
 export interface CreateWorkspaceInput {
   name: string;
-  description?: string;
-  avatarUrl?: string;
+  description?: string | null;
+  avatarUrl?: string | null;
   maxMembers?: number | null;
+  isPersonal?: boolean;
 }
 
 export interface UpdateWorkspaceInput {
   name?: string;
-  description?: string;
-  avatarUrl?: string;
+  description?: string | null;
+  avatarUrl?: string | null;
   maxMembers?: number | null;
 }
 
@@ -303,6 +325,16 @@ export const workspacesApi = {
     });
   },
 
+  /**
+   * Update maximum member limit for a team workspace.
+   */
+  async updateMemberLimit(
+    workspaceId: string,
+    maxMembers: number | null
+  ): Promise<ApiResponse<{ workspace: WorkspaceSummary }>> {
+    return this.updateWorkspace(workspaceId, { maxMembers });
+  },
+
   // =========================================================================
   // Ownership Transfer (Phase 5A)
   // =========================================================================
@@ -315,6 +347,13 @@ export const workspacesApi = {
       method: 'POST',
       body: JSON.stringify(input),
     });
+  },
+
+  async initiateOwnershipTransfer(
+    workspaceId: string,
+    input: { targetUserId?: string; targetEmail?: string; targetRole: WorkspaceRole }
+  ): Promise<ApiResponse<{ transfer: OwnershipTransferItem }>> {
+    return this.requestOwnershipTransfer(workspaceId, input);
   },
 
   async getPendingOwnershipTransfer(
@@ -394,7 +433,81 @@ export const workspacesApi = {
     const queryString = params.toString() ? `?${params.toString()}` : '';
     return apiClient(`/workspaces/${workspaceId}/audit-logs${queryString}`, { method: 'GET' });
   },
+
+  /**
+   * Leave a workspace (Non-owners only).
+   */
+  async leaveWorkspace(workspaceId: string): Promise<ApiResponse<void>> {
+    return apiClient(`/workspaces/${workspaceId}/leave`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Reset / clear all projects and data in workspace (Owner only).
+   */
+  async clearWorkspaceData(workspaceId: string): Promise<ApiResponse<{ clearedProjectCount: number }>> {
+    return apiClient(`/workspaces/${workspaceId}/clear-data`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Reset / clear all projects and data in personal workspace.
+   */
+  async clearPersonalWorkspaceData(workspaceId: string): Promise<ApiResponse<{ clearedProjectCount: number }>> {
+    return this.clearWorkspaceData(workspaceId);
+  },
+
+  /**
+   * Workspace Admin requests deletion of team workspace.
+   */
+  async requestWorkspaceDeletion(workspaceId: string, reason?: string): Promise<ApiResponse<{ deletionRequest: WorkspaceDeletionRequestItem }>> {
+    return apiClient(`/workspaces/${workspaceId}/deletion-request`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  /**
+   * Fetch current deletion request status.
+   */
+  async getWorkspaceDeletionRequest(workspaceId: string): Promise<ApiResponse<{ deletionRequest: WorkspaceDeletionRequestItem | null }>> {
+    return apiClient(`/workspaces/${workspaceId}/deletion-request`, {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * Owner declines deletion request.
+   */
+  async declineWorkspaceDeletionRequest(workspaceId: string, reason?: string): Promise<ApiResponse<void>> {
+    return apiClient(`/workspaces/${workspaceId}/deletion-request/decline`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  /**
+   * Requester or Owner cancels deletion request.
+   */
+  async cancelWorkspaceDeletionRequest(workspaceId: string): Promise<ApiResponse<void>> {
+    return apiClient(`/workspaces/${workspaceId}/deletion-request`, {
+      method: 'DELETE',
+    });
+  },
 };
+
+export interface WorkspaceDeletionRequestItem {
+  id: string;
+  requestedById: string;
+  requestedByName: string;
+  requestedByEmail: string;
+  requestedByAvatar: string | null;
+  reason?: string | null;
+  requestedAt: string;
+  status: 'PENDING' | 'DECLINED' | 'APPROVED';
+}
 
 export type WorkspaceOwnershipTransferStatus = 'PENDING' | 'ACCEPTED' | 'CANCELLED' | 'REJECTED' | 'EXPIRED';
 
@@ -403,6 +516,7 @@ export interface OwnershipTransferItem {
   workspaceId: string;
   sourceOwnerId: string;
   targetUserId: string;
+  targetEmail?: string;
   targetRole: WorkspaceRole;
   status: WorkspaceOwnershipTransferStatus;
   expiresAt: string;
@@ -445,6 +559,13 @@ export interface WorkspaceAuditLogItem {
     email: string;
     avatarUrl: string | null;
   } | null;
+  targetUser?: {
+    id: string;
+    fullName: string | null;
+    username: string;
+    email?: string;
+  } | null;
+  targetEmail?: string | null;
   action: string;
   targetType: string | null;
   targetId: string | null;

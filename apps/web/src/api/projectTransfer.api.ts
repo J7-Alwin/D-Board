@@ -1,6 +1,6 @@
 import { apiClient, type ApiResponse } from './client.js';
 
-export type ProjectTransferStatus = 'PENDING' | 'COMPLETED' | 'REJECTED' | 'CANCELLED' | 'EXPIRED';
+export type ProjectTransferStatus = 'PENDING' | 'ACCEPTED' | 'COMPLETED' | 'REJECTED' | 'CANCELLED' | 'EXPIRED';
 
 export interface DestinationCandidate {
   id: string;
@@ -63,10 +63,22 @@ export interface ProjectTransfer {
     name: string;
     ownerId?: string;
   };
+  targetWorkspace?: {
+    id: string;
+    name: string;
+    ownerId?: string;
+  };
   initiatedById: string;
   initiatedBy?: {
     id: string;
     fullName: string;
+    username: string;
+    email?: string;
+    avatarUrl?: string | null;
+  };
+  initiator?: {
+    id: string;
+    fullName?: string | null;
     username: string;
     email?: string;
     avatarUrl?: string | null;

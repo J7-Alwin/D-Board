@@ -203,12 +203,12 @@ export const FilesPage: React.FC<FilesPageProps> = ({
   // Load storage stats
   const loadStorageStats = useCallback(async () => {
     try {
-      const res = await filesApi.getStorageStats();
+      const res = await filesApi.getStorageStats(activeWsId);
       if (res.success) {
         setStats(res.data);
       }
     } catch {}
-  }, []);
+  }, [activeWsId]);
 
   // Load files
   const loadFiles = useCallback(async () => {
@@ -236,7 +236,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
           sortBy,
           sortOrder,
           limit: 100,
-        });
+        }, activeWsId);
         if (res.success) {
           setFiles(res.data.files);
         }

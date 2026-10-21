@@ -158,6 +158,7 @@ describe('WorkspaceSwitcher Component Tests', () => {
       expect(mockCreateWorkspace).toHaveBeenCalledWith({
         name: 'Starlight Studio',
         description: undefined,
+        isPersonal: false,
       });
     });
   });

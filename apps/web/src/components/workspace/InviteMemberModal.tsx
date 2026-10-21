@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Project } from '../../api/projects.api';
 import { invitationsApi, type ProjectInvitation } from '../../api/invitations.api';
+import { workspacesApi, type WorkspaceMemberItem } from '../../api/workspaces.api';
 import { CloseIcon, MailIcon, UsersIcon, MessageSquareIcon } from '../ui/Icons';
 import { CustomSelect } from '../ui/CustomSelect';
 
@@ -22,6 +23,25 @@ export const InviteMemberModal: React.FC<InviteMemberModalProps> = ({
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Quick-picker workspace members state
+  const [wsMembers, setWsMembers] = useState<WorkspaceMemberItem[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && project.workspaceId) {
+      setLoadingMembers(true);
+      workspacesApi
+        .getMembers(project.workspaceId, { limit: 100 })
+        .then((res) => {
+          if (res.success && res.data?.members) {
+            setWsMembers(res.data.members);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingMembers(false));
+    }
+  }, [isOpen, project.workspaceId]);
 
   // Accessibility: Escape key and body scroll lock
   React.useEffect(() => {
@@ -161,6 +181,75 @@ export const InviteMemberModal: React.FC<InviteMemberModalProps> = ({
         {error && <div className="form-error-banner" style={{ margin: '1rem 2rem 0 2rem' }}>{error}</div>}
 
         <form onSubmit={handleSubmit} className="im-modal-body">
+          {/* Quick-select from Workspace Members */}
+          {wsMembers.length > 0 && (
+            <div className="im-form-group" style={{ marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                <label className="im-field-label" style={{ margin: 0 }}>
+                  Workspace Members
+                </label>
+                <span style={{ fontSize: '0.75rem', color: '#16A34A', fontWeight: 600 }}>
+                  {loadingMembers ? 'Loading members...' : `${wsMembers.length} active member${wsMembers.length === 1 ? '' : 's'}`}
+                </span>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '0.4rem',
+                  maxHeight: '90px',
+                  overflowY: 'auto',
+                  padding: '0.2rem 0',
+                }}
+              >
+                {wsMembers.map((m) => {
+                  const isSelected = email.toLowerCase() === m.user.email.toLowerCase();
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setEmail(m.user.email)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        padding: '0.3rem 0.6rem',
+                        borderRadius: '9999px',
+                        border: isSelected ? '1.5px solid #16A34A' : '1px solid #E2E8F0',
+                        backgroundColor: isSelected ? '#F0FDF4' : '#FFFFFF',
+                        cursor: 'pointer',
+                        fontSize: '0.75rem',
+                        color: isSelected ? '#15803D' : '#334155',
+                        transition: 'all 0.15s ease',
+                      }}
+                      title={m.user.email}
+                    >
+                      <span
+                        style={{
+                          width: '18px',
+                          height: '18px',
+                          borderRadius: '50%',
+                          backgroundColor: isSelected ? '#DCFCE7' : '#F1F5F9',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.625rem',
+                          fontWeight: 700,
+                          color: isSelected ? '#16A34A' : '#64748B',
+                        }}
+                      >
+                        {m.user.fullName ? m.user.fullName[0].toUpperCase() : m.user.username[0].toUpperCase()}
+                      </span>
+                      <span style={{ fontWeight: isSelected ? 600 : 500 }}>
+                        {m.user.fullName || m.user.username}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Email Address Field */}
           <div className="im-form-group">
             <label htmlFor="invite-email" className="im-field-label">

@@ -5,7 +5,7 @@ import { AppError } from '../middlewares/error.middleware.js';
 import { enqueueEmailJob, enqueueCleanupJob } from '../jobs/queues.js';
 import { workspaceService } from './workspace.service.js';
 import { authService } from './auth.service.js';
-import { resolveAdminPermissions } from '../schemas/workspace.schema.js';
+import { resolveAdminPermissions, resolveFullWorkspacePermissions } from '../schemas/workspace.schema.js';
 
 export class ProjectService {
   /**
@@ -33,22 +33,29 @@ export class ProjectService {
         throw new AppError('Workspace not found', 404);
       }
 
-      // Rule 1: In personal workspaces, only the workspace owner can create projects.
-      if (ws.isPersonal && ws.ownerId !== userId) {
-        throw new AppError('Only the workspace owner can create projects in a personal workspace', 403);
-      }
-
-      // Rule 2: In non-personal workspaces, only OWNER and WORKSPACE_ADMIN can create projects.
-      // Workspace membership alone does not grant permission to create projects.
-      if (!ws.isPersonal && wsAccess.role === 'WORKSPACE_MEMBER') {
-        throw new AppError('Workspace members cannot create projects in this workspace. Workspace owner or administrator permissions required.', 403);
-      }
-
-      // Rule 2b: WORKSPACE_ADMIN must have canCreateProjects permission enabled by Owner
-      if (!ws.isPersonal && wsAccess.role === 'WORKSPACE_ADMIN') {
-        const permissions = resolveAdminPermissions(ws);
-        if (!permissions.canCreateProjects) {
-          throw new AppError('Workspace administrator does not have permission to create projects in this workspace', 403);
+      // Workspace role check for project creation:
+      const permissions = resolveFullWorkspacePermissions(ws);
+      if (ws.isPersonal) {
+        if (ws.ownerId !== userId) {
+          throw new AppError('Only the workspace owner can create projects in a personal workspace', 403);
+        }
+      } else {
+        if (wsAccess.role === 'OWNER') {
+          // Owner can always create projects
+        } else if (wsAccess.role === 'WORKSPACE_ADMIN') {
+          if (!permissions.workspaceAdmin.canCreateProjects) {
+            throw new AppError('Workspace administrator does not have permission to create projects in this workspace', 403);
+          }
+        } else if (wsAccess.role === 'PROJECT_ADMIN') {
+          if (!permissions.projectAdmin.canCreateProjects) {
+            throw new AppError('Project administrators do not have permission to create projects in this workspace', 403);
+          }
+        } else if (wsAccess.role === 'WORKSPACE_MEMBER') {
+          if (!permissions.workspaceMember.canCreateProjects) {
+            throw new AppError('Workspace members cannot create projects: you do not have permission to create projects in this workspace', 403);
+          }
+        } else {
+          throw new AppError('You do not have permission to create projects in this workspace', 403);
         }
       }
     } else {
@@ -320,17 +327,17 @@ export class ProjectService {
     let canAccess = false;
     if (isWsOwner || isWsAdmin) {
       canAccess = true;
-    } else if (project.workspace.isPersonal) {
-      canAccess = isProjectMember;
-    } else {
-      canAccess = isProjectMember || project.visibility === 'WORKSPACE';
+    } else if (isProjectMember) {
+      canAccess = true;
     }
 
     if (!canAccess) {
       throw new AppError('You are not authorized to view this project', 403);
     }
 
-    const role = projectMember ? projectMember.role : (isWsOwner || isWsAdmin) ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
+    const role = (isWsOwner || isWsAdmin)
+      ? 'PROJECT_ADMIN'
+      : (wsMember?.role === 'PROJECT_ADMIN' || projectMember?.role === 'PROJECT_ADMIN' ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER');
     const isAdmin = role === 'PROJECT_ADMIN';
 
     return {
@@ -382,24 +389,10 @@ export class ProjectService {
         return projects.map((p) => p.id);
       }
 
-      if (ws.isPersonal) {
-        const projects = await prisma.project.findMany({
-          where: {
-            workspaceId,
-            members: { some: { userId } },
-          },
-          select: { id: true },
-        });
-        return projects.map((p) => p.id);
-      }
-
       const projects = await prisma.project.findMany({
         where: {
           workspaceId,
-          OR: [
-            { visibility: 'WORKSPACE' },
-            { members: { some: { userId } } },
-          ],
+          members: { some: { userId } },
         },
         select: { id: true },
       });
@@ -428,17 +421,6 @@ export class ProjectService {
             members: { some: { userId } },
             workspace: {
               deletedAt: null,
-              OR: [
-                { ownerId: userId },
-                { members: { some: { userId } } },
-              ],
-            },
-          },
-          {
-            visibility: 'WORKSPACE',
-            workspace: {
-              deletedAt: null,
-              isPersonal: false,
               members: { some: { userId } },
             },
           },
@@ -476,20 +458,11 @@ export class ProjectService {
 
       if (isWsOwner || isWsAdmin) {
         where = { workspaceId, workspace: { deletedAt: null } };
-      } else if (ws.isPersonal) {
-        where = {
-          workspaceId,
-          workspace: { deletedAt: null },
-          members: { some: { userId } },
-        };
       } else {
         where = {
           workspaceId,
           workspace: { deletedAt: null },
-          OR: [
-            { visibility: 'WORKSPACE' },
-            { members: { some: { userId } } },
-          ],
+          members: { some: { userId } },
         };
       }
     } else {
@@ -513,17 +486,6 @@ export class ProjectService {
             members: { some: { userId } },
             workspace: {
               deletedAt: null,
-              OR: [
-                { ownerId: userId },
-                { members: { some: { userId } } },
-              ],
-            },
-          },
-          {
-            visibility: 'WORKSPACE',
-            workspace: {
-              deletedAt: null,
-              isPersonal: false,
               members: { some: { userId } },
             },
           },
@@ -569,7 +531,9 @@ export class ProjectService {
       const userMember = p.members.find((m) => m.userId === userId);
       const projectIsWsOwner = isWsOwner || p.workspace?.ownerId === userId;
       const projectIsWsAdmin = isWsAdmin || p.workspace?.members[0]?.role === 'WORKSPACE_ADMIN';
-      const userRole = userMember ? userMember.role : (projectIsWsOwner || projectIsWsAdmin) ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER';
+      const userRole = (projectIsWsOwner || projectIsWsAdmin)
+        ? 'PROJECT_ADMIN'
+        : (userMember ? userMember.role : 'PROJECT_MEMBER');
       const totalTasks = p.workItems ? p.workItems.length : (p._count as any)?.workItems || 0;
       const completedTasks = p.workItems ? p.workItems.filter((w) => w.status === 'COMPLETED').length : 0;
       const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
@@ -730,13 +694,28 @@ export class ProjectService {
   }
 
   /**
-   * Archive project (Project Admin or Workspace Owner/Admin only)
+   * Archive project (Workspace Owner or authorized Workspace Admin only)
    */
   async archiveProject(projectId: string, userId: string) {
-    const { project, isAdmin } = await this.verifyProjectAccess(projectId, userId);
+    const { project, isWsOwner, isWsAdmin } = await this.verifyProjectAccess(projectId, userId);
 
-    if (!isAdmin) {
-      throw new AppError('Only project administrators can archive this project', 403);
+    const ws = await prisma.workspace.findUnique({
+      where: { id: project.workspaceId },
+      select: { isPersonal: true, adminPermissions: true, deletedAt: true },
+    });
+    if (!ws || ws.deletedAt) {
+      throw new AppError('Workspace not found', 404);
+    }
+    const perms = resolveFullWorkspacePermissions(ws);
+
+    if (isWsOwner) {
+      // Owner can always archive
+    } else if (isWsAdmin) {
+      if (!perms.workspaceAdmin.canArchiveProjects) {
+        throw new AppError('Workspace administrator does not have permission to archive projects in this workspace', 403);
+      }
+    } else {
+      throw new AppError('Only workspace owners and authorized workspace administrators can archive projects', 403);
     }
 
     if (project.status === 'ARCHIVED') {
@@ -770,13 +749,28 @@ export class ProjectService {
   }
 
   /**
-   * Unarchive project (Project Admin or Workspace Owner/Admin only)
+   * Unarchive project (Workspace Owner or authorized Workspace Admin only)
    */
   async unarchiveProject(projectId: string, userId: string) {
-    const { project, isAdmin } = await this.verifyProjectAccess(projectId, userId);
+    const { project, isWsOwner, isWsAdmin } = await this.verifyProjectAccess(projectId, userId);
 
-    if (!isAdmin) {
-      throw new AppError('Only project administrators can unarchive this project', 403);
+    const ws = await prisma.workspace.findUnique({
+      where: { id: project.workspaceId },
+      select: { isPersonal: true, adminPermissions: true, deletedAt: true },
+    });
+    if (!ws || ws.deletedAt) {
+      throw new AppError('Workspace not found', 404);
+    }
+    const perms = resolveFullWorkspacePermissions(ws);
+
+    if (isWsOwner) {
+      // Owner can always unarchive
+    } else if (isWsAdmin) {
+      if (!perms.workspaceAdmin.canArchiveProjects) {
+        throw new AppError('Workspace administrator does not have permission to unarchive projects in this workspace', 403);
+      }
+    } else {
+      throw new AppError('Only workspace owners and authorized workspace administrators can unarchive projects', 403);
     }
 
     return await prisma.$transaction(async (tx) => {
@@ -941,6 +935,455 @@ export class ProjectService {
 
       return updatedProject;
     });
+  }
+
+  /**
+   * Complete project or submit completion request:
+   * - Workspace Owner / Workspace Admin: directly sets status to COMPLETED (approves any pending request).
+   * - Project Admin: creates/updates a completion request awaiting Workspace Owner/Admin approval.
+   */
+  async completeProject(projectId: string, userId: string, reason?: string, explicitWorkspaceId?: string) {
+    const { project, isWsOwner, isWsAdmin, isAdmin } = await this.verifyProjectAccess(projectId, userId, explicitWorkspaceId);
+
+    if (project.status === 'COMPLETED') {
+      return { project, completed: true, alreadyCompleted: true, message: 'Project is already marked as completed' };
+    }
+
+    const ws = await prisma.workspace.findUnique({
+      where: { id: project.workspaceId },
+      include: {
+        members: { where: { role: 'WORKSPACE_ADMIN' }, select: { userId: true } },
+      },
+    });
+    if (!ws || ws.deletedAt) {
+      throw new AppError('Workspace not found', 404);
+    }
+
+    const perms = resolveFullWorkspacePermissions(ws);
+    const canWsAdminDirectlyComplete = perms.workspaceAdmin.canDirectlyCompleteProject !== false;
+
+    const canDirectlyComplete = isWsOwner || (isWsAdmin && canWsAdminDirectlyComplete);
+
+    if (canDirectlyComplete) {
+      // Direct completion by Workspace Owner or Workspace Admin
+      const updated = await prisma.$transaction(async (tx) => {
+        const p = await tx.project.update({
+          where: { id: projectId },
+          data: {
+            status: 'COMPLETED',
+          },
+          include: {
+            createdBy: { select: { id: true, fullName: true, username: true, avatarUrl: true } },
+            members: { include: { user: { select: { id: true, fullName: true, username: true, avatarUrl: true } } } },
+          },
+        });
+
+        // Also update any pending completion request in adminPermissions
+        const rawPerms = (ws.adminPermissions as any) || {};
+        const requests = Array.isArray(rawPerms.projectCompletionRequests) ? rawPerms.projectCompletionRequests : [];
+        let updatedRequests = false;
+        const newRequests = requests.map((r: any) => {
+          if (r.projectId === projectId && r.status === 'PENDING') {
+            updatedRequests = true;
+            return {
+              ...r,
+              status: 'APPROVED',
+              reviewedById: userId,
+              reviewedAt: new Date().toISOString(),
+            };
+          }
+          return r;
+        });
+
+        if (updatedRequests) {
+          await tx.workspace.update({
+            where: { id: ws.id },
+            data: {
+              adminPermissions: {
+                ...rawPerms,
+                projectCompletionRequests: newRequests,
+              },
+            },
+          });
+        }
+
+        // Create project activity
+        await tx.activity.create({
+          data: {
+            projectId,
+            actorId: userId,
+            type: 'WORK_COMPLETED',
+          },
+        });
+
+        return p;
+      });
+
+      return {
+        project: updated,
+        completed: true,
+        message: 'Project marked as completed successfully',
+      };
+    }
+
+    if (isWsAdmin || isAdmin) {
+      // Workspace Admin without direct complete rights OR Project Admin -> Create Completion Request
+      const requester = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, fullName: true, username: true, email: true, avatarUrl: true },
+      });
+
+      const rawPerms = (ws.adminPermissions as any) || {};
+      const requests = Array.isArray(rawPerms.projectCompletionRequests) ? rawPerms.projectCompletionRequests : [];
+
+      // Check if there is already a pending request
+      const existingPending = requests.find((r: any) => r.projectId === projectId && r.status === 'PENDING');
+      if (existingPending) {
+        return {
+          project,
+          requestSubmitted: true,
+          request: existingPending,
+          message: 'A completion request for this project is already pending review',
+        };
+      }
+
+      const requesterRole = isWsAdmin ? 'WORKSPACE_ADMIN' : 'PROJECT_ADMIN';
+
+      const newRequest = {
+        id: crypto.randomUUID(),
+        projectId: project.id,
+        projectName: project.name,
+        projectKey: project.key || '',
+        requestedById: userId,
+        requesterRole,
+        requestedByName: requester?.fullName || requester?.username || (isWsAdmin ? 'Workspace Admin' : 'Project Admin'),
+        requestedByEmail: requester?.email || '',
+        requestedByAvatar: requester?.avatarUrl || null,
+        reason: reason?.trim() || null,
+        requestedAt: new Date().toISOString(),
+        status: 'PENDING',
+      };
+
+      const updatedRequests = [...requests, newRequest];
+
+      await prisma.workspace.update({
+        where: { id: ws.id },
+        data: {
+          adminPermissions: {
+            ...perms,
+            projectCompletionRequests: updatedRequests,
+          },
+        },
+      });
+
+      // Dispatch notifications to Workspace Owner and all Workspace Admins
+      const targetUserIds = new Set<string>();
+      if (ws.ownerId && ws.ownerId !== userId) {
+        targetUserIds.add(ws.ownerId);
+      }
+      for (const m of ws.members) {
+        if (m.userId !== userId) {
+          targetUserIds.add(m.userId);
+        }
+      }
+
+      for (const adminId of targetUserIds) {
+        await prisma.notification.create({
+          data: {
+            recipientId: adminId,
+            actorId: userId,
+            projectId: project.id,
+            type: 'SYSTEM',
+            title: 'Project Completion Requested',
+            message: `${newRequest.requestedByName} requested to mark "${project.name}" as completed.`,
+            link: `/app/projects/${project.id}`,
+          },
+        }).catch(() => {});
+      }
+
+      return {
+        project,
+        requestSubmitted: true,
+        request: newRequest,
+        message: 'Completion request submitted to workspace administrators',
+      };
+    }
+
+    throw new AppError('Only project administrators or workspace administrators can mark a project as complete', 403);
+  }
+
+  /**
+   * Reactivate a completed project back to ACTIVE (Workspace Owner/Admin or Project Admin)
+   */
+  async reactivateProject(projectId: string, userId: string, explicitWorkspaceId?: string) {
+    const { project, isAdmin, isWsOwner, isWsAdmin } = await this.verifyProjectAccess(projectId, userId, explicitWorkspaceId);
+
+    if (!isAdmin && !isWsOwner && !isWsAdmin) {
+      throw new AppError('Only administrators can reactivate this project', 403);
+    }
+
+    const updated = await prisma.project.update({
+      where: { id: projectId },
+      data: {
+        status: 'ACTIVE',
+      },
+      include: {
+        createdBy: { select: { id: true, fullName: true, username: true, avatarUrl: true } },
+        members: { include: { user: { select: { id: true, fullName: true, username: true, avatarUrl: true } } } },
+      },
+    });
+
+    return {
+      project: updated,
+      reactivated: true,
+      message: 'Project reactivated successfully',
+    };
+  }
+
+  /**
+   * Get completion status and any pending completion request for a project
+   */
+  async getCompletionStatus(projectId: string, userId: string, explicitWorkspaceId?: string) {
+    const { project, isWsOwner, isWsAdmin, isAdmin } = await this.verifyProjectAccess(projectId, userId, explicitWorkspaceId);
+
+    const ws = await prisma.workspace.findUnique({
+      where: { id: project.workspaceId },
+      select: { adminPermissions: true },
+    });
+
+    const perms = (ws?.adminPermissions as any) || {};
+    const requests = Array.isArray(perms.projectCompletionRequests) ? perms.projectCompletionRequests : [];
+    const pendingRequest = requests.find((r: any) => r.projectId === projectId && r.status === 'PENDING') || null;
+
+    return {
+      status: project.status,
+      pendingRequest,
+      canDirectlyComplete: isWsOwner || isWsAdmin,
+      canRequestComplete: isAdmin,
+      isWsOwnerOrAdmin: isWsOwner || isWsAdmin,
+    };
+  }
+
+  /**
+   * Get all completion requests in a workspace (Workspace Owner, Workspace Admin, or Project Admins)
+   */
+  async getWorkspaceCompletionRequests(workspaceId: string, userId: string) {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: { members: { where: { userId } } },
+    });
+    if (!ws || ws.deletedAt) throw new AppError('Workspace not found', 404);
+
+    const isWsOwner = ws.ownerId === userId;
+    const isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
+    const isWsMember = ws.members.length > 0;
+
+    if (!isWsOwner && !isWsAdmin && !isWsMember) {
+      throw new AppError('You do not have access to this workspace', 403);
+    }
+
+    const perms = (ws.adminPermissions as any) || {};
+    const requests = Array.isArray(perms.projectCompletionRequests) ? perms.projectCompletionRequests : [];
+
+    return {
+      requests: requests.filter((r: any) => r.status === 'PENDING'),
+      allRequests: requests,
+    };
+  }
+
+  /**
+   * Approve a project completion request (Workspace Owner or Workspace Admin)
+   */
+  async approveCompletionRequest(workspaceId: string, requestId: string, userId: string) {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: { members: { where: { userId } } },
+    });
+    if (!ws || ws.deletedAt) throw new AppError('Workspace not found', 404);
+
+    const isWsOwner = ws.ownerId === userId;
+    const isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
+    const permissions = resolveFullWorkspacePermissions(ws);
+    const canWsAdminDirectlyComplete = permissions.workspaceAdmin.canDirectlyCompleteProject !== false;
+
+    if (!isWsOwner && (!isWsAdmin || !canWsAdminDirectlyComplete)) {
+      throw new AppError('Only workspace owners or authorized workspace administrators can approve project completion requests', 403);
+    }
+
+    const perms = (ws.adminPermissions as any) || {};
+    const requests = Array.isArray(perms.projectCompletionRequests) ? perms.projectCompletionRequests : [];
+    const targetReq = requests.find((r: any) => r.id === requestId);
+
+    if (!targetReq) {
+      throw new AppError('Completion request not found', 404);
+    }
+
+    if (targetReq.requesterRole === 'WORKSPACE_ADMIN' && !isWsOwner) {
+      throw new AppError('Only the workspace owner can approve completion requests submitted by workspace administrators', 403);
+    }
+
+    // Update project status to COMPLETED
+    await prisma.project.update({
+      where: { id: targetReq.projectId },
+      data: { status: 'COMPLETED' },
+    });
+
+    const updatedRequests = requests.map((r: any) => {
+      if (r.id === requestId) {
+        return {
+          ...r,
+          status: 'APPROVED',
+          reviewedById: userId,
+          reviewedAt: new Date().toISOString(),
+        };
+      }
+      return r;
+    });
+
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: {
+        adminPermissions: {
+          ...perms,
+          projectCompletionRequests: updatedRequests,
+        },
+      },
+    });
+
+    // Notify requester
+    if (targetReq.requestedById) {
+      await prisma.notification.create({
+        data: {
+          recipientId: targetReq.requestedById,
+          actorId: userId,
+          projectId: targetReq.projectId,
+          type: 'SYSTEM',
+          title: 'Project Completion Approved',
+          message: `Your request to mark "${targetReq.projectName}" as completed was approved.`,
+          link: `/app/projects/${targetReq.projectId}`,
+        },
+      }).catch(() => {});
+    }
+
+    return {
+      success: true,
+      projectId: targetReq.projectId,
+      message: `Project "${targetReq.projectName}" approved and marked as completed`,
+    };
+  }
+
+  /**
+   * Reject a project completion request (Workspace Owner or Workspace Admin)
+   * Project stays ACTIVE.
+   */
+  async rejectCompletionRequest(workspaceId: string, requestId: string, userId: string, reviewNote?: string) {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: { members: { where: { userId } } },
+    });
+    if (!ws || ws.deletedAt) throw new AppError('Workspace not found', 404);
+
+    const isWsOwner = ws.ownerId === userId;
+    const isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
+
+    if (!isWsOwner && !isWsAdmin) {
+      throw new AppError('Only workspace administrators can reject project completion requests', 403);
+    }
+
+    const perms = (ws.adminPermissions as any) || {};
+    const requests = Array.isArray(perms.projectCompletionRequests) ? perms.projectCompletionRequests : [];
+    const targetReq = requests.find((r: any) => r.id === requestId);
+
+    if (!targetReq) {
+      throw new AppError('Completion request not found', 404);
+    }
+
+    const updatedRequests = requests.map((r: any) => {
+      if (r.id === requestId) {
+        return {
+          ...r,
+          status: 'REJECTED',
+          reviewedById: userId,
+          reviewedAt: new Date().toISOString(),
+          reviewNote: reviewNote || null,
+        };
+      }
+      return r;
+    });
+
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: {
+        adminPermissions: {
+          ...perms,
+          projectCompletionRequests: updatedRequests,
+        },
+      },
+    });
+
+    // Notify requester
+    if (targetReq.requestedById) {
+      await prisma.notification.create({
+        data: {
+          recipientId: targetReq.requestedById,
+          actorId: userId,
+          projectId: targetReq.projectId,
+          type: 'SYSTEM',
+          title: 'Project Completion Declined',
+          message: `Your request to mark "${targetReq.projectName}" as completed was declined. Project remains active.${reviewNote ? ` Note: "${reviewNote}"` : ''}`,
+          link: `/app/projects/${targetReq.projectId}`,
+        },
+      }).catch(() => {});
+    }
+
+    return {
+      success: true,
+      projectId: targetReq.projectId,
+      message: `Completion request for "${targetReq.projectName}" was declined. Project remains active.`,
+    };
+  }
+
+  /**
+   * Cancel a pending project completion request (Requester or Admin)
+   */
+  async cancelCompletionRequest(workspaceId: string, requestId: string, userId: string) {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: { members: { where: { userId } } },
+    });
+    if (!ws || ws.deletedAt) throw new AppError('Workspace not found', 404);
+
+    const isWsOwner = ws.ownerId === userId;
+    const isWsAdmin = ws.members[0]?.role === 'WORKSPACE_ADMIN';
+
+    const perms = (ws.adminPermissions as any) || {};
+    const requests = Array.isArray(perms.projectCompletionRequests) ? perms.projectCompletionRequests : [];
+    const targetReq = requests.find((r: any) => r.id === requestId);
+
+    if (!targetReq) {
+      throw new AppError('Completion request not found', 404);
+    }
+
+    if (!isWsOwner && !isWsAdmin && targetReq.requestedById !== userId) {
+      throw new AppError('You are not authorized to cancel this completion request', 403);
+    }
+
+    const updatedRequests = requests.filter((r: any) => r.id !== requestId);
+
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: {
+        adminPermissions: {
+          ...perms,
+          projectCompletionRequests: updatedRequests,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Completion request cancelled successfully',
+    };
   }
 }
 

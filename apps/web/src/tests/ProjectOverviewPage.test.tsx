@@ -22,9 +22,26 @@ const mockProject: Project = {
   updatedAt: new Date().toISOString(),
 };
 
+let mockWorkspaceRole: string = 'OWNER';
+let mockIsOwner: boolean = true;
+
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'u1', username: 'testuser', email: 'test@example.com' },
+  }),
+}));
+
+vi.mock('../context/WorkspaceContext', () => ({
+  useWorkspace: () => ({
+    activeWorkspace: {
+      id: 'ws-1',
+      name: 'Test Workspace',
+      isOwner: mockIsOwner,
+      userRole: mockWorkspaceRole,
+      ownerId: mockIsOwner ? 'u1' : 'owner-other',
+    },
+    activeRole: mockWorkspaceRole,
+    isLoading: false,
   }),
 }));
 
@@ -50,6 +67,17 @@ vi.mock('../api/projects.api', () => ({
         },
       },
     }),
+    getCompletionStatus: vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ACTIVE',
+        pendingRequest: null,
+        canDirectComplete: true,
+        canRequestComplete: true,
+      },
+    }),
+    completeProject: vi.fn().mockResolvedValue({ success: true }),
+    reactivateProject: vi.fn().mockResolvedValue({ success: true }),
   },
 }));
 
@@ -93,6 +121,8 @@ vi.mock('../router/Router', () => ({
 describe('ProjectOverviewPage Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockWorkspaceRole = 'OWNER';
+    mockIsOwner = true;
   });
 
   it('renders embedded ProjectOverviewPage with ApplicationCategoryIcon and metrics without errors', async () => {
@@ -127,6 +157,40 @@ describe('ProjectOverviewPage Tests', () => {
       expect(screen.getByText('ACTIVE')).toBeInTheDocument();
       expect(screen.getByText('Create Work Item')).toBeInTheDocument();
       expect(screen.getByText('Project Timeline')).toBeInTheDocument();
+    });
+  });
+
+  it('renders direct Mark Project as Complete button for Workspace Admin identical to Workspace Owner', async () => {
+    mockWorkspaceRole = 'WORKSPACE_ADMIN';
+    mockIsOwner = false;
+
+    render(
+      <ProjectOverviewPage
+        project={{ ...mockProject, userRole: 'PROJECT_MEMBER' }}
+        hideHeader={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Mark Project as Complete')).toBeInTheDocument();
+      expect(screen.getByText(/As workspace administrator, your action immediately moves this project/i)).toBeInTheDocument();
+    });
+  });
+
+  it('renders direct Mark Project as Complete button for Workspace Owner', async () => {
+    mockWorkspaceRole = 'OWNER';
+    mockIsOwner = true;
+
+    render(
+      <ProjectOverviewPage
+        project={mockProject}
+        hideHeader={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Mark Project as Complete')).toBeInTheDocument();
+      expect(screen.getByText(/As workspace owner, your action immediately moves this project/i)).toBeInTheDocument();
     });
   });
 });

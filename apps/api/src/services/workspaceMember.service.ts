@@ -1,6 +1,6 @@
 import prisma from '../prisma.js';
 import { AppError } from '../middlewares/error.middleware.js';
-import { resolveAdminPermissions } from '../schemas/workspace.schema.js';
+import { resolveAdminPermissions, resolveFullWorkspacePermissions } from '../schemas/workspace.schema.js';
 import { evictUserFromProjectRoom } from '../realtime/realtime.service.js';
 import { workspaceAuditService } from './workspaceAudit.service.js';
 import type { WorkspaceRole } from '../generated/prisma/index.js';
@@ -82,17 +82,33 @@ export class WorkspaceMemberService {
       prisma.workspaceMember.count({ where }),
     ]);
 
+    const roleHierarchy: Record<string, number> = {
+      OWNER: 1,
+      WORKSPACE_ADMIN: 2,
+      PROJECT_ADMIN: 3,
+      WORKSPACE_MEMBER: 4,
+    };
+
+    const mappedMembers = members.map((m) => ({
+      id: m.id,
+      workspaceId: m.workspaceId,
+      userId: m.userId,
+      role: m.role,
+      origin: m.origin,
+      joinedAt: m.joinedAt,
+      user: m.user,
+      isOwner: m.userId === ws.ownerId || m.role === 'OWNER',
+    }));
+
+    mappedMembers.sort((a, b) => {
+      const pA = a.isOwner || a.role === 'OWNER' ? 1 : (roleHierarchy[a.role] ?? 99);
+      const pB = b.isOwner || b.role === 'OWNER' ? 1 : (roleHierarchy[b.role] ?? 99);
+      if (pA !== pB) return pA - pB;
+      return new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime();
+    });
+
     return {
-      members: members.map((m) => ({
-        id: m.id,
-        workspaceId: m.workspaceId,
-        userId: m.userId,
-        role: m.role,
-        origin: m.origin,
-        joinedAt: m.joinedAt,
-        user: m.user,
-        isOwner: m.userId === ws.ownerId,
-      })),
+      members: mappedMembers,
       total,
       page,
       limit,
@@ -131,13 +147,13 @@ export class WorkspaceMemberService {
 
     const actorRole = isOwner ? 'OWNER' : actorMembership.role;
 
-    if (actorRole === 'WORKSPACE_MEMBER') {
-      throw new AppError('Workspace members cannot modify member roles', 403);
+    if (actorRole === 'WORKSPACE_MEMBER' || actorRole === 'PROJECT_ADMIN') {
+      throw new AppError('Only workspace owners and authorized workspace administrators can modify member roles', 403);
     }
 
     if (actorRole === 'WORKSPACE_ADMIN') {
-      const permissions = resolveAdminPermissions(ws);
-      if (!permissions.canManageRoles) {
+      const permissions = resolveFullWorkspacePermissions(ws);
+      if (!permissions.workspaceAdmin.canManageRoles) {
         throw new AppError('Workspace administrator does not have permission to manage member roles', 403);
       }
     }
@@ -236,13 +252,13 @@ export class WorkspaceMemberService {
 
     const actorRole = isOwner ? 'OWNER' : actorMembership.role;
 
-    if (actorRole === 'WORKSPACE_MEMBER') {
-      throw new AppError('Workspace members cannot remove other members', 403);
+    if (actorRole === 'WORKSPACE_MEMBER' || actorRole === 'PROJECT_ADMIN') {
+      throw new AppError('Only workspace owners and authorized workspace administrators can remove members', 403);
     }
 
     if (actorRole === 'WORKSPACE_ADMIN') {
-      const permissions = resolveAdminPermissions(ws);
-      if (!permissions.canRemoveMembers) {
+      const permissions = resolveFullWorkspacePermissions(ws);
+      if (!permissions.workspaceAdmin.canRemoveMembers) {
         throw new AppError('Workspace administrator does not have permission to remove members', 403);
       }
     }
@@ -345,6 +361,114 @@ export class WorkspaceMemberService {
       success: true,
       message: 'Member removed from workspace successfully',
       removedUserId: targetMember.userId,
+    };
+  }
+
+  /**
+   * Voluntarily leave a workspace (Non-owners only)
+   */
+  async leaveWorkspace(workspaceId: string, userId: string) {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: {
+        members: { where: { userId } },
+      },
+    });
+
+    if (!ws) throw new AppError('Workspace not found', 404);
+
+    if (ws.isPersonal) {
+      throw new AppError('Cannot leave your personal workspace', 400);
+    }
+
+    if (ws.ownerId === userId) {
+      throw new AppError('Workspace owners cannot leave their workspace. Transfer ownership or delete the workspace instead.', 400);
+    }
+
+    const membership = ws.members[0];
+    if (!membership) {
+      throw new AppError('You are not a member of this workspace', 404);
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true },
+    });
+
+    // Fetch all project IDs in this workspace for cascading cleanup & room eviction
+    const wsProjects = await prisma.project.findMany({
+      where: { workspaceId },
+      select: { id: true },
+    });
+    const projectIds = wsProjects.map((p) => p.id);
+
+    // Atomic transaction for leaving & cascade cleanup
+    await prisma.$transaction(async (tx) => {
+      // 1. Unassign leaving member from all work items in this workspace (preserves work item & creator attribution)
+      if (projectIds.length > 0) {
+        await tx.workItem.updateMany({
+          where: {
+            projectId: { in: projectIds },
+            assignedToId: userId,
+          },
+          data: { assignedToId: null },
+        });
+
+        // 2. Remove user from all projects in this workspace
+        await tx.projectMember.deleteMany({
+          where: {
+            projectId: { in: projectIds },
+            userId: userId,
+          },
+        });
+
+        // 3. Invalidate/cancel any pending project invitations for this member in this workspace
+        if (user?.email) {
+          await tx.invitation.updateMany({
+            where: {
+              projectId: { in: projectIds },
+              OR: [
+                { invitedUserId: userId },
+                { invitedEmail: user.email.toLowerCase() },
+              ],
+              status: 'PENDING',
+            },
+            data: {
+              status: 'CANCELLED',
+              cancelledAt: new Date(),
+            },
+          });
+        }
+      }
+
+      // 4. Delete workspace member record
+      await tx.workspaceMember.delete({
+        where: { id: membership.id },
+      });
+
+      // 5. Record audit event
+      await workspaceAuditService.logAuditEvent(tx, {
+        workspaceId,
+        actorId: userId,
+        action: 'MEMBER_REMOVED',
+        targetType: 'MEMBER',
+        targetId: membership.id,
+        metadata: {
+          targetUserId: userId,
+          removedRole: membership.role,
+          leftSelf: true,
+        },
+      });
+    });
+
+    // Post-commit: evict user from active Socket.IO rooms for all projects in this workspace
+    for (const pid of projectIds) {
+      await evictUserFromProjectRoom(userId, pid).catch(() => {});
+    }
+
+    return {
+      success: true,
+      message: 'You have successfully left the workspace',
     };
   }
 }

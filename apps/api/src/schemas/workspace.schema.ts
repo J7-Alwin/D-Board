@@ -8,6 +8,7 @@ export const createWorkspaceSchema = z.object({
     .max(100, 'Workspace name must not exceed 100 characters'),
   avatarUrl: z.string().url('Invalid avatar URL').optional().nullable(),
   maxMembers: z.number().int().min(1, 'Member limit must be at least 1').nullable().optional(),
+  isPersonal: z.boolean().optional(),
 });
 
 export const updateWorkspaceSchema = z.object({
@@ -31,45 +32,190 @@ export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>;
 export type UpdateWorkspaceInput = z.infer<typeof updateWorkspaceSchema>;
 
 /**
- * Owner-controlled Admin permission configuration schema and defaults.
- * Personal workspaces cannot delegate authority (all flags always false).
+ * Granular Workspace permission schemas for Workspace Admin, Project Admin, and Workspace Member.
  */
 export const workspaceAdminPermissionsSchema = z.object({
   canInviteMembers: z.boolean().default(true),
   canRemoveMembers: z.boolean().default(false),
   canCreateProjects: z.boolean().default(true),
   canManageRoles: z.boolean().default(false),
+  canDirectlyCompleteProject: z.boolean().default(true),
+  canArchiveProjects: z.boolean().default(true),
+  canManagePermissions: z.boolean().default(false),
 });
+
+export const projectAdminPermissionsSchema = z.object({
+  canCreateProjects: z.boolean().default(false),
+  canRequestProjectCompletion: z.boolean().default(true),
+});
+
+export const workspaceMemberPermissionsSchema = z.object({
+  canCreateProjects: z.boolean().default(false),
+});
+
+export interface LegacyAdminPermissions {
+  canInviteMembers: boolean;
+  canRemoveMembers: boolean;
+  canCreateProjects: boolean;
+  canManageRoles: boolean;
+}
+
+export interface WorkspaceFullPermissions extends LegacyAdminPermissions {
+  canDirectlyCompleteProject: boolean;
+  canArchiveProjects: boolean;
+  canManagePermissions: boolean;
+  workspaceAdmin: z.infer<typeof workspaceAdminPermissionsSchema>;
+  projectAdmin: z.infer<typeof projectAdminPermissionsSchema>;
+  workspaceMember: z.infer<typeof workspaceMemberPermissionsSchema>;
+}
+
+export type WorkspaceAdminPermissions = LegacyAdminPermissions & Partial<WorkspaceFullPermissions>;
 
 export const updateWorkspaceAdminPermissionsSchema = z.object({
   canInviteMembers: z.boolean().optional(),
   canRemoveMembers: z.boolean().optional(),
   canCreateProjects: z.boolean().optional(),
   canManageRoles: z.boolean().optional(),
-}).refine((data) => Object.keys(data).length > 0, {
+  canDirectlyCompleteProject: z.boolean().optional(),
+  canArchiveProjects: z.boolean().optional(),
+  canManagePermissions: z.boolean().optional(),
+  workspaceAdmin: z.object({
+    canInviteMembers: z.boolean().optional(),
+    canRemoveMembers: z.boolean().optional(),
+    canCreateProjects: z.boolean().optional(),
+    canManageRoles: z.boolean().optional(),
+    canDirectlyCompleteProject: z.boolean().optional(),
+    canArchiveProjects: z.boolean().optional(),
+    canManagePermissions: z.boolean().optional(),
+  }).optional(),
+  projectAdmin: z.object({
+    canCreateProjects: z.boolean().optional(),
+    canRequestProjectCompletion: z.boolean().optional(),
+  }).optional(),
+  workspaceMember: z.object({
+    canCreateProjects: z.boolean().optional(),
+  }).optional(),
+}).passthrough().refine((data) => Object.keys(data).length > 0, {
   message: 'At least one permission flag must be provided',
 });
 
-export type WorkspaceAdminPermissions = z.infer<typeof workspaceAdminPermissionsSchema>;
 export type UpdateWorkspaceAdminPermissionsInput = z.infer<typeof updateWorkspaceAdminPermissionsSchema>;
 
-export const DEFAULT_ADMIN_PERMISSIONS: WorkspaceAdminPermissions = {
+export const DEFAULT_ADMIN_PERMISSIONS: LegacyAdminPermissions = {
   canInviteMembers: true,
   canRemoveMembers: false,
   canCreateProjects: true,
   canManageRoles: false,
 };
 
-export const PERSONAL_WORKSPACE_ADMIN_PERMISSIONS: WorkspaceAdminPermissions = {
+export const PERSONAL_WORKSPACE_ADMIN_PERMISSIONS: LegacyAdminPermissions = {
   canInviteMembers: false,
   canRemoveMembers: false,
   canCreateProjects: false,
   canManageRoles: false,
 };
 
+export const DEFAULT_FULL_WORKSPACE_PERMISSIONS: WorkspaceFullPermissions = {
+  canInviteMembers: true,
+  canRemoveMembers: false,
+  canCreateProjects: true,
+  canManageRoles: false,
+  canDirectlyCompleteProject: true,
+  canArchiveProjects: true,
+  canManagePermissions: false,
+  workspaceAdmin: {
+    canInviteMembers: true,
+    canRemoveMembers: false,
+    canCreateProjects: true,
+    canManageRoles: false,
+    canDirectlyCompleteProject: true,
+    canArchiveProjects: true,
+    canManagePermissions: false,
+  },
+  projectAdmin: {
+    canCreateProjects: false,
+    canRequestProjectCompletion: true,
+  },
+  workspaceMember: {
+    canCreateProjects: false,
+  },
+};
+
+export const PERSONAL_FULL_WORKSPACE_PERMISSIONS: WorkspaceFullPermissions = {
+  canInviteMembers: false,
+  canRemoveMembers: false,
+  canCreateProjects: false,
+  canManageRoles: false,
+  canDirectlyCompleteProject: false,
+  canArchiveProjects: false,
+  canManagePermissions: false,
+  workspaceAdmin: {
+    canInviteMembers: false,
+    canRemoveMembers: false,
+    canCreateProjects: false,
+    canManageRoles: false,
+    canDirectlyCompleteProject: false,
+    canArchiveProjects: false,
+    canManagePermissions: false,
+  },
+  projectAdmin: {
+    canCreateProjects: false,
+    canRequestProjectCompletion: false,
+  },
+  workspaceMember: {
+    canCreateProjects: false,
+  },
+};
+
+/**
+ * Resolves full workspace admin & member permissions.
+ */
+export function resolveFullWorkspacePermissions(workspace: {
+  isPersonal: boolean;
+  adminPermissions?: unknown;
+}): WorkspaceFullPermissions {
+  if (workspace.isPersonal) {
+    return PERSONAL_FULL_WORKSPACE_PERMISSIONS;
+  }
+  if (!workspace.adminPermissions || typeof workspace.adminPermissions !== 'object') {
+    return DEFAULT_FULL_WORKSPACE_PERMISSIONS;
+  }
+
+  const raw = workspace.adminPermissions as any;
+  const rawWsAdmin = raw.workspaceAdmin || raw;
+
+  const wsAdmin = {
+    canInviteMembers: typeof rawWsAdmin.canInviteMembers === 'boolean' ? rawWsAdmin.canInviteMembers : (typeof raw.canInviteMembers === 'boolean' ? raw.canInviteMembers : true),
+    canRemoveMembers: typeof rawWsAdmin.canRemoveMembers === 'boolean' ? rawWsAdmin.canRemoveMembers : (typeof raw.canRemoveMembers === 'boolean' ? raw.canRemoveMembers : false),
+    canCreateProjects: typeof rawWsAdmin.canCreateProjects === 'boolean' ? rawWsAdmin.canCreateProjects : (typeof raw.canCreateProjects === 'boolean' ? raw.canCreateProjects : true),
+    canManageRoles: typeof rawWsAdmin.canManageRoles === 'boolean' ? rawWsAdmin.canManageRoles : (typeof raw.canManageRoles === 'boolean' ? raw.canManageRoles : false),
+    canDirectlyCompleteProject: typeof rawWsAdmin.canDirectlyCompleteProject === 'boolean' ? rawWsAdmin.canDirectlyCompleteProject : (typeof raw.canDirectlyCompleteProject === 'boolean' ? raw.canDirectlyCompleteProject : true),
+    canArchiveProjects: typeof rawWsAdmin.canArchiveProjects === 'boolean' ? rawWsAdmin.canArchiveProjects : (typeof raw.canArchiveProjects === 'boolean' ? raw.canArchiveProjects : true),
+    canManagePermissions: typeof rawWsAdmin.canManagePermissions === 'boolean' ? rawWsAdmin.canManagePermissions : (typeof raw.canManagePermissions === 'boolean' ? raw.canManagePermissions : false),
+  };
+
+  const rawProjAdmin = raw.projectAdmin || {};
+  const projAdmin = {
+    canCreateProjects: typeof rawProjAdmin.canCreateProjects === 'boolean' ? rawProjAdmin.canCreateProjects : false,
+    canRequestProjectCompletion: typeof rawProjAdmin.canRequestProjectCompletion === 'boolean' ? rawProjAdmin.canRequestProjectCompletion : true,
+  };
+
+  const rawWsMember = raw.workspaceMember || {};
+  const wsMember = {
+    canCreateProjects: typeof rawWsMember.canCreateProjects === 'boolean' ? rawWsMember.canCreateProjects : false,
+  };
+
+  return {
+    ...wsAdmin,
+    workspaceAdmin: wsAdmin,
+    projectAdmin: projAdmin,
+    workspaceMember: wsMember,
+  };
+}
+
 /**
  * Resolves effective workspace admin permissions safely.
- * Personal workspaces always return all-false to guarantee owner authority cannot be delegated.
+ * Returns legacy 4-key object when raw object has only legacy keys or null, ensuring backward compatibility.
  */
 export function resolveAdminPermissions(workspace: {
   isPersonal: boolean;
@@ -78,20 +224,32 @@ export function resolveAdminPermissions(workspace: {
   if (workspace.isPersonal) {
     return PERSONAL_WORKSPACE_ADMIN_PERMISSIONS;
   }
-  if (!workspace.adminPermissions) {
+  if (!workspace.adminPermissions || typeof workspace.adminPermissions !== 'object') {
     return DEFAULT_ADMIN_PERMISSIONS;
   }
-  const parsed = workspaceAdminPermissionsSchema.safeParse(workspace.adminPermissions);
-  return parsed.success ? parsed.data : DEFAULT_ADMIN_PERMISSIONS;
+
+  const raw = workspace.adminPermissions as any;
+  const hasGranular = 'workspaceAdmin' in raw || 'canDirectlyCompleteProject' in raw || 'canArchiveProjects' in raw || 'canManagePermissions' in raw || 'projectAdmin' in raw || 'workspaceMember' in raw;
+
+  if (hasGranular) {
+    return resolveFullWorkspacePermissions(workspace);
+  }
+
+  return {
+    canInviteMembers: typeof raw.canInviteMembers === 'boolean' ? raw.canInviteMembers : true,
+    canRemoveMembers: typeof raw.canRemoveMembers === 'boolean' ? raw.canRemoveMembers : false,
+    canCreateProjects: typeof raw.canCreateProjects === 'boolean' ? raw.canCreateProjects : true,
+    canManageRoles: typeof raw.canManageRoles === 'boolean' ? raw.canManageRoles : false,
+  };
 }
 
 /**
  * Workspace invitation payload validation.
- * Invitations can only be issued for WORKSPACE_ADMIN or WORKSPACE_MEMBER (never OWNER).
+ * Invitations can be issued for WORKSPACE_ADMIN, PROJECT_ADMIN, or WORKSPACE_MEMBER (never OWNER).
  */
 export const createWorkspaceInvitationSchema = z.object({
   email: z.string().trim().email('Invalid email address').toLowerCase(),
-  role: z.enum(['WORKSPACE_ADMIN', 'WORKSPACE_MEMBER']).default('WORKSPACE_MEMBER'),
+  role: z.enum(['WORKSPACE_ADMIN', 'PROJECT_ADMIN', 'WORKSPACE_MEMBER']).default('WORKSPACE_MEMBER'),
   message: z.string().trim().max(500, 'Message cannot exceed 500 characters').optional().nullable(),
 });
 

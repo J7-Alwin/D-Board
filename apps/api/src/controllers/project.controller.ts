@@ -141,6 +141,140 @@ export class ProjectController {
       next(error);
     }
   }
+
+  async completeProject(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const { reason } = req.body || {};
+      const explicitWorkspaceId =
+        (req.headers['x-workspace-id'] as string) ||
+        (req.query.workspaceId as string) ||
+        (req.body?.workspaceId as string);
+      const result = await projectService.completeProject(projectId, req.user.userId, reason, explicitWorkspaceId);
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async reactivateProject(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const explicitWorkspaceId =
+        (req.headers['x-workspace-id'] as string) ||
+        (req.query.workspaceId as string) ||
+        (req.body?.workspaceId as string);
+      const result = await projectService.reactivateProject(projectId, req.user.userId, explicitWorkspaceId);
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getCompletionStatus(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const explicitWorkspaceId =
+        (req.headers['x-workspace-id'] as string) ||
+        (req.query.workspaceId as string) ||
+        (req.body?.workspaceId as string);
+      const result = await projectService.getCompletionStatus(projectId, req.user.userId, explicitWorkspaceId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getWorkspaceCompletionRequests(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const workspaceId = String(req.params.workspaceId);
+      const result = await projectService.getWorkspaceCompletionRequests(workspaceId, req.user.userId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async approveCompletionRequest(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const workspaceId = String(req.params.workspaceId);
+      const requestId = String(req.params.requestId);
+      const result = await projectService.approveCompletionRequest(workspaceId, requestId, req.user.userId);
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async rejectCompletionRequest(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const workspaceId = String(req.params.workspaceId);
+      const requestId = String(req.params.requestId);
+      const { reason } = req.body || {};
+      const result = await projectService.rejectCompletionRequest(workspaceId, requestId, req.user.userId, reason);
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async cancelCompletionRequest(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const workspaceId = String(req.params.workspaceId);
+      const requestId = String(req.params.requestId);
+      const result = await projectService.cancelCompletionRequest(workspaceId, requestId, req.user.userId);
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const projectController = new ProjectController();

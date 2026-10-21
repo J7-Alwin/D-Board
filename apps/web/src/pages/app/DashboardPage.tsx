@@ -33,8 +33,6 @@ import {
   ZapIcon,
   MoreHorizontalIcon,
   MessageSquareIcon,
-  AlertCircleIcon,
-  ClockIcon,
 } from '../../components/ui/Icons';
 
 const DashboardInviteIllustration: React.FC = () => {
@@ -708,105 +706,6 @@ export const DashboardPage: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Workspace Follow-up & Reporting Summary Bar */}
-      {data && !isLoading && ((data.stats.overdueWorkCount ?? 0) > 0 || (data.stats.blockedWorkCount ?? 0) > 0 || (data.stats.completionRate !== undefined)) && (
-        <div
-          className="dashboard-attention-bar"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '1rem',
-            flexWrap: 'wrap',
-            padding: '0.75rem 1.25rem',
-            marginBottom: '1.5rem',
-            backgroundColor: 'rgba(255, 255, 255, 0.03)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '12px',
-            fontSize: '0.8125rem',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 600, color: '#e4e4e7' }}>Workspace Follow-up:</span>
-            {(data.stats.overdueWorkCount ?? 0) > 0 && (
-              <button
-                type="button"
-                onClick={() => navigate('/app/my-work?tab=overdue')}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.375rem',
-                  padding: '0.25rem 0.625rem',
-                  borderRadius: '6px',
-                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                  color: '#f87171',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  cursor: 'pointer',
-                  fontSize: '0.8125rem',
-                  fontWeight: 500,
-                }}
-              >
-                <AlertCircleIcon size={14} />
-                <span>{data.stats.overdueWorkCount} overdue work item{data.stats.overdueWorkCount === 1 ? '' : 's'}</span>
-                <ArrowRightIcon size={12} />
-              </button>
-            )}
-            {(data.stats.blockedWorkCount ?? 0) > 0 && (
-              <button
-                type="button"
-                onClick={() => navigate('/app/my-work?status=BLOCKED')}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.375rem',
-                  padding: '0.25rem 0.625rem',
-                  borderRadius: '6px',
-                  backgroundColor: 'rgba(245, 158, 11, 0.15)',
-                  color: '#fbbf24',
-                  border: '1px solid rgba(245, 158, 11, 0.3)',
-                  cursor: 'pointer',
-                  fontSize: '0.8125rem',
-                  fontWeight: 500,
-                }}
-              >
-                <ClockIcon size={14} />
-                <span>{data.stats.blockedWorkCount} blocked task{data.stats.blockedWorkCount === 1 ? '' : 's'}</span>
-                <ArrowRightIcon size={12} />
-              </button>
-            )}
-            {(data.stats.overdueWorkCount ?? 0) === 0 && (data.stats.blockedWorkCount ?? 0) === 0 && (
-              <span style={{ color: '#10b981', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                <CheckIcon size={14} /> All workspace work is currently on track
-              </span>
-            )}
-          </div>
-          {data.stats.completionRate !== undefined && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#a1a1aa' }}>
-              <span>Task Completion Rate:</span>
-              <div
-                style={{
-                  width: '90px',
-                  height: '6px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  borderRadius: '3px',
-                  overflow: 'hidden',
-                }}
-              >
-                <div
-                  style={{
-                    width: `${Math.min(100, data.stats.completionRate)}%`,
-                    height: '100%',
-                    backgroundColor: '#10b981',
-                    borderRadius: '3px',
-                  }}
-                />
-              </div>
-              <strong style={{ color: '#f4f4f5' }}>{data.stats.completionRate}%</strong>
-            </div>
-          )}
         </div>
       )}
 

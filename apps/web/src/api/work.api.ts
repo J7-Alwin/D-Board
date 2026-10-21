@@ -79,6 +79,7 @@ export interface WorkStats {
   completed: number;
   overdue: number;
   completionPercentage: number;
+  progress?: number;
 }
 
 export interface CreateWorkItemInput {

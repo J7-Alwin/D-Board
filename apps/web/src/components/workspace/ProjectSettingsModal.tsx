@@ -946,7 +946,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
           onTransferred={() => {
             setIsTransferModalOpen(false);
             onClose();
-            window.location.href = '/app/dashboard';
+            window.location.href = '/app/projects';
           }}
         />
       </div>

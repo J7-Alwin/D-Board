@@ -189,10 +189,40 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     loadCalendar();
   }, [loadCalendar]);
 
+  // Category determination helper: classifies items for colors and tags
+  const getItemCategory = (item: CalendarItem): 'MEETING' | 'DEADLINE' | 'MILESTONE' | 'RELEASE' | 'TASK' => {
+    if (item.kind === 'WORK_ITEM' || (item.type as string) === 'TASK') {
+      return 'TASK';
+    }
+    const type = item.type;
+    if (type === 'MEETING') return 'MEETING';
+    if (type === 'DEADLINE') return 'DEADLINE';
+    if (type === 'MILESTONE') return 'MILESTONE';
+    if (type === 'RELEASE') return 'RELEASE';
+
+    const titleLower = item.title.toLowerCase();
+    if (titleLower.includes('meeting') || titleLower.includes('standup') || titleLower.includes('sync') || titleLower.includes('team') || titleLower.includes('client')) {
+      return 'MEETING';
+    }
+    if (titleLower.includes('deadline') || titleLower.includes('bug') || titleLower.includes('fix') || titleLower.includes('urgent') || titleLower.includes('regression')) {
+      return 'DEADLINE';
+    }
+    if (titleLower.includes('milestone') || titleLower.includes('sprint') || titleLower.includes('planning') || titleLower.includes('launch') || titleLower.includes('roadmap')) {
+      return 'MILESTONE';
+    }
+    if (titleLower.includes('release') || titleLower.includes('deploy') || titleLower.includes('version')) {
+      return 'RELEASE';
+    }
+    return 'TASK';
+  };
+
   // Filter items based on client-side controls (Type, Status)
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      if (selectedType && item.type !== selectedType) return false;
+      if (selectedType) {
+        const cat = getItemCategory(item);
+        if (cat !== selectedType && (item.type as string) !== selectedType) return false;
+      }
       if (selectedStatus && item.workItem?.status !== selectedStatus) return false;
       return true;
     });
@@ -297,40 +327,42 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     return map;
   }, [filteredItems]);
 
-  // Color Coding helper matching the reference image cards
+  // Color Coding helper matching Pic 1, Pic 2, and theme requirements
   const getEventStyle = (item: CalendarItem) => {
-    const titleLower = item.title.toLowerCase();
-    const type = item.type;
-
-    if (type === 'DEADLINE' || titleLower.includes('bug') || titleLower.includes('fix') || titleLower.includes('urgent') || titleLower.includes('uguikj')) {
-      return {
-        dotColor: '#EF4444', // Red
-        className: 'event-theme-red',
-      };
+    const category = getItemCategory(item);
+    switch (category) {
+      case 'MEETING':
+        return {
+          category: 'MEETING',
+          dotColor: '#2563EB', // Blue
+          className: 'event-theme-meeting',
+        };
+      case 'DEADLINE':
+        return {
+          category: 'DEADLINE',
+          dotColor: '#DC2626', // Red
+          className: 'event-theme-deadline',
+        };
+      case 'MILESTONE':
+        return {
+          category: 'MILESTONE',
+          dotColor: '#7C3AED', // Purple
+          className: 'event-theme-milestone',
+        };
+      case 'RELEASE':
+        return {
+          category: 'RELEASE',
+          dotColor: '#D97706', // Warm amber / gold matching theme instead of green
+          className: 'event-theme-release',
+        };
+      case 'TASK':
+      default:
+        return {
+          category: 'TASK',
+          dotColor: '#0284C7', // Sky Blue
+          className: 'event-theme-task',
+        };
     }
-    if (type === 'MEETING' || titleLower.includes('meeting') || titleLower.includes('standup') || titleLower.includes('team')) {
-      return {
-        dotColor: '#3B82F6', // Blue
-        className: 'event-theme-blue',
-      };
-    }
-    if (type === 'RELEASE' || titleLower.includes('review') || titleLower.includes('ui review') || titleLower.includes('deploy')) {
-      return {
-        dotColor: '#10B981', // Green
-        className: 'event-theme-green',
-      };
-    }
-    if (type === 'MILESTONE' || titleLower.includes('sprint') || titleLower.includes('planning') || titleLower.includes('roadmap')) {
-      return {
-        dotColor: '#8B5CF6', // Purple
-        className: 'event-theme-purple',
-      };
-    }
-    // Amber / orange fallback
-    return {
-      dotColor: '#F97316', // Orange
-      className: 'event-theme-orange',
-    };
   };
 
   // Generate 42 calendar grid cells (6 rows x 7 days) starting on SUNDAY
@@ -454,35 +486,39 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         />
       )}
 
-      {/* Main Top Header with Atmosphere Quote */}
-      <div className="cal-page-header">
-        <div className="cal-header-left">
-          <div className="cal-title-row">
-            <span className="cal-header-icon-box">
-              <CalendarIcon size={24} />
-            </span>
-            <h1 className="cal-header-title">Calendar</h1>
+      {/* Main Top Header with Atmosphere Quote: Hidden in project overview page for now per user request */}
+      {!hideHeader && (
+        <div className="cal-page-header">
+          <div className="cal-header-left">
+            <div className="cal-header-icon-box">
+              <CalendarIcon size={26} />
+            </div>
+            <div className="cal-banner-titles">
+              <div className="cal-title-row">
+                <h1 className="cal-header-title">Calendar</h1>
+              </div>
+              <p className="cal-header-subtitle">
+                Keep track of your project milestones, deadlines and events.
+              </p>
+            </div>
           </div>
-          <p className="cal-header-subtitle">
-            Keep track of your project milestones, deadlines and events.
-          </p>
-        </div>
 
-        {/* Atmosphere Quote & Illustration */}
-        <CalendarHeaderAtmosphere />
+          {/* Atmosphere Quote & Illustration */}
+          <CalendarHeaderAtmosphere />
 
-        {/* Right Header Action Button */}
-        <div className="cal-header-right">
-          <button
-            type="button"
-            className="cal-btn-new-event"
-            onClick={() => handleOpenCreateEvent()}
-          >
-            <PlusIcon size={16} />
-            <span>New Event</span>
-          </button>
+          {/* Right Header Action Button */}
+          <div className="cal-header-right">
+            <button
+              type="button"
+              className="cal-btn-new-event"
+              onClick={() => handleOpenCreateEvent()}
+            >
+              <PlusIcon size={16} />
+              <span>New Event</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Feedback Banner */}
       {feedback && (
@@ -604,6 +640,29 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
                 type="button"
+                className="cal-btn-new-event"
+                onClick={() => handleOpenCreateEvent()}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 14px',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  fontSize: '0.8125rem',
+                  background: '#0F172A',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                  marginRight: '4px',
+                }}
+              >
+                <PlusIcon size={14} />
+                <span>New Event</span>
+              </button>
+              <button
+                type="button"
                 className={`cal-segment-tab ${viewMode === 'list' ? 'active' : ''}`}
                 onClick={() => setViewMode('list')}
                 role="tab"
@@ -691,20 +750,19 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                 />
               )}
 
-              {/* Types Filter */}
+              {/* Types Filter matching Pic 2 and color requirements */}
               <CustomSelect
                 value={selectedType}
                 onChange={(val) => setSelectedType(val)}
                 compact
                 fullWidth={false}
                 options={[
-                  { value: '', label: 'All Types', icon: <TagIcon size={14} />, iconBg: '#F3F4F6', iconColor: '#374151' },
+                  { value: '', label: 'All Types', icon: <TagIcon size={14} />, iconBg: '#F1F5F9', iconColor: '#0F172A' },
                   { value: 'MEETING', label: 'Meeting', icon: <CalendarIcon size={14} />, iconBg: '#EFF6FF', iconColor: '#2563EB' },
                   { value: 'DEADLINE', label: 'Deadline', icon: <ClockIcon size={14} />, iconBg: '#FEE2E2', iconColor: '#DC2626' },
-                  { value: 'MILESTONE', label: 'Milestone', icon: <FlagIcon size={14} />, iconBg: '#F3E8FF', iconColor: '#9333EA' },
-                  { value: 'RELEASE', label: 'Release', icon: <CheckCircleIcon size={14} />, iconBg: '#DCFCE7', iconColor: '#16A34A' },
-                  { value: 'TASK', label: 'Task', icon: <ListIcon size={14} />, iconBg: '#FEF3C7', iconColor: '#D97706' },
-                  { value: 'OTHER', label: 'Other', icon: <CircleDotIcon size={14} />, iconBg: '#F3F4F6', iconColor: '#6B7280' },
+                  { value: 'MILESTONE', label: 'Milestone', icon: <FlagIcon size={14} />, iconBg: '#F5F3FF', iconColor: '#7C3AED' },
+                  { value: 'RELEASE', label: 'Release', icon: <CheckCircleIcon size={14} />, iconBg: '#FEF3C7', iconColor: '#D97706' },
+                  { value: 'TASK', label: 'Task', icon: <ListIcon size={14} />, iconBg: '#E0F2FE', iconColor: '#0284C7' },
                 ]}
               />
 
@@ -774,7 +832,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                       key={cell.dateKey}
                       className={`cal-grid-cell ${
                         !cell.isCurrentMonth ? 'cell-muted' : ''
-                      } ${cell.isSelected ? 'cell-selected' : ''}`}
+                      } ${cell.isToday ? 'cell-today' : ''} ${cell.isSelected ? 'cell-selected' : ''}`}
                       onClick={() => {
                         setSelectedDate(cell.date);
                         handleOpenCreateEvent(cell.date);
@@ -793,37 +851,32 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                       <div className="cal-cell-events-list">
                         {visibleItems.map((item) => {
                           const theme = getEventStyle(item);
-                          const startTimeStr = item.allDay
-                            ? item.project?.name || 'All day'
-                            : new Date(item.startAt).toLocaleTimeString('en-US', {
-                                hour: 'numeric',
-                                minute: '2-digit',
-                              });
 
                           return (
                             <div
                               key={item.id}
-                              className={`cal-event-card ${theme.className}`}
+                              className={`cal-event-pill ${theme.className}`}
                               onClick={(e) => handleOpenEditEvent(item, e)}
                               title={`${item.title} (${item.project?.name || 'D-Board'})`}
                             >
-                              <div className="event-top-line">
+                              <span
+                                className="event-dot"
+                                style={{ backgroundColor: theme.dotColor }}
+                              />
+                              <span className="event-title">{item.title}</span>
+                              {item.isPrivate && (
                                 <span
-                                  className="event-dot"
-                                  style={{ backgroundColor: theme.dotColor }}
-                                />
-                                <span className="event-title">{item.title}</span>
-                                {item.isPrivate && (
-                                  <span title="Private Event" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', color: '#DC2626' }}>
-                                    <LockIcon size={10} />
-                                  </span>
-                                )}
-                              </div>
-                              <div className="event-subtext">
-                                {item.allDay
-                                  ? item.project?.name || 'All day'
-                                  : startTimeStr}
-                              </div>
+                                  title="Private Event"
+                                  style={{
+                                    marginLeft: 'auto',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    color: '#DC2626',
+                                  }}
+                                >
+                                  <LockIcon size={10} />
+                                </span>
+                              )}
                             </div>
                           );
                         })}
@@ -844,6 +897,30 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Bottom Legend matching Pic 1 */}
+              <div className="cal-table-legend">
+                <div className="cal-legend-item">
+                  <span className="cal-legend-dot" style={{ backgroundColor: '#2563EB' }} />
+                  <span>Meeting</span>
+                </div>
+                <div className="cal-legend-item">
+                  <span className="cal-legend-dot" style={{ backgroundColor: '#DC2626' }} />
+                  <span>Deadline</span>
+                </div>
+                <div className="cal-legend-item">
+                  <span className="cal-legend-dot" style={{ backgroundColor: '#7C3AED' }} />
+                  <span>Milestone</span>
+                </div>
+                <div className="cal-legend-item">
+                  <span className="cal-legend-dot" style={{ backgroundColor: '#D97706' }} />
+                  <span>Release</span>
+                </div>
+                <div className="cal-legend-item">
+                  <span className="cal-legend-dot" style={{ backgroundColor: '#0284C7' }} />
+                  <span>Task</span>
+                </div>
               </div>
             </div>
           )}

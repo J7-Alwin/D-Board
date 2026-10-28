@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import '@testing-library/jest-dom';
 import { ProjectOverviewPage } from '../pages/app/ProjectOverviewPage';
 import type { Project } from '../api/projects.api';
 
@@ -134,7 +135,7 @@ describe('ProjectOverviewPage Tests', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Total Work Items')).toBeInTheDocument();
+      expect(screen.getByText('Total Tasks')).toBeInTheDocument();
       expect(screen.getByText('In Progress')).toBeInTheDocument();
       expect(screen.getByText('Completed')).toBeInTheDocument();
       expect(screen.getByText('Project Timeline')).toBeInTheDocument();
@@ -155,7 +156,7 @@ describe('ProjectOverviewPage Tests', () => {
     await waitFor(() => {
       expect(screen.getByText('d-board')).toBeInTheDocument();
       expect(screen.getByText('ACTIVE')).toBeInTheDocument();
-      expect(screen.getByText('Create Work Item')).toBeInTheDocument();
+      expect(screen.getByText('Create Task')).toBeInTheDocument();
       expect(screen.getByText('Project Timeline')).toBeInTheDocument();
     });
   });

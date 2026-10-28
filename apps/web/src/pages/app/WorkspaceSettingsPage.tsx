@@ -33,6 +33,9 @@ import {
   SettingsIcon,
   UploadIcon,
   CameraIcon,
+  LinkIcon,
+  FolderIcon,
+  FileTextIcon,
 } from '../../components/ui/Icons';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
@@ -269,9 +272,15 @@ export const WorkspaceSettingsPage: React.FC = () => {
   // 0. General Tab State (Workspace Profile & Limits)
   // ----------------------------------------------------
   const [wsName, setWsName] = useState(activeWorkspace?.name || '');
+  const [wsDescription, setWsDescription] = useState(activeWorkspace?.description || '');
   const [wsAvatar, setWsAvatar] = useState(activeWorkspace?.avatarUrl || '');
   const [wsMaxMembers, setWsMaxMembers] = useState(
     activeWorkspace?.maxMembers != null ? String(activeWorkspace.maxMembers) : ''
+  );
+  const [wsAutoIncludeAdmins, setWsAutoIncludeAdmins] = useState<boolean>(
+    activeWorkspace?.adminPermissions?.workspaceAdmin?.autoIncludeAdminsInNewProjects ??
+    activeWorkspace?.adminPermissions?.autoIncludeAdminsInNewProjects ??
+    true
   );
   const [isSavingGeneral, setIsSavingGeneral] = useState(false);
   const [generalFeedback, setGeneralFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -280,10 +289,16 @@ export const WorkspaceSettingsPage: React.FC = () => {
   useEffect(() => {
     if (activeWorkspace) {
       setWsName(activeWorkspace.name);
+      setWsDescription(activeWorkspace.description || '');
       setWsAvatar(activeWorkspace.avatarUrl || '');
       setWsMaxMembers(activeWorkspace.maxMembers != null ? String(activeWorkspace.maxMembers) : '');
+      setWsAutoIncludeAdmins(
+        activeWorkspace.adminPermissions?.workspaceAdmin?.autoIncludeAdminsInNewProjects ??
+        activeWorkspace.adminPermissions?.autoIncludeAdminsInNewProjects ??
+        true
+      );
     }
-  }, [activeWorkspace?.id, activeWorkspace?.name, activeWorkspace?.avatarUrl, activeWorkspace?.maxMembers]);
+  }, [activeWorkspace?.id, activeWorkspace?.name, activeWorkspace?.description, activeWorkspace?.avatarUrl, activeWorkspace?.maxMembers, activeWorkspace?.adminPermissions]);
 
   const handleAvatarFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -322,13 +337,22 @@ export const WorkspaceSettingsPage: React.FC = () => {
     }
 
     try {
-      setIsSavingGeneral(true);
-      setGeneralFeedback(null);
-      const res = await workspacesApi.updateWorkspace(activeWorkspace.id, {
+      const initialAutoInclude = activeWorkspace.adminPermissions?.autoIncludeAdminsInNewProjects !== false;
+      const payload: any = {
         name: trimmedName,
         avatarUrl: wsAvatar.trim() ? wsAvatar.trim() : null,
         maxMembers: activeWorkspace.isPersonal ? undefined : parsedLimit,
-      });
+      };
+      if (wsDescription.trim()) {
+        payload.description = wsDescription.trim();
+      } else if (activeWorkspace.description) {
+        payload.description = null;
+      }
+      if (!activeWorkspace.isPersonal && wsAutoIncludeAdmins !== initialAutoInclude) {
+        payload.autoIncludeAdminsInNewProjects = wsAutoIncludeAdmins;
+      }
+
+      const res = await workspacesApi.updateWorkspace(activeWorkspace.id, payload);
 
       if (res.success) {
         setGeneralFeedback({ type: 'success', message: 'Workspace profile saved successfully!' });
@@ -561,6 +585,7 @@ export const WorkspaceSettingsPage: React.FC = () => {
     canDirectlyCompleteProject: true,
     canArchiveProjects: true,
     canManagePermissions: false,
+    autoIncludeAdminsInNewProjects: true,
   });
 
   const [projectAdminPermissions, setProjectAdminPermissions] = useState({
@@ -596,6 +621,7 @@ export const WorkspaceSettingsPage: React.FC = () => {
           canDirectlyCompleteProject: typeof wsAdmin.canDirectlyCompleteProject === 'boolean' ? wsAdmin.canDirectlyCompleteProject : (typeof raw.canDirectlyCompleteProject === 'boolean' ? raw.canDirectlyCompleteProject : true),
           canArchiveProjects: typeof wsAdmin.canArchiveProjects === 'boolean' ? wsAdmin.canArchiveProjects : (typeof raw.canArchiveProjects === 'boolean' ? raw.canArchiveProjects : true),
           canManagePermissions: typeof wsAdmin.canManagePermissions === 'boolean' ? wsAdmin.canManagePermissions : (typeof raw.canManagePermissions === 'boolean' ? raw.canManagePermissions : false),
+          autoIncludeAdminsInNewProjects: typeof wsAdmin.autoIncludeAdminsInNewProjects === 'boolean' ? wsAdmin.autoIncludeAdminsInNewProjects : (typeof raw.autoIncludeAdminsInNewProjects === 'boolean' ? raw.autoIncludeAdminsInNewProjects : true),
         });
 
         const projAdmin = raw.projectAdmin || {};
@@ -654,6 +680,7 @@ export const WorkspaceSettingsPage: React.FC = () => {
         payload.canDirectlyCompleteProject = adminPermissions.canDirectlyCompleteProject;
         payload.canArchiveProjects = adminPermissions.canArchiveProjects;
         payload.canManagePermissions = adminPermissions.canManagePermissions;
+        payload.autoIncludeAdminsInNewProjects = adminPermissions.autoIncludeAdminsInNewProjects;
       }
       payload.projectAdmin = projectAdminPermissions;
       payload.workspaceMember = workspaceMemberPermissions;
@@ -1160,69 +1187,42 @@ export const WorkspaceSettingsPage: React.FC = () => {
           <ArrowLeftIcon size={14} />
           <span>Back to Dashboard</span>
         </button>
+
+        {!isOwner && !activeWorkspace.isPersonal && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            style={{ color: '#DC2626', borderColor: '#FECACA', height: '28px', padding: '0 10px', fontSize: '0.75rem' }}
+            onClick={() => setLeaveModalOpen(true)}
+            id="ws-header-leave-btn"
+          >
+            Leave Workspace
+          </Button>
+        )}
       </div>
 
-      {/* Hero Header Card (Matching Account Settings UI/UX) */}
+      {/* Hero Header Card (Matching Reference UI/UX) */}
       <div className="account-settings-header-card ws-header-card">
         <div className="ws-header-content">
-          {/* Left: Squircle Icon + Title + Subtitle */}
+          {/* Left: Circular Gear Icon + Title + Subtitle */}
           <div className="ws-header-left-col">
             <div className="ws-header-icon-box">
-              <UsersIcon size={24} />
+              <SettingsIcon size={24} />
             </div>
             <div className="ws-header-text">
               <h1>Workspace Settings</h1>
-              <p>Manage team members, roles, invitations, permissions, and workspace policies.</p>
+              <p>Customize your workspace, manage your team, and control access so your work stays organized and secure.</p>
+              <span className="sr-only" style={{ display: 'none' }}>{activeWorkspace.name}</span>
             </div>
           </div>
 
-          {/* First Vertical Divider */}
+          {/* Vertical Divider */}
           <div className="ws-header-divider" />
 
-          {/* Center: Quote + Atmosphere Art */}
+          {/* Right: Quote + Atmosphere Art */}
           <div className="ws-header-center-col">
             <WorkspaceSettingsHeaderAtmosphere />
-          </div>
-
-          {/* Second Vertical Divider */}
-          <div className="ws-header-divider" />
-
-          {/* Right: Workspace Capsule Pill */}
-          <div className="ws-header-right-col">
-            <div className="ws-header-user-pill">
-              <div className="ws-pill-avatar">
-                {activeWorkspace.avatarUrl ? (
-                  <img src={activeWorkspace.avatarUrl} alt={activeWorkspace.name} />
-                ) : (
-                  <span>{workspaceInitials}</span>
-                )}
-              </div>
-              <div className="ws-pill-text-col">
-                <span className="ws-pill-name">{activeWorkspace.name}</span>
-                <span className="ws-pill-type">
-                  {activeWorkspace.isPersonal ? 'Personal' : 'Team Workspace'} • {totalMembers || activeWorkspace.memberCount} members
-                </span>
-              </div>
-              <span
-                className={`ws-tag-role ${
-                  isOwner ? 'ws-tag-owner' : activeRole === 'WORKSPACE_ADMIN' ? 'ws-tag-admin' : activeRole === 'PROJECT_ADMIN' ? 'ws-tag-admin' : 'ws-tag-member'
-                }`}
-              >
-                {isOwner ? 'Owner' : activeRole === 'WORKSPACE_ADMIN' ? 'Workspace Admin' : activeRole === 'PROJECT_ADMIN' ? 'Project Admin' : 'Workspace Member'}
-              </span>
-              {!isOwner && !activeWorkspace.isPersonal && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  style={{ color: '#DC2626', borderColor: '#FECACA', marginLeft: '0.5rem', height: '28px', padding: '0 10px', fontSize: '0.75rem' }}
-                  onClick={() => setLeaveModalOpen(true)}
-                  id="ws-header-leave-btn"
-                >
-                  Leave Workspace
-                </Button>
-              )}
-            </div>
           </div>
         </div>
       </div>
@@ -1404,8 +1404,8 @@ export const WorkspaceSettingsPage: React.FC = () => {
             <div>
               <div className="ws-card-header">
                 <div className="ws-card-header-left">
-                  <h2>Workspace Profile & Settings</h2>
-                  <p>Update your workspace identity, logo, and membership capacity.</p>
+                  <h2>Workspace Profile{' '}<span className="sr-only">& Settings</span></h2>
+                  <p>Update your workspace identity and branding. This information will be visible to all members.</p>
                 </div>
               </div>
 
@@ -1422,96 +1422,119 @@ export const WorkspaceSettingsPage: React.FC = () => {
               )}
 
               <form onSubmit={handleSaveGeneral}>
-                {/* Workspace Logo / Avatar Section */}
-                <div className="ws-avatar-section">
-                  <div className="ws-avatar-preview-wrap">
-                    <div className="ws-avatar-large">
+                {/* Workspace Logo Section Card */}
+                <div className="ws-logo-card">
+                  <div className="ws-logo-preview-wrap">
+                    <div className="ws-logo-avatar">
                       {wsAvatar ? (
                         <img src={wsAvatar} alt={wsName || 'Workspace'} />
                       ) : (
-                        <span>{wsName ? wsName.slice(0, 2).toUpperCase() : 'WS'}</span>
+                        <span>{workspaceInitials}</span>
                       )}
                     </div>
                     {isOwner && (
                       <button
                         type="button"
-                        className="ws-avatar-camera-badge"
+                        className="ws-logo-camera-badge"
                         title="Upload logo"
                         onClick={() => fileInputRef.current?.click()}
                         aria-label="Upload workspace logo"
                       >
-                        <CameraIcon size={14} />
+                        <CameraIcon size={13} />
                       </button>
                     )}
                   </div>
 
-                  <div className="ws-avatar-actions-col">
-                    <h4>Workspace Logo</h4>
-                    <p>Upload a PNG, JPG, or WebP (max 5MB) or provide a direct image URI.</p>
-                    {isOwner && (
-                      <div className="ws-avatar-btn-row">
-                        <input
-                          type="file"
-                          ref={fileInputRef}
-                          style={{ display: 'none' }}
-                          accept="image/png,image/jpeg,image/webp"
-                          onChange={handleAvatarFileUpload}
-                        />
-                        <Button
+                  <div className="ws-logo-info-col">
+                    <h4 className="ws-logo-title">Workspace Logo</h4>
+                    <p className="ws-logo-subtitle">Choose an image to represent your workspace.</p>
+                    <div className="ws-logo-btn-row">
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        style={{ display: 'none' }}
+                        accept="image/png,image/jpeg,image/webp"
+                        onChange={handleAvatarFileUpload}
+                      />
+                      <button
+                        type="button"
+                        className="ws-upload-pill-btn"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={!isOwner}
+                      >
+                        <UploadIcon size={14} />
+                        <span>Upload Image</span>
+                      </button>
+                      {wsAvatar && isOwner && (
+                        <button
                           type="button"
-                          variant="outline"
-                          size="sm"
-                          leftIcon={<UploadIcon size={14} />}
-                          onClick={() => fileInputRef.current?.click()}
+                          className="ws-remove-pill-btn"
+                          onClick={() => setWsAvatar('')}
                         >
-                          Upload Logo
-                        </Button>
-                        {wsAvatar && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            style={{ color: '#DC2626', borderColor: '#FECACA' }}
-                            onClick={() => setWsAvatar('')}
-                          >
-                            Remove
-                          </Button>
-                        )}
-                      </div>
-                    )}
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <span className="ws-logo-hint">PNG, JPG, or WebP (max 5MB) or use a direct image URL.</span>
                   </div>
                 </div>
 
-                {/* Direct Image URI input */}
+                {/* Logo Image URL */}
                 {isOwner && (
                   <div className="ws-form-group">
-                    <label className="ws-form-label" htmlFor="ws-avatar-url-input">Logo Image URI</label>
-                    <input
-                      type="url"
-                      id="ws-avatar-url-input"
-                      className="ws-input"
-                      placeholder="https://example.com/logo.png"
-                      value={wsAvatar}
-                      onChange={(e) => setWsAvatar(e.target.value)}
-                    />
-                    <span className="ws-form-hint">Direct link to hosted logo image</span>
+                    <label className="ws-form-label" htmlFor="ws-avatar-url-input">Logo Image URL</label>
+                    <div className="ws-input-box">
+                      <LinkIcon size={16} className="ws-input-icon" />
+                      <input
+                        type="url"
+                        id="ws-avatar-url-input"
+                        className="ws-input-field"
+                        placeholder="https://example.com/logo.png"
+                        value={wsAvatar}
+                        onChange={(e) => setWsAvatar(e.target.value)}
+                      />
+                    </div>
+                    <span className="ws-form-hint">Add a direct link to a hosted logo image (optional).</span>
                   </div>
                 )}
 
                 {/* Workspace Name */}
                 <div className="ws-form-group">
-                  <label className="ws-form-label" htmlFor="ws-name-input">Workspace Name *</label>
-                  <input
-                    type="text"
-                    className="ws-input"
-                    placeholder="e.g. Acme Corp, Engineering Studio"
-                    value={wsName}
-                    onChange={(e) => setWsName(e.target.value)}
-                    required
-                    disabled={!isOwner}
-                    id="ws-name-input"
-                  />
-                  <span className="ws-form-hint">Displayed to all members and project collaborators</span>
+                  <label className="ws-form-label" htmlFor="ws-name-input">
+                    Workspace Name <span className="ws-required">*</span>
+                  </label>
+                  <div className="ws-input-box">
+                    <FolderIcon size={16} className="ws-input-icon" />
+                    <input
+                      type="text"
+                      className="ws-input-field"
+                      placeholder="e.g. Acme Corp, Mobile Studio"
+                      value={wsName}
+                      onChange={(e) => setWsName(e.target.value)}
+                      required
+                      disabled={!isOwner}
+                      id="ws-name-input"
+                    />
+                  </div>
+                  <span className="ws-form-hint">This name will be visible to all workspace members and project collaborators.</span>
+                </div>
+
+                {/* Description (Optional) */}
+                <div className="ws-form-group">
+                  <label className="ws-form-label" htmlFor="ws-description-input">Description (Optional)</label>
+                  <div className="ws-textarea-box">
+                    <FileTextIcon size={16} className="ws-textarea-icon" />
+                    <textarea
+                      id="ws-description-input"
+                      className="ws-textarea-field"
+                      placeholder="Briefly describe the purpose of this workspace..."
+                      value={wsDescription}
+                      onChange={(e) => setWsDescription(e.target.value)}
+                      rows={3}
+                      disabled={!isOwner}
+                    />
+                  </div>
+                  <span className="ws-form-hint">A short description helps members understand what this workspace is for.</span>
                 </div>
 
                 {/* Member Limit (Moved here directly from Admin Permissions!) */}
@@ -1531,6 +1554,31 @@ export const WorkspaceSettingsPage: React.FC = () => {
                     <span className="ws-form-hint">
                       Maximum combined active members and pending invitations permitted in this workspace. Leave empty for unlimited.
                     </span>
+                  </div>
+                )}
+
+                {/* Automatically include Workspace Admins in new projects (Owner-controlled) */}
+                {!activeWorkspace.isPersonal && isOwner && (
+                  <div className="ws-form-group" style={{ marginTop: '1.25rem', padding: '1rem', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ paddingRight: '1rem' }}>
+                        <label className="ws-form-label" style={{ marginBottom: '0.25rem', fontWeight: 600 }} htmlFor="ws-auto-include-admins-toggle">
+                          Automatically include Workspace Admins in new projects
+                        </label>
+                        <span className="ws-form-hint" style={{ display: 'block', fontSize: '0.8125rem', color: '#64748B' }}>
+                          Choose whether Workspace Admins are automatically added as explicit project members when new projects are created.
+                        </span>
+                      </div>
+                      <label className="ws-toggle-switch">
+                        <input
+                          type="checkbox"
+                          checked={wsAutoIncludeAdmins}
+                          onChange={(e) => setWsAutoIncludeAdmins(e.target.checked)}
+                          id="ws-auto-include-admins-toggle"
+                        />
+                        <span className="ws-toggle-slider" />
+                      </label>
+                    </div>
                   </div>
                 )}
 
@@ -2162,6 +2210,26 @@ export const WorkspaceSettingsPage: React.FC = () => {
                             checked={adminPermissions.canManagePermissions}
                             disabled={!isOwner}
                             onChange={() => handleToggleAdminPermission('canManagePermissions')}
+                          />
+                          <span className="ws-toggle-slider" />
+                        </label>
+                      </div>
+
+                      {/* Toggle 8: Auto Include Admins in New Projects (Owner-controlled) */}
+                      <div className="ws-permission-item">
+                        <div className="ws-permission-info">
+                          <span className="ws-permission-title">Automatically include Workspace Admins in new projects</span>
+                          <span className="ws-permission-desc">
+                            Choose whether Workspace Admins are automatically added as explicit project members when new projects are created.
+                          </span>
+                        </div>
+                        <label className={`ws-toggle-switch ${!isOwner ? 'disabled' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={adminPermissions.autoIncludeAdminsInNewProjects}
+                            disabled={!isOwner}
+                            onChange={() => handleToggleAdminPermission('autoIncludeAdminsInNewProjects')}
+                            id="ws-perm-auto-include-admins"
                           />
                           <span className="ws-toggle-slider" />
                         </label>

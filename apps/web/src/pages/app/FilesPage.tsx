@@ -577,59 +577,63 @@ export const FilesPage: React.FC<FilesPageProps> = ({
         />
       )}
 
-      {/* Main Top Header matching screenshot */}
-      <div className="cal-page-header files-page-top-header">
-        <div className="cal-header-left">
-          <div className="cal-title-row">
-            <span className="cal-header-icon-box files-icon-box">
-              <FolderIcon size={24} />
-            </span>
-            <h1 className="cal-header-title">
-              {project ? `${project.name} Files` : 'Files & Storage'}
-            </h1>
+      {/* Main Top Header matching screenshot: Hidden in project overview page for now per user request */}
+      {!hideHeader && (
+        <div className="cal-page-header files-page-top-header">
+          <div className="cal-header-left">
+            <div className="cal-header-icon-box files-icon-box">
+              <FolderIcon size={26} />
+            </div>
+            <div className="cal-banner-titles">
+              <div className="cal-title-row">
+                <h1 className="cal-header-title">
+                  {project ? `${project.name} Files` : 'Files & Storage'}
+                </h1>
+              </div>
+              <p className="cal-header-subtitle">
+                Manage team documents, project attachments, and files.
+              </p>
+            </div>
           </div>
-          <p className="cal-header-subtitle">
-            Manage team documents, project attachments, and files.
-          </p>
+
+          {/* Atmosphere Quote & Illustration */}
+          <FilesHeaderAtmosphere />
+
+          {/* Right Header Action Buttons */}
+          <div className="cal-header-right" style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              type="button"
+              className="cal-btn-new-event files-btn-create-folder"
+              onClick={() => setIsCreateFolderModalOpen(true)}
+              style={{
+                backgroundColor: '#FFFFFF',
+                color: '#0F172A',
+                border: '1px solid #E2E8F0',
+                borderRadius: '9999px',
+                padding: '0.48rem 0.95rem',
+                fontWeight: 600,
+                fontSize: '0.8125rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                cursor: 'pointer',
+              }}
+            >
+              <FolderPlusIcon size={15} />
+              <span>New Folder</span>
+            </button>
+
+            <button
+              type="button"
+              className="cal-btn-new-event files-btn-upload-primary"
+              onClick={() => setIsUploadModalOpen(true)}
+            >
+              <UploadCloudIcon size={15} />
+              <span>Upload Files</span>
+            </button>
+          </div>
         </div>
-
-        {/* Atmosphere Quote & Illustration */}
-        <FilesHeaderAtmosphere />
-
-        {/* Right Header Action Buttons */}
-        <div className="cal-header-right" style={{ display: 'flex', gap: '0.5rem' }}>
-          <button
-            type="button"
-            className="cal-btn-new-event files-btn-create-folder"
-            onClick={() => setIsCreateFolderModalOpen(true)}
-            style={{
-              backgroundColor: '#FFFFFF',
-              color: '#0F172A',
-              border: '1px solid #E2E8F0',
-              borderRadius: '9999px',
-              padding: '0.48rem 0.95rem',
-              fontWeight: 600,
-              fontSize: '0.8125rem',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              cursor: 'pointer',
-            }}
-          >
-            <FolderPlusIcon size={15} />
-            <span>New Folder</span>
-          </button>
-
-          <button
-            type="button"
-            className="cal-btn-new-event files-btn-upload-primary"
-            onClick={() => setIsUploadModalOpen(true)}
-          >
-            <UploadCloudIcon size={15} />
-            <span>Upload Files</span>
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Feedback Banner */}
       {feedback && (
@@ -751,6 +755,46 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                   <InfoIcon size={15} />
                 </button>
               </div>
+
+              {hideHeader && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginLeft: 'auto' }}>
+                  <button
+                    type="button"
+                    className="cal-btn-new-event files-btn-create-folder"
+                    onClick={() => setIsCreateFolderModalOpen(true)}
+                    style={{
+                      backgroundColor: '#FFFFFF',
+                      color: '#0F172A',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: '8px',
+                      padding: '0.38rem 0.75rem',
+                      fontWeight: 600,
+                      fontSize: '0.78125rem',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <FolderPlusIcon size={14} />
+                    <span>New Folder</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="cal-btn-new-event files-btn-upload-primary"
+                    onClick={() => setIsUploadModalOpen(true)}
+                    style={{
+                      borderRadius: '8px',
+                      padding: '0.38rem 0.75rem',
+                      fontSize: '0.78125rem',
+                    }}
+                  >
+                    <UploadCloudIcon size={14} />
+                    <span>Upload Files</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 

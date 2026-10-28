@@ -488,7 +488,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
           showHeroCard={true}
           onOpenCreateWorkModal={handleOpenCreateModal}
           onOpenSettingsModal={handleOpenSettings}
-          onOpenInviteModal={() => setInviteModalOpen(true)}
+          onOpenInviteModal={isProjectAdmin ? () => setInviteModalOpen(true) : undefined}
         />
       )}
 
@@ -515,7 +515,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                   </svg>
                 </div>
               </div>
-              <span className="po-metric-title-label">Total Work Items</span>
+              <span className="po-metric-title-label">Total Tasks</span>
             </div>
 
             {/* In Progress */}
@@ -567,12 +567,12 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
             </div>
           </div>
 
-          {/* 4. Recent Work Items Card */}
+          {/* 4. Recent Tasks Card */}
           <div className="po-clean-card po-recent-work-card">
             <div className="po-card-head-row">
               <div className="po-card-title-flex">
                 <CalendarIcon size={18} className="po-card-header-icon" />
-                <h3 className="po-card-title-text">Recent Work Items</h3>
+                <h3 className="po-card-title-text">Recent Tasks</h3>
               </div>
               <Link to={`/app/projects/${project.id}/board`} className="po-card-view-all-link">
                 <span>View all</span>
@@ -583,7 +583,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
             <div className="po-work-items-list-body">
               {displayItems.length === 0 ? (
                 <div style={{ padding: '36px 16px', textAlign: 'center', color: '#94A3B8', fontSize: '13px' }}>
-                  No work items created yet. Click &quot;Add Task&quot; above to create your first task.
+                  No tasks created yet. Click &quot;Add Task&quot; above to create your first task.
                 </div>
               ) : (
                 displayItems.slice(0, 5).map((item, idx) => (
@@ -706,16 +706,18 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                     <span className="po-qa-btn-title">Add Task</span>
                   </button>
 
-                  <button
-                    type="button"
-                    className="po-quick-action-square-btn qa-green"
-                    onClick={() => setInviteModalOpen(true)}
-                  >
-                    <div className="po-qa-icon-wrap">
-                      <UsersIcon size={16} />
-                    </div>
-                    <span className="po-qa-btn-title">Invite Member</span>
-                  </button>
+                  {isProjectAdmin && (
+                    <button
+                      type="button"
+                      className="po-quick-action-square-btn qa-green"
+                      onClick={() => setInviteModalOpen(true)}
+                    >
+                      <div className="po-qa-icon-wrap">
+                        <UsersIcon size={16} />
+                      </div>
+                      <span className="po-qa-btn-title">Add Member</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -1113,13 +1115,15 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                 )}
               </div>
 
-              <button
-                type="button"
-                className="po-invite-members-pill-btn"
-                onClick={() => setInviteModalOpen(true)}
-              >
-                + Invite Members
-              </button>
+              {isProjectAdmin && (
+                <button
+                  type="button"
+                  className="po-invite-members-pill-btn"
+                  onClick={() => setInviteModalOpen(true)}
+                >
+                  + Add Members
+                </button>
+              )}
             </div>
           </div>
 
@@ -1163,7 +1167,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                           </span>
                         </div>
                         <span className="po-activity-action-desc">
-                          {act.type === 'WORK_CREATED' && `created work item "${act.workItem?.title || 'task'}"`}
+                          {act.type === 'WORK_CREATED' && `created task "${act.workItem?.title || 'task'}"`}
                           {act.type === 'WORK_STATUS_CHANGED' && `updated a task`}
                           {act.type === 'WORK_COMPLETED' && `completed a task`}
                           {act.type === 'COMMENT_ADDED' && `commented on "${act.workItem?.title || 'task'}"`}
@@ -1185,6 +1189,7 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
       <CreateWorkItemModal
         project={project}
         isOpen={createModalOpen}
+        lockProject={true}
         onClose={() => setCreateModalOpen(false)}
         onCreated={handleWorkItemCreated}
       />

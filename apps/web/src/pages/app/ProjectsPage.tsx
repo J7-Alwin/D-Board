@@ -28,18 +28,19 @@ import {
   CheckCircleIcon,
   TrashIcon,
   ClockIcon,
+  ChevronRightIcon,
 } from '../../components/ui/Icons';
 
 const WorkspaceBadgeIcon: React.FC<{ size?: number; className?: string }> = ({ size = 12, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <path d="M3 21h18" />
-    <path d="M9 8h1" />
-    <path d="M9 12h1" />
-    <path d="M9 16h1" />
-    <path d="M14 8h1" />
-    <path d="M14 12h1" />
-    <path d="M14 16h1" />
     <path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" />
+    <path d="M9 8h2" />
+    <path d="M9 12h2" />
+    <path d="M9 16h2" />
+    <path d="M13 8h2" />
+    <path d="M13 12h2" />
+    <path d="M13 16h2" />
   </svg>
 );
 
@@ -56,6 +57,278 @@ const ArchiveBoxIcon: React.FC<{ size?: number; className?: string }> = ({ size 
     <rect width="20" height="5" x="2" y="3" rx="1" />
     <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
     <path d="M10 12h4" />
+  </svg>
+);
+
+const ProjectsFolderBannerIcon: React.FC<{ size?: number; className?: string }> = ({ size = 28, className = '' }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+  </svg>
+);
+
+const ProjectsHeaderIllustration: React.FC = () => (
+  <svg
+    viewBox="0 0 240 85"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className="projects-header-landscape-svg"
+    aria-hidden="true"
+  >
+    <defs>
+      <filter id="hero-card-shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="#0F172A" floodOpacity="0.08" />
+      </filter>
+      <filter id="hero-folder-shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="3" stdDeviation="3" floodColor="#064E3B" floodOpacity="0.14" />
+      </filter>
+    </defs>
+
+    {/* Background soft cloud aura */}
+    <path
+      d="M 35 60 C 35 38 52 24 80 24 C 92 24 104 28 112 34 C 122 28 138 28 148 34 C 160 30 178 35 185 44 C 196 46 208 55 208 68 C 208 80 192 85 178 85 L 50 85 C 40 85 35 76 35 60 Z"
+      fill="#F1F5F9"
+      opacity="0.9"
+    />
+
+    {/* Sprouting leafy plant on left */}
+    <g>
+      {/* Main stem curving upward */}
+      <path
+        d="M 18 85 C 24 64 34 44 44 30"
+        stroke="#10B981"
+        strokeWidth="2.8"
+        strokeLinecap="round"
+      />
+      {/* Leaf 1 (top) */}
+      <path
+        d="M 44 30 C 45 18 56 18 54 26 C 52 33 46 34 44 30 Z"
+        fill="#10B981"
+      />
+      {/* Leaf 2 (upper left) */}
+      <path
+        d="M 35 42 C 24 36 26 24 37 26 C 42 31 39 38 35 42 Z"
+        fill="#34D399"
+      />
+      {/* Leaf 3 (middle right) */}
+      <path
+        d="M 32 56 C 42 50 49 56 46 65 C 40 67 33 61 32 56 Z"
+        fill="#10B981"
+      />
+      {/* Leaf 4 (lower left) */}
+      <path
+        d="M 23 65 C 13 60 15 48 25 51 C 30 54 28 62 23 65 Z"
+        fill="#34D399"
+      />
+      {/* Leaf 5 (bottom) */}
+      <path
+        d="M 17 76 C 8 72 10 63 19 65 C 23 67 22 74 17 76 Z"
+        fill="#10B981"
+      />
+    </g>
+
+    {/* Golden Sun Circle */}
+    <circle cx="172" cy="28" r="14" fill="#FDE047" opacity="0.95" />
+
+    {/* White Task Card / Tablet */}
+    <g filter="url(#hero-card-shadow)">
+      <rect
+        x="78"
+        y="16"
+        width="90"
+        height="68"
+        rx="8"
+        fill="#FFFFFF"
+        stroke="#E2E8F0"
+        strokeWidth="1.2"
+      />
+    </g>
+
+    {/* App Logo Square badge with 'D' inside */}
+    <rect x="113" y="22" width="20" height="20" rx="4.5" fill="#0F172A" />
+    <text
+      x="123"
+      y="36.5"
+      fill="#FFFFFF"
+      fontSize="12"
+      fontWeight="800"
+      fontFamily="Inter, system-ui, -apple-system, sans-serif"
+      textAnchor="middle"
+    >
+      D
+    </text>
+
+    {/* Checklist items with green dots and gray lines */}
+    <circle cx="92" cy="51" r="3" fill="#22C55E" />
+    <rect x="100" y="49" width="42" height="4" rx="2" fill="#E2E8F0" />
+
+    <circle cx="92" cy="61" r="3" fill="#22C55E" />
+    <rect x="100" y="59" width="34" height="4" rx="2" fill="#E2E8F0" />
+
+    <circle cx="92" cy="71" r="3" fill="#22C55E" />
+    <rect x="100" y="69" width="48" height="4" rx="2" fill="#E2E8F0" />
+
+    {/* Mint Green Open Folder in Foreground */}
+    <g filter="url(#hero-folder-shadow)">
+      {/* Back folder body & tab */}
+      <path
+        d="M 152 44 L 165 44 L 170 48 L 196 48 C 198.5 48 200 49.5 200 52 L 200 78 C 200 80.5 198.5 82 196 82 L 148 82 C 145.5 82 144 78.5 144 78 L 144 52 C 144 49.5 145.5 48 148 48 L 152 44 Z"
+        fill="#10B981"
+      />
+      {/* Paper peek inside */}
+      <rect x="150" y="47" width="44" height="24" rx="3" fill="#FFFFFF" opacity="0.95" />
+      <rect x="155" y="52" width="28" height="3" rx="1.5" fill="#A7F3D0" />
+      {/* Front folder flap */}
+      <path
+        d="M 144 54 L 204 54 C 206.5 54 208 55.5 207.5 58 L 202.5 78.5 C 202 80.5 200.2 82 198 82 L 148 82 C 145.8 82 144 80.5 143.5 78.5 L 140.5 58 C 140 55.5 141.5 54 144 54 Z"
+        fill="#6EE7B7"
+      />
+    </g>
+  </svg>
+);
+
+const TotalCardDecor: React.FC = () => (
+  <svg
+    viewBox="0 0 140 100"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className="proj-stat-decor-svg"
+    aria-hidden="true"
+  >
+    <path
+      d="M 140 34 C 124 34, 96 46, 80 62 C 64 78, 36 94, 0 100 L 140 100 Z"
+      fill="#EFF6FF"
+      opacity="0.95"
+    />
+    <path
+      d="M 140 60 C 124 60, 104 70, 90 82 C 76 92, 54 97, 28 100 L 140 100 Z"
+      fill="#DBEAFE"
+      opacity="0.6"
+    />
+    {/* Trend Line with Arrow on the far right */}
+    <g transform="translate(100, 38)">
+      <path
+        d="M 2 18 L 10 10 L 16 15 L 26 4"
+        stroke="#3B82F6"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M 19 4 H 26 V 11"
+        stroke="#3B82F6"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </g>
+  </svg>
+);
+
+const ActiveCardDecor: React.FC = () => (
+  <svg
+    viewBox="0 0 140 100"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className="proj-stat-decor-svg"
+    aria-hidden="true"
+  >
+    <path
+      d="M 140 34 C 124 34, 96 46, 80 62 C 64 78, 36 94, 0 100 L 140 100 Z"
+      fill="#ECFDF5"
+      opacity="0.95"
+    />
+    <path
+      d="M 140 60 C 124 60, 104 70, 90 82 C 76 92, 54 97, 28 100 L 140 100 Z"
+      fill="#D1FAE5"
+      opacity="0.6"
+    />
+    {/* 3 Bar Chart Bars on the far right */}
+    <g transform="translate(104, 38)">
+      <rect x="0" y="7" width="4.5" height="15" rx="2.25" stroke="#10B981" strokeWidth="2.2" fill="none" />
+      <rect x="7" y="0" width="4.5" height="22" rx="2.25" stroke="#10B981" strokeWidth="2.2" fill="none" />
+      <rect x="14" y="4" width="4.5" height="18" rx="2.25" stroke="#10B981" strokeWidth="2.2" fill="none" />
+    </g>
+  </svg>
+);
+
+const CompletedCardDecor: React.FC = () => (
+  <svg
+    viewBox="0 0 140 100"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className="proj-stat-decor-svg"
+    aria-hidden="true"
+  >
+    <path
+      d="M 140 34 C 124 34, 96 46, 80 62 C 64 78, 36 94, 0 100 L 140 100 Z"
+      fill="#FFFBEB"
+      opacity="0.95"
+    />
+    <path
+      d="M 140 60 C 124 60, 104 70, 90 82 C 76 92, 54 97, 28 100 L 140 100 Z"
+      fill="#FEF3C7"
+      opacity="0.65"
+    />
+    {/* Trophy Cup on the far right */}
+    <g transform="translate(102, 38)">
+      <path
+        d="M 4 2 H 18 V 8 C 18 12.4 14.9 15 11 15 C 7.1 15 4 12.4 4 8 V 2 Z"
+        fill="#F59E0B"
+      />
+      <path
+        d="M 4 4 H 1.5 C 0.7 4 0 4.7 0 5.5 C 0 7 1.2 8 2.5 8 H 4"
+        stroke="#F59E0B"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path
+        d="M 18 4 H 20.5 C 21.3 4 22 4.7 22 5.5 C 22 7 20.8 8 19.5 8 H 18"
+        stroke="#F59E0B"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path d="M 11 15 V 19" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M 6.5 19 H 15.5" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" />
+    </g>
+  </svg>
+);
+
+const ArchivedCardDecor: React.FC = () => (
+  <svg
+    viewBox="0 0 140 100"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className="proj-stat-decor-svg"
+    aria-hidden="true"
+  >
+    <path
+      d="M 140 34 C 124 34, 96 46, 80 62 C 64 78, 36 94, 0 100 L 140 100 Z"
+      fill="#FEF2F2"
+      opacity="0.95"
+    />
+    <path
+      d="M 140 60 C 124 60, 104 70, 90 82 C 76 92, 54 97, 28 100 L 140 100 Z"
+      fill="#FEE2E2"
+      opacity="0.65"
+    />
+    {/* Red Archive Filing Box on the far right */}
+    <g transform="translate(102, 38)">
+      <rect x="0" y="4" width="20" height="16" rx="2.5" fill="#EF4444" opacity="0.9" />
+      <path d="M -2 4 H 22 V 6.5 C 22 7.1 21.5 7.5 21 7.5 H -1 C -1.6 7.5 -2 7.1 -2 6.5 V 4 Z" fill="#DC2626" />
+      <rect x="6" y="9.5" width="8" height="4.5" rx="1.2" stroke="#FFFFFF" strokeWidth="1.3" fill="none" />
+    </g>
   </svg>
 );
 
@@ -105,6 +378,29 @@ const formatDate = (dateStr?: string | null): string => {
     });
   } catch {
     return '';
+  }
+};
+
+const formatTimeAgo = (dateStr?: string | null): string => {
+  if (!dateStr) return 'recently';
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return 'recently';
+    const now = new Date();
+    const diffInMs = now.getTime() - date.getTime();
+    if (diffInMs < 0) return 'recently';
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+    if (diffInHours < 1) return 'just now';
+    if (diffInHours < 24) return `${diffInHours}h ago`;
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+    if (diffInDays === 1) return 'yesterday';
+    if (diffInDays < 30) return `${diffInDays} days ago`;
+    return date.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return 'recently';
   }
 };
 
@@ -526,20 +822,292 @@ export const ProjectsPage: React.FC = () => {
 
   return (
     <div className="mywork-page-container projects-page-container">
-      {/* Scoped CSS for Owner's 4-card grid, status pills, and 3-dot dropdown */}
+      {/* Scoped CSS for Projects Top Banner & 4-card Grid */}
       <style>{`
-        .projects-stats-row.owner-four-cards {
+        /* Projects Header Banner matching reference design Pic 2 */
+        .projects-page-container .projects-header-card,
+        .projects-page-container .mywork-header {
+          display: flex !important;
+          flex-direction: row !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          flex-wrap: nowrap !important;
+          background: #FFFFFF !important;
+          border: 1px solid #EAECEF !important;
+          border-radius: 20px !important;
+          padding: 1.1rem 1.85rem !important;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+          position: relative !important;
+          overflow: hidden !important;
+          gap: 1rem !important;
+          min-height: 88px !important;
+          box-sizing: border-box !important;
+          width: 100% !important;
+        }
+        @media (max-width: 1200px) {
+          .projects-page-container .projects-header-card,
+          .projects-page-container .mywork-header {
+            padding: 1rem 1.25rem !important;
+            gap: 0.75rem !important;
+          }
+        }
+        .projects-page-container .projects-header-left {
+          display: flex !important;
+          flex-direction: row !important;
+          align-items: center !important;
+          gap: 1.15rem !important;
+          flex-shrink: 0 !important;
+        }
+        .projects-page-container .projects-banner-icon-squircle {
+          width: 58px !important;
+          height: 58px !important;
+          min-width: 58px !important;
+          border-radius: 16px !important;
+          background: #EFF6FF !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          color: #1E293B !important;
+          flex-shrink: 0 !important;
+        }
+        .projects-page-container .projects-banner-titles {
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: flex-start !important;
+          justify-content: center !important;
+          gap: 0.2rem !important;
+        }
+        .projects-page-container .projects-header-title {
+          font-size: 1.75rem !important;
+          font-weight: 800 !important;
+          letter-spacing: -0.03em !important;
+          color: #0F172A !important;
+          margin: 0 !important;
+          line-height: 1.15 !important;
+          text-align: left !important;
+        }
+        .projects-page-container .projects-header-subtitle {
+          font-size: 0.875rem !important;
+          color: #64748B !important;
+          margin: 0 !important;
+          font-weight: 400 !important;
+          line-height: 1.35 !important;
+          text-align: left !important;
+          white-space: nowrap !important;
+        }
+        .projects-page-container .projects-header-center-wrap {
+          display: flex !important;
+          flex-direction: row !important;
+          align-items: center !important;
+          gap: 1.15rem !important;
+          margin: 0 auto !important;
+          flex-shrink: 1 !important;
+          min-width: 0 !important;
+        }
+        @media (max-width: 1100px) {
+          .projects-page-container .projects-header-center-wrap {
+            display: none !important;
+          }
+        }
+        .projects-page-container .projects-header-quote-block {
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: center !important;
+          text-align: center !important;
+          font-family: Georgia, 'Playfair Display', serif !important;
+          font-style: italic !important;
+          font-size: 1.05rem !important;
+          font-weight: 500 !important;
+          color: #1E293B !important;
+          line-height: 1.35 !important;
+          white-space: nowrap !important;
+          flex-shrink: 0 !important;
+        }
+        .projects-page-container .quote-second-line {
+          position: relative !important;
+          display: inline-flex !important;
+          flex-direction: column !important;
+          align-items: center !important;
+        }
+        .projects-page-container .quote-green-swoosh {
+          width: 70px !important;
+          height: 8px !important;
+          margin-top: 2px !important;
+        }
+        .projects-page-container .projects-header-illustration-box {
+          width: 235px !important;
+          height: 75px !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          flex-shrink: 0 !important;
+        }
+        .projects-page-container .projects-header-landscape-svg {
+          width: 100% !important;
+          height: 100% !important;
+          overflow: visible !important;
+        }
+        .projects-page-container .projects-header-right {
+          display: flex !important;
+          align-items: center !important;
+          flex-shrink: 0 !important;
+        }
+        .projects-page-container .projects-create-project-btn {
+          display: inline-flex !important;
+          align-items: center !important;
+          gap: 0.45rem !important;
+          background: #0B0F19 !important;
+          color: #FFFFFF !important;
+          border: none !important;
+          border-radius: 9999px !important;
+          padding: 0.65rem 1.25rem !important;
+          font-size: 0.84rem !important;
+          font-weight: 600 !important;
+          cursor: pointer !important;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12) !important;
+          transition: all 0.15s ease !important;
+          white-space: nowrap !important;
+          flex-shrink: 0 !important;
+        }
+        .projects-page-container .projects-create-project-btn:hover {
+          background: #1E293B !important;
+          transform: translateY(-1px) !important;
+          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18) !important;
+        }
+
+        /* 4 Stat Cards Row matching reference design */
+        .projects-stats-grid {
+          display: grid !important;
           grid-template-columns: repeat(4, 1fr) !important;
+          gap: 1.15rem !important;
+          margin-bottom: 0 !important;
         }
         @media (max-width: 1024px) {
-          .projects-stats-row.owner-four-cards {
+          .projects-stats-grid {
             grid-template-columns: repeat(2, 1fr) !important;
           }
         }
         @media (max-width: 640px) {
-          .projects-stats-row.owner-four-cards {
+          .projects-stats-grid {
             grid-template-columns: 1fr !important;
           }
+        }
+        .projects-page-container .project-stat-card {
+          background: #FFFFFF !important;
+          border: 1px solid #EAECEF !important;
+          border-radius: 16px !important;
+          padding: 1.15rem 1.35rem 1.15rem 1.35rem !important;
+          min-height: 124px !important;
+          display: flex !important;
+          flex-direction: column !important;
+          justify-content: space-between !important;
+          position: relative !important;
+          overflow: hidden !important;
+          cursor: pointer !important;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+          box-sizing: border-box !important;
+        }
+        .projects-page-container .project-stat-card:hover {
+          transform: translateY(-2px) !important;
+          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06) !important;
+        }
+        .projects-page-container .project-stat-card.active-metric-card {
+          border-color: #CBD5E1 !important;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04) !important;
+        }
+        .projects-page-container .stat-card-head {
+          display: flex !important;
+          flex-direction: row !important;
+          align-items: center !important;
+          gap: 0.65rem !important;
+          position: relative !important;
+          z-index: 2 !important;
+        }
+        .projects-page-container .stat-icon-pill {
+          width: 38px !important;
+          height: 38px !important;
+          min-width: 38px !important;
+          border-radius: 11px !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          transition: transform 0.15s ease !important;
+          flex-shrink: 0 !important;
+        }
+        .projects-page-container .project-stat-card:hover .stat-icon-pill {
+          transform: scale(1.05) !important;
+        }
+        .projects-page-container .stat-icon-pill.icon-blue {
+          background: #EFF6FF !important;
+          color: #3B82F6 !important;
+        }
+        .projects-page-container .stat-icon-pill.icon-green {
+          background: #ECFDF5 !important;
+          color: #10B981 !important;
+        }
+        .projects-page-container .stat-icon-pill.icon-amber {
+          background: #FFFBEB !important;
+          color: #F59E0B !important;
+        }
+        .projects-page-container .stat-icon-pill.icon-rose {
+          background: #FEF2F2 !important;
+          color: #EF4444 !important;
+        }
+        .projects-page-container .stat-card-title {
+          font-size: 0.875rem !important;
+          font-weight: 700 !important;
+          color: #1E293B !important;
+          letter-spacing: -0.01em !important;
+          white-space: nowrap !important;
+        }
+        .projects-page-container .stat-card-body {
+          display: flex !important;
+          flex-direction: row !important;
+          align-items: flex-end !important;
+          justify-content: flex-start !important;
+          margin-top: 0.65rem !important;
+          position: relative !important;
+          z-index: 2 !important;
+        }
+        .projects-page-container .stat-card-info {
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: flex-start !important;
+          text-align: left !important;
+          max-width: 65% !important;
+          z-index: 2 !important;
+        }
+        .projects-page-container .stat-card-number {
+          font-size: 1.95rem !important;
+          font-weight: 800 !important;
+          line-height: 1.1 !important;
+          letter-spacing: -0.02em !important;
+          color: #0F172A !important;
+          text-align: left !important;
+        }
+        .projects-page-container .stat-card-number.number-green {
+          color: #059669 !important;
+        }
+        .projects-page-container .stat-card-number.number-purple {
+          color: #7C3AED !important;
+        }
+        .projects-page-container .stat-card-desc {
+          font-size: 0.78125rem !important;
+          font-weight: 500 !important;
+          color: #64748B !important;
+          margin-top: 0.25rem !important;
+          white-space: nowrap !important;
+          text-align: left !important;
+        }
+        .projects-page-container .proj-stat-decor-svg {
+          position: absolute !important;
+          bottom: 0 !important;
+          right: 0 !important;
+          width: 140px !important;
+          height: 100px !important;
+          pointer-events: none !important;
+          z-index: 1 !important;
         }
         .proj-card-menu-dropdown {
           position: absolute;
@@ -588,37 +1156,255 @@ export const ProjectsPage: React.FC = () => {
           background: #F1F5F9;
           margin: 0.3rem 0;
         }
+        /* Project Card Design matching Reference Image */
+        .projects-grid-3-col {
+          display: grid !important;
+          grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)) !important;
+          gap: 1.35rem !important;
+          margin-bottom: 2rem !important;
+        }
+        @media (max-width: 768px) {
+          .projects-grid-3-col {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        .proj-card {
+          background: #FFFFFF !important;
+          border: 1px solid #EAECEF !important;
+          border-radius: 18px !important;
+          padding: 1.35rem 1.45rem !important;
+          display: flex !important;
+          flex-direction: column !important;
+          cursor: pointer !important;
+          transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease !important;
+          min-width: 0 !important;
+          box-sizing: border-box !important;
+          position: relative !important;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+        }
+        .proj-card:hover {
+          transform: translateY(-2px) !important;
+          border-color: #CBD5E1 !important;
+          box-shadow: 0 8px 20px -4px rgba(15, 23, 42, 0.06) !important;
+        }
+        .proj-card-top {
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          gap: 0.75rem !important;
+          margin-bottom: 0.85rem !important;
+        }
+        .proj-card-header-left {
+          display: flex !important;
+          align-items: center !important;
+          gap: 0.85rem !important;
+          min-width: 0 !important;
+          flex: 1 !important;
+        }
+        .proj-card .project-avatar-badge {
+          width: 44px !important;
+          height: 44px !important;
+          border-radius: 12px !important;
+          background-color: #18181B !important;
+          color: #FFFFFF !important;
+          font-size: 1.15rem !important;
+          font-weight: 700 !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          flex-shrink: 0 !important;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12) !important;
+        }
+        .proj-card-title-group {
+          display: flex !important;
+          align-items: center !important;
+          gap: 0.55rem !important;
+          min-width: 0 !important;
+          flex-wrap: wrap !important;
+        }
+        .proj-card-title-text {
+          font-size: 1.125rem !important;
+          font-weight: 700 !important;
+          color: #0F172A !important;
+          line-height: 1.25 !important;
+          margin: 0 !important;
+          white-space: nowrap !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          max-width: 220px !important;
+        }
+        .proj-workspace-attribution-pill {
+          display: inline-flex !important;
+          align-items: center !important;
+          gap: 0.35rem !important;
+          font-size: 0.75rem !important;
+          font-weight: 500 !important;
+          color: #475569 !important;
+          background: #F8FAFC !important;
+          border: 1px solid #E2E8F0 !important;
+          border-radius: 6px !important;
+          padding: 0.2rem 0.55rem !important;
+          white-space: nowrap !important;
+          max-width: 160px !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          line-height: 1.2 !important;
+        }
+        .proj-card-top-right {
+          display: flex !important;
+          align-items: center !important;
+          gap: 0.5rem !important;
+          flex-shrink: 0 !important;
+        }
         .proj-status-pill {
-          font-size: 0.675rem;
-          font-weight: 600;
-          padding: 0.2rem 0.55rem;
-          border-radius: 9999px;
-          display: inline-flex;
-          align-items: center;
-          gap: 0.35rem;
-          letter-spacing: 0.02em;
+          font-size: 0.75rem !important;
+          font-weight: 600 !important;
+          padding: 0.25rem 0.75rem !important;
+          border-radius: 9999px !important;
+          display: inline-flex !important;
+          align-items: center !important;
+          gap: 0.35rem !important;
+          letter-spacing: 0.01em !important;
         }
         .proj-status-pill.status-active {
-          background: #ECFDF5;
-          color: #059669;
-          border: 1px solid #A7F3D0;
+          background: #ECFDF5 !important;
+          color: #10B981 !important;
+          border: 1px solid #A7F3D0 !important;
         }
         .proj-status-pill.status-completed {
-          background: #EFF6FF;
-          color: #2563EB;
-          border: 1px solid #BFDBFE;
+          background: #EFF6FF !important;
+          color: #2563EB !important;
+          border: 1px solid #BFDBFE !important;
         }
         .proj-status-pill.status-archived {
-          background: #FEF3C7;
-          color: #B45309;
-          border: 1px solid #FCD34D;
+          background: #FEF3C7 !important;
+          color: #B45309 !important;
+          border: 1px solid #FCD34D !important;
         }
-        .proj-updated-row {
-          font-size: 0.75rem;
-          color: #94A3B8;
-          display: flex;
-          align-items: center;
-          gap: 0.35rem;
+        .proj-card-category-row {
+          display: flex !important;
+          align-items: center !important;
+          margin-bottom: 0.75rem !important;
+        }
+        .proj-card-category-pill {
+          display: inline-flex !important;
+          align-items: center !important;
+          background: #FEF3C7 !important;
+          color: #B45309 !important;
+          font-size: 0.75rem !important;
+          font-weight: 600 !important;
+          padding: 0.28rem 0.85rem !important;
+          border-radius: 9999px !important;
+          line-height: 1.2 !important;
+          letter-spacing: 0.01em !important;
+        }
+        .proj-card-desc {
+          font-size: 0.875rem !important;
+          color: #475569 !important;
+          line-height: 1.45 !important;
+          margin: 0 0 1.15rem 0 !important;
+          display: -webkit-box !important;
+          -webkit-line-clamp: 2 !important;
+          line-clamp: 2 !important;
+          -webkit-box-orient: vertical !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          word-break: break-all !important;
+          overflow-wrap: anywhere !important;
+          min-height: 2.6rem !important;
+        }
+        .proj-progress-section {
+          margin-bottom: 0.5rem !important;
+        }
+        .proj-progress-labels {
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          margin-bottom: 0.5rem !important;
+        }
+        .proj-progress-task-count {
+          font-size: 0.84375rem !important;
+          color: #64748B !important;
+          font-weight: 500 !important;
+        }
+        .proj-progress-percentage {
+          font-size: 0.875rem !important;
+          color: #0F172A !important;
+          font-weight: 700 !important;
+        }
+        .proj-progress-bar-track {
+          height: 7px !important;
+          background: #EEF2F6 !important;
+          border-radius: 9999px !important;
+          overflow: hidden !important;
+          width: 100% !important;
+        }
+        .proj-progress-bar-fill {
+          height: 100% !important;
+          border-radius: 9999px !important;
+          background: #10B981 !important;
+          transition: width 0.25s ease !important;
+        }
+        .proj-card-foot {
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          gap: 0.75rem !important;
+          margin-top: auto !important;
+          padding-top: 1.25rem !important;
+          border-top: none !important;
+        }
+        .proj-card-foot-left {
+          display: flex !important;
+          align-items: center !important;
+          gap: 0.45rem !important;
+          font-size: 0.8125rem !important;
+          color: #64748B !important;
+          font-weight: 500 !important;
+        }
+        .proj-card-foot-right {
+          display: flex !important;
+          align-items: center !important;
+          gap: 0.85rem !important;
+        }
+        .proj-card-members {
+          display: flex !important;
+          align-items: center !important;
+          gap: 0.4rem !important;
+          font-size: 0.8125rem !important;
+          color: #64748B !important;
+          font-weight: 500 !important;
+        }
+        .proj-card-arrow-btn {
+          width: 32px !important;
+          height: 32px !important;
+          border-radius: 50% !important;
+          background: #F1F5F9 !important;
+          color: #475569 !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          border: none !important;
+          cursor: pointer !important;
+          transition: all 0.15s ease !important;
+          flex-shrink: 0 !important;
+          padding: 0 !important;
+        }
+        .proj-card-arrow-btn:hover {
+          background: #E2E8F0 !important;
+          color: #0F172A !important;
+          transform: scale(1.05) !important;
+        }
+        .sr-only {
+          position: absolute !important;
+          width: 1px !important;
+          height: 1px !important;
+          padding: 0 !important;
+          margin: -1px !important;
+          overflow: hidden !important;
+          clip: rect(0, 0, 0, 0) !important;
+          white-space: nowrap !important;
+          border-width: 0 !important;
         }
         /* PIC 1 NAVIGATION TABS DESIGN: Underline border, icons, transparent background */
         .projects-tabs-nav-bar {
@@ -774,49 +1560,55 @@ export const ProjectsPage: React.FC = () => {
       `}</style>
 
       {/* ==========================================================================
-          HEADER: MATCHING PIC 2 (MyWork) DESIGN SYSTEM
+          HEADER: MATCHING REFERENCE DESIGN PIC 2
           ========================================================================== */}
-      <div className="mywork-header">
-        <div className="mywork-header-left">
-          <div className="mywork-title-row">
-            <span className="mywork-title-icon-box">
-              <FolderIcon size={22} />
-            </span>
-            <h1 className="projects-header-title">Projects</h1>
-            <span className="mywork-date-badge">
-              {activeWorkspace?.name || 'Active Workspace'}
-            </span>
+      <div className="projects-header-card mywork-header">
+        <div className="projects-header-left">
+          <div className="projects-banner-icon-squircle">
+            <ProjectsFolderBannerIcon size={28} />
           </div>
-          <p className="mywork-subtitle">
-            {isWorkspaceLeader
-              ? `Manage, monitor, and oversee the entire project portfolio for ${activeWorkspace?.name || 'the active workspace'}.`
-              : `Manage, collaborate, and monitor all authorized projects within ${activeWorkspace?.name || 'the active workspace'}.`}
-          </p>
+          <div className="projects-banner-titles">
+            <h1 className="projects-header-title">Projects</h1>
+            <p className="projects-header-subtitle">
+              Manage, monitor, and oversee the entire project portfolio.
+            </p>
+          </div>
         </div>
 
-        {/* Center Atmosphere Artwork with Quote */}
-        <div className="mywork-header-art-wrap">
-          <span className="mywork-quote-text">Big ideas start with a focused team.</span>
-          <div className="mywork-header-illustration">
-            <svg viewBox="0 0 160 55" fill="none" xmlns="http://www.w3.org/2000/svg" className="header-landscape-svg">
-              <circle cx="120" cy="18" r="8" fill="#FDE047" opacity="0.9" />
-              <path d="M135 14 C135 11 140 11 143 13 C145 11 150 12 150 15 C153 15 155 18 153 20 C151 22 135 22 135 20 Z" fill="#E2E8F0" opacity="0.8" />
-              <polygon points="100,55 130,22 160,55" fill="#CBD5E1" opacity="0.6" />
-              <polygon points="65,55 105,14 145,55" fill="#94A3B8" opacity="0.5" />
-              <polygon points="40,55 75,25 110,55" fill="#A7F3D0" opacity="0.75" />
-              <polygon points="126,55 130,42 134,55" fill="#10B981" />
-              <polygon points="132,55 136,38 140,55" fill="#059669" />
-              <polygon points="62,55 65,45 68,55" fill="#34D399" />
-            </svg>
+        {/* Center Atmosphere Artwork with Quote & Illustration */}
+        <div className="projects-header-center-wrap mywork-header-art-wrap">
+          <div className="projects-header-quote-block">
+            <span>“Big ideas start with</span>
+            <span className="quote-second-line">
+              a focused team.”
+              <svg
+                className="quote-green-swoosh"
+                viewBox="0 0 76 9"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <path
+                  d="M3 6.5C26 3 52 2.5 73 5.5"
+                  stroke="#22C55E"
+                  strokeWidth="3.2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </span>
+          </div>
+
+          <div className="projects-header-illustration-box mywork-header-illustration">
+            <ProjectsHeaderIllustration />
           </div>
         </div>
 
         {/* Far Right Create Project Action */}
-        <div className="mywork-header-right">
+        <div className="projects-header-right mywork-header-right">
           {canCreateProject && (
             <button
               type="button"
-              className="mywork-create-btn"
+              className="projects-create-project-btn mywork-create-btn"
               onClick={() => navigate('/app/projects/create')}
             >
               <PlusIcon size={16} />
@@ -859,81 +1651,95 @@ export const ProjectsPage: React.FC = () => {
           METRICS STATS ROW: EXACTLY 4 METRIC CARDS (Total, Active, Completed, Archived)
           ========================================================================== */}
       {!loading && projects.length > 0 && (
-        <div className="mywork-summary-grid projects-stats-row owner-four-cards">
+        <div className="mywork-summary-grid projects-stats-row owner-four-cards projects-stats-grid">
           {/* 1. Total Projects */}
           <div
-            className={`mywork-summary-card card-total cursor-pointer ${activeTab === 'all' ? 'active-metric-card' : ''}`}
+            className={`project-stat-card mywork-summary-card card-total cursor-pointer ${activeTab === 'all' ? 'active-metric-card' : ''}`}
             onClick={() => setActiveTab('all')}
             role="button"
             tabIndex={0}
           >
-            <div className="summary-card-top">
-              <div className="summary-icon-pill icon-total">
-                <LayersIcon size={16} />
+            <div className="stat-card-head summary-card-top">
+              <div className="stat-icon-pill icon-blue summary-icon-pill icon-total">
+                <LayersIcon size={20} />
               </div>
-              <span className="summary-label">Total Projects</span>
+              <span className="stat-card-title summary-label">Total Projects</span>
             </div>
-            <div className="summary-card-bottom">
-              <div className="summary-value">{metrics.total}</div>
-              <div className="summary-sub">{isWorkspaceLeader ? 'In workspace portfolio' : 'Projects you are part of'}</div>
+            <div className="stat-card-body summary-card-bottom">
+              <div className="stat-card-info">
+                <div className="stat-card-number summary-value">{metrics.total}</div>
+                <div className="stat-card-desc summary-sub">
+                  {isWorkspaceLeader ? 'In workspace portfolio' : 'Projects you are part of'}
+                </div>
+              </div>
             </div>
+            <TotalCardDecor />
           </div>
 
           {/* 2. Active Projects */}
           <div
-            className={`mywork-summary-card card-completed cursor-pointer ${activeTab === 'active' ? 'active-metric-card' : ''}`}
+            className={`project-stat-card mywork-summary-card card-completed card-active cursor-pointer ${activeTab === 'active' ? 'active-metric-card' : ''}`}
             onClick={() => setActiveTab('active')}
             role="button"
             tabIndex={0}
           >
-            <div className="summary-card-top">
-              <div className="summary-icon-pill icon-completed">
-                <CheckCircleIcon size={16} />
+            <div className="stat-card-head summary-card-top">
+              <div className="stat-icon-pill icon-green summary-icon-pill icon-completed">
+                <CheckCircleIcon size={20} />
               </div>
-              <span className="summary-label">Active Projects</span>
+              <span className="stat-card-title summary-label">Active Projects</span>
             </div>
-            <div className="summary-card-bottom">
-              <div className="summary-value text-success">{metrics.active}</div>
-              <div className="summary-sub">Currently in progress</div>
+            <div className="stat-card-body summary-card-bottom">
+              <div className="stat-card-info">
+                <div className="stat-card-number number-green summary-value text-success">{metrics.active}</div>
+                <div className="stat-card-desc summary-sub">Currently in progress</div>
+              </div>
             </div>
+            <ActiveCardDecor />
           </div>
 
           {/* 3. Completed Projects */}
           <div
-            className={`mywork-summary-card card-due-soon cursor-pointer ${activeTab === 'completed' ? 'active-metric-card' : ''}`}
+            className={`project-stat-card mywork-summary-card card-due-soon card-completed cursor-pointer ${activeTab === 'completed' ? 'active-metric-card' : ''}`}
             onClick={() => setActiveTab('completed')}
             role="button"
             tabIndex={0}
           >
-            <div className="summary-card-top">
-              <div className="summary-icon-pill icon-due-soon">
-                <CheckSquareIcon size={16} />
+            <div className="stat-card-head summary-card-top">
+              <div className="stat-icon-pill icon-amber summary-icon-pill icon-due-soon">
+                <CheckSquareIcon size={20} />
               </div>
-              <span className="summary-label">Completed Projects</span>
+              <span className="stat-card-title summary-label">Completed Projects</span>
             </div>
-            <div className="summary-card-bottom">
-              <div className="summary-value text-purple">{metrics.completed}</div>
-              <div className="summary-sub">Successfully finalized</div>
+            <div className="stat-card-body summary-card-bottom">
+              <div className="stat-card-info">
+                <div className="stat-card-number number-purple summary-value text-purple">{metrics.completed}</div>
+                <div className="stat-card-desc summary-sub">Successfully finalized</div>
+              </div>
             </div>
+            <CompletedCardDecor />
           </div>
 
           {/* 4. Archived Projects */}
           <div
-            className={`mywork-summary-card card-overdue cursor-pointer ${activeTab === 'archived' ? 'active-metric-card' : ''}`}
+            className={`project-stat-card mywork-summary-card card-overdue card-archived cursor-pointer ${activeTab === 'archived' ? 'active-metric-card' : ''}`}
             onClick={() => setActiveTab('archived')}
             role="button"
             tabIndex={0}
           >
-            <div className="summary-card-top">
-              <div className="summary-icon-pill icon-overdue">
-                <FolderIcon size={16} />
+            <div className="stat-card-head summary-card-top">
+              <div className="stat-icon-pill icon-rose summary-icon-pill icon-overdue">
+                <FolderIcon size={20} />
               </div>
-              <span className="summary-label">Archived Projects</span>
+              <span className="stat-card-title summary-label">Archived Projects</span>
             </div>
-            <div className="summary-card-bottom">
-              <div className="summary-value text-danger-neutral">{metrics.archived}</div>
-              <div className="summary-sub">Archived & preserved</div>
+            <div className="stat-card-body summary-card-bottom">
+              <div className="stat-card-info">
+                <div className="stat-card-number summary-value text-danger-neutral">{metrics.archived}</div>
+                <div className="stat-card-desc summary-sub">Archived & preserved</div>
+              </div>
             </div>
+            <ArchivedCardDecor />
           </div>
         </div>
       )}
@@ -1163,8 +1969,6 @@ export const ProjectsPage: React.FC = () => {
             const totalTasks = project.taskCount || 0;
             const completedTasks = project.completedTaskCount || 0;
             const progress = project.progress !== undefined ? project.progress : 0;
-            const deadlineFormatted = formatDate(project.endDate);
-            const updatedFormatted = formatDate(project.updatedAt);
             const workspaceName = project.workspace?.name || activeWorkspace?.name || 'Workspace';
 
             return (
@@ -1179,30 +1983,29 @@ export const ProjectsPage: React.FC = () => {
                   }
                 }}
               >
-                {/* Top Row: Avatar & Badges */}
-                <div className="proj-card-top" style={{ alignItems: 'flex-start' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
+                {/* Top Row: Avatar & Badges (Matching Image Row 1) */}
+                <div className="proj-card-top">
+                  <div className="proj-card-header-left">
                     <ProjectAvatar project={project} size="md" />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-                        <span className="proj-card-title-text" style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0F172A' }}>
-                          {project.name}
+                    <div className="proj-card-title-group">
+                      <span className="proj-card-title-text" title={project.name}>
+                        {project.name}
+                      </span>
+                      {project.key && (
+                        <span className="proj-key-pill" title={`Project Key: ${project.key}`}>
+                          {project.key}
                         </span>
-                        {project.key && (
-                          <span className="proj-key-pill" title={`Project Key: ${project.key}`}>
-                            {project.key}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Workspace Attribution Badge */}
+                      )}
+                      {/* Workspace Attribution Badge (with workspace building icon instead of folder icon) */}
                       <span className="proj-workspace-attribution-pill" title={`Workspace: ${workspaceName}`}>
-                        <WorkspaceBadgeIcon size={11} />
+                        <WorkspaceBadgeIcon size={12} />
                         <span>{workspaceName}</span>
                       </span>
                     </div>
-                  </div>                  {/* Top-Right Badges & Actions */}
-                  <div className="proj-card-top-right" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'flex-end', position: 'relative' }}>
+                  </div>
+
+                  {/* Top-Right Badges & Actions */}
+                  <div className="proj-card-top-right">
                     <span className={`proj-status-pill status-${(project.status || 'ACTIVE').toLowerCase()}`}>
                       {project.status === 'COMPLETED' ? 'Completed' : project.status === 'ARCHIVED' ? 'Archived' : 'Active'}
                     </span>
@@ -1336,37 +2139,19 @@ export const ProjectsPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Project Description */}
-                <p className="proj-card-desc" style={{ marginTop: '0.35rem' }} title={project.description || undefined}>
+                {/* Category Pill Row (Matching Image Row 2) */}
+                <div className="proj-card-category-row">
+                  <span className="proj-card-category-pill">
+                    {project.category ? formatCategory(project.category) : (project.technologyStack?.[0] || 'General')}
+                  </span>
+                </div>
+
+                {/* Project Description (Matching Image Row 3) */}
+                <p className="proj-card-desc" title={project.description || undefined}>
                   {project.description || 'No description provided.'}
                 </p>
 
-                {/* Tech Stack Chips or Category */}
-                <div className="proj-tech-stack-row">
-                  {project.technologyStack && project.technologyStack.length > 0 ? (
-                    <>
-                      {project.technologyStack.slice(0, 3).map((tech, idx) => {
-                        const techLower = tech.toLowerCase().replace(/[^a-z0-9]/g, '');
-                        return (
-                          <span key={idx} className={`tech-chip tech-chip-${techLower}`}>
-                            {tech}
-                          </span>
-                        );
-                      })}
-                      {project.technologyStack.length > 3 && (
-                        <span className="tech-chip-more">
-                          +{project.technologyStack.length - 3}
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="tech-chip tech-chip-category">
-                      {formatCategory(project.category)}
-                    </span>
-                  )}
-                </div>
-
-                {/* Task Count & Progress Bar */}
+                {/* Task Count & Progress Bar (Matching Image Row 4) */}
                 <div className="proj-progress-section">
                   <div className="proj-progress-labels">
                     <span className="proj-progress-task-count">
@@ -1382,35 +2167,34 @@ export const ProjectsPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Deadlines if defined */}
-                {deadlineFormatted && (
-                  <div className="proj-deadline-row">
-                    <CalendarIcon size={12} />
-                    <span>Target: {deadlineFormatted}</span>
-                  </div>
-                )}
-
-                {/* Card Footer: Members, Updated time & Link */}
+                {/* Card Footer: Updated time, Members & Circular Action Button (Matching Image Row 5) */}
                 <div className="proj-card-foot">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                    <div className="proj-meta-item">
-                      <UsersIcon size={14} />
+                  <div className="proj-card-foot-left">
+                    <CalendarIcon size={16} />
+                    <span>Updated {formatTimeAgo(project.updatedAt)}</span>
+                  </div>
+
+                  <div className="proj-card-foot-right">
+                    <div className="proj-card-members">
+                      <UsersIcon size={16} />
                       <span>
                         {memberCount} {memberCount === 1 ? 'member' : 'members'}
                       </span>
                     </div>
 
-                    {updatedFormatted && (
-                      <div className="proj-updated-row" title="Last updated time">
-                        <ClockIcon size={12} />
-                        <span>Updated {updatedFormatted}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="proj-view-link">
-                    <span>Open Project</span>
-                    <ArrowRightIcon size={14} />
+                    <button
+                      type="button"
+                      className="proj-card-arrow-btn"
+                      title="Open Project"
+                      aria-label="Open Project"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/app/projects/${project.id}`);
+                      }}
+                    >
+                      <span className="sr-only">Open Project</span>
+                      <ChevronRightIcon size={16} />
+                    </button>
                   </div>
                 </div>
               </div>

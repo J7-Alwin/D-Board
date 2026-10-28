@@ -173,9 +173,9 @@ describe('WorkspaceSettingsPage Component Tests', () => {
     expect(screen.getByText('Back to Dashboard')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Workspace Settings' })).toBeInTheDocument();
     expect(screen.getByText('Acme Studio')).toBeInTheDocument();
-    expect(screen.getByText(/Your team\./i)).toBeInTheDocument();
-    expect(screen.getByText(/Your workspace\./i)).toBeInTheDocument();
-    expect(screen.getByText(/Your mission\./i)).toBeInTheDocument();
+    expect(screen.getByText(/A great workspace/i)).toBeInTheDocument();
+    expect(screen.getByText(/brings people, ideas, and progress/i)).toBeInTheDocument();
+    expect(screen.getByText(/together\./i)).toBeInTheDocument();
   });
 
   it('2. back to dashboard button triggers router navigate', async () => {

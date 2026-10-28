@@ -37,7 +37,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
       if (res.success && res.data) {
         setNotifications(res.data.notifications);
         if (res.data.pagination.unreadCount > 0) {
-          notificationsApi.markAllAsRead().catch(() => {});
+          notificationsApi.markAllAsRead().catch(() => { });
           onUnreadCountChange(0);
           setNotifications((prev) =>
             prev.map((n) => ({ ...n, readAt: n.readAt || new Date().toISOString() }))
@@ -90,7 +90,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
           prev.map((n) => (n.id === notif.id ? { ...n, readAt: new Date().toISOString() } : n))
         );
         onUnreadCountChange(Math.max(0, unreadCount - 1));
-      } catch {}
+      } catch { }
     }
     setIsOpen(false);
     navigate(notif.link);

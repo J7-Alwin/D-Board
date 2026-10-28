@@ -40,6 +40,22 @@ export interface WorkItemActivity {
   createdAt: string;
 }
 
+export interface WorkItemAssignee {
+  id: string;
+  workItemId?: string;
+  userId: string;
+  user: UserSummary;
+  hasStarted?: boolean;
+  startedAt?: string | null;
+  hasCompleted?: boolean;
+  completedAt?: string | null;
+  totalDurationSeconds?: number;
+  lastSessionStartedAt?: string | null;
+  isPaused?: boolean;
+  lastCheckInCycle?: number;
+  lastCheckInAt?: string | null;
+}
+
 export interface WorkItem {
   id: string;
   projectId: string;
@@ -52,7 +68,17 @@ export interface WorkItem {
   createdBy: UserSummary;
   assignedToId: string | null;
   assignedTo: UserSummary | null;
+  assignees?: WorkItemAssignee[];
   dueDate: string | null;
+  todoDueDate?: string | null;
+  inProgressDueDate?: string | null;
+  inReviewDueDate?: string | null;
+  completedDueDate?: string | null;
+  rejectionReason?: string | null;
+  rejectedAt?: string | null;
+  rejectedById?: string | null;
+  approvedAt?: string | null;
+  approvedById?: string | null;
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -89,7 +115,12 @@ export interface CreateWorkItemInput {
   status?: WorkItemStatus;
   priority?: WorkItemPriority;
   assignedToId?: string | null;
+  assigneeIds?: string[];
   dueDate?: string | null;
+  todoDueDate?: string | null;
+  inProgressDueDate?: string | null;
+  inReviewDueDate?: string | null;
+  completedDueDate?: string | null;
 }
 
 export interface UpdateWorkItemInput {
@@ -99,7 +130,12 @@ export interface UpdateWorkItemInput {
   status?: WorkItemStatus;
   priority?: WorkItemPriority;
   assignedToId?: string | null;
+  assigneeIds?: string[];
   dueDate?: string | null;
+  todoDueDate?: string | null;
+  inProgressDueDate?: string | null;
+  inReviewDueDate?: string | null;
+  completedDueDate?: string | null;
 }
 
 export interface WorkFilterParams {
@@ -191,4 +227,77 @@ export const workApi = {
 
     return safeParseJson<{ success: boolean; message: string }>(res, 'Failed to delete work item');
   },
+
+  async startTask(
+    projectId: string,
+    workItemId: string
+  ): Promise<{ success: boolean; message: string; data: { workItem: WorkItem } }> {
+    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    const res = await fetch(`${base}/projects/${projectId}/work/${workItemId}/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+
+    return safeParseJson<{ success: boolean; message: string; data: { workItem: WorkItem } }>(res, 'Failed to start task');
+  },
+
+  async checkInTimer(
+    projectId: string,
+    workItemId: string
+  ): Promise<{ success: boolean; message: string; data: { workItem: WorkItem } }> {
+    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    const res = await fetch(`${base}/projects/${projectId}/work/${workItemId}/check-in`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+
+    return safeParseJson<{ success: boolean; message: string; data: { workItem: WorkItem } }>(res, 'Failed to check in timer');
+  },
+
+  async resumeTimer(
+    projectId: string,
+    workItemId: string
+  ): Promise<{ success: boolean; message: string; data: { workItem: WorkItem } }> {
+    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    const res = await fetch(`${base}/projects/${projectId}/work/${workItemId}/resume-timer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+
+    return safeParseJson<{ success: boolean; message: string; data: { workItem: WorkItem } }>(res, 'Failed to resume timer');
+  },
+
+  async completeWork(
+    projectId: string,
+    workItemId: string
+  ): Promise<{ success: boolean; message: string; data: { workItem: WorkItem } }> {
+    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    const res = await fetch(`${base}/projects/${projectId}/work/${workItemId}/complete-work`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+
+    return safeParseJson<{ success: boolean; message: string; data: { workItem: WorkItem } }>(res, 'Failed to mark work as complete');
+  },
+
+  async reviewTask(
+    projectId: string,
+    workItemId: string,
+    input: { action: 'APPROVE' | 'REJECT'; reason?: string }
+  ): Promise<{ success: boolean; message: string; data: { workItem: WorkItem } }> {
+    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    const res = await fetch(`${base}/projects/${projectId}/work/${workItemId}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(input),
+    });
+
+    return safeParseJson<{ success: boolean; message: string; data: { workItem: WorkItem } }>(res, 'Failed to review task');
+  },
 };
+

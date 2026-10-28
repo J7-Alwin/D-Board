@@ -1,5 +1,5 @@
 import { prisma } from '../prisma.js';
-import { CreateWorkItemInput, UpdateWorkItemInput } from '../schemas/work.schema.js';
+import { CreateWorkItemInput, UpdateWorkItemInput, ReviewTaskInput } from '../schemas/work.schema.js';
 import { activityService } from './activity.service.js';
 import { notificationService } from './notification.service.js';
 import { AppError } from '../middlewares/error.middleware.js';
@@ -38,10 +38,59 @@ export class WorkService {
       throw new AppError('Cannot create work items in an archived project', 400);
     }
 
-    const assignedToId = data.assignedToId && data.assignedToId.trim() ? data.assignedToId.trim() : null;
+    const rawAssigneeIds = data.assigneeIds || (data.assignedToId ? [data.assignedToId] : []);
+    const assigneeIds = Array.from(new Set(rawAssigneeIds.map((id) => id.trim()).filter(Boolean)));
+    const assignedToId = assigneeIds.length > 0 ? assigneeIds[0] : (data.assignedToId && data.assignedToId.trim() ? data.assignedToId.trim() : null);
 
-    if (assignedToId) {
-      await this.verifyAssigneeInProject(projectId, assignedToId);
+    for (const aId of assigneeIds) {
+      await this.verifyAssigneeInProject(projectId, aId);
+    }
+
+    const access = await projectService.verifyProjectAccess(projectId, userId);
+    const isOwnerOrAdmin = access.isWsOwner || access.isWsAdmin || access.isAdmin;
+
+    // Rule: Project members cannot assign tasks to Workspace Owner or Workspace Admin
+    if (!isOwnerOrAdmin && assigneeIds.length > 0) {
+      const restrictedMembers = await prisma.workspaceMember.findMany({
+        where: {
+          workspaceId: project.workspaceId,
+          OR: [{ role: 'WORKSPACE_ADMIN' }, { role: 'OWNER' }],
+        },
+        select: { userId: true },
+      });
+      const restrictedUserIds = new Set(restrictedMembers.map((m) => m.userId));
+      if (project.workspace?.ownerId) {
+        restrictedUserIds.add(project.workspace.ownerId);
+      }
+
+      for (const aId of assigneeIds) {
+        if (restrictedUserIds.has(aId)) {
+          throw new AppError('Project members cannot assign tasks to Workspace Owners or Workspace Administrators', 403);
+        }
+      }
+    }
+
+    // Validation: 4 sequential stage due dates (today <= todo <= inProgress <= inReview <= completed)
+    if (data.todoDueDate && data.inProgressDueDate && data.inReviewDueDate && (data.completedDueDate || data.dueDate)) {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todoDate = new Date(data.todoDueDate);
+      const inProgressDate = new Date(data.inProgressDueDate);
+      const inReviewDate = new Date(data.inReviewDueDate);
+      const completedDate = new Date(data.completedDueDate || data.dueDate!);
+
+      if (todoDate < today) {
+        throw new AppError('To Do due date cannot be before today', 400);
+      }
+      if (inProgressDate < todoDate) {
+        throw new AppError('In Progress due date cannot be before To Do due date', 400);
+      }
+      if (inReviewDate < inProgressDate) {
+        throw new AppError('In Review due date cannot be before In Progress due date', 400);
+      }
+      if (completedDate < inReviewDate) {
+        throw new AppError('Completed due date cannot be before In Review due date', 400);
+      }
     }
 
     const createdItem = await prisma.$transaction(async (tx) => {
@@ -57,8 +106,15 @@ export class WorkService {
           priority: data.priority || 'MEDIUM',
           createdById: userId,
           assignedToId,
-          dueDate: data.dueDate ? new Date(data.dueDate) : null,
+          dueDate: data.completedDueDate ? new Date(data.completedDueDate) : (data.dueDate ? new Date(data.dueDate) : null),
+          todoDueDate: data.todoDueDate ? new Date(data.todoDueDate) : null,
+          inProgressDueDate: data.inProgressDueDate ? new Date(data.inProgressDueDate) : null,
+          inReviewDueDate: data.inReviewDueDate ? new Date(data.inReviewDueDate) : null,
+          completedDueDate: data.completedDueDate ? new Date(data.completedDueDate) : (data.dueDate ? new Date(data.dueDate) : null),
           completedAt: isCompleted ? new Date() : null,
+          assignees: assigneeIds.length > 0 ? {
+            create: assigneeIds.map((uId) => ({ userId: uId })),
+          } : undefined,
         },
         include: {
           createdBy: {
@@ -66,6 +122,13 @@ export class WorkService {
           },
           assignedTo: {
             select: { id: true, fullName: true, username: true, avatarUrl: true },
+          },
+          assignees: {
+            include: {
+              user: {
+                select: { id: true, fullName: true, username: true, avatarUrl: true },
+              },
+            },
           },
         },
       });
@@ -87,8 +150,8 @@ export class WorkService {
         tx
       );
 
-      // Log WORK_ASSIGNED activity if assignee was set on creation
-      if (assignedToId) {
+      // Log WORK_ASSIGNED activity and notifications for all assignees
+      if (assigneeIds.length > 0) {
         await activityService.createActivity(
           {
             projectId,
@@ -97,26 +160,29 @@ export class WorkService {
             workItemId: workItem.id,
             metadata: {
               assignedToId,
+              assigneeIds,
               assignedToName: workItem.assignedTo?.fullName || workItem.assignedTo?.username,
             },
           },
           tx
         );
 
-        if (assignedToId !== userId) {
-          await notificationService.createNotification(
-            {
-              recipientId: assignedToId,
-              actorId: userId,
-              projectId,
-              workItemId: workItem.id,
-              type: 'WORK_ASSIGNED',
-              title: 'Work item assigned to you',
-              message: `${workItem.createdBy?.fullName || workItem.createdBy?.username || 'Someone'} assigned you to "${workItem.title}"`,
-              link: `/app/projects/${projectId}/board?item=${workItem.id}`,
-            },
-            tx
-          );
+        for (const aId of assigneeIds) {
+          if (aId !== userId) {
+            await notificationService.createNotification(
+              {
+                recipientId: aId,
+                actorId: userId,
+                projectId,
+                workItemId: workItem.id,
+                type: 'WORK_ASSIGNED',
+                title: 'Work item assigned to you',
+                message: `${workItem.createdBy?.fullName || workItem.createdBy?.username || 'Someone'} assigned you to "${workItem.title}"`,
+                link: `/app/projects/${projectId}/board?item=${workItem.id}`,
+              },
+              tx
+            );
+          }
         }
       }
 
@@ -200,6 +266,13 @@ export class WorkService {
           assignedTo: {
             select: { id: true, fullName: true, username: true, avatarUrl: true },
           },
+          assignees: {
+            include: {
+              user: {
+                select: { id: true, fullName: true, username: true, avatarUrl: true },
+              },
+            },
+          },
           _count: {
             select: { comments: true },
           },
@@ -255,6 +328,13 @@ export class WorkService {
         assignedTo: {
           select: { id: true, fullName: true, username: true, avatarUrl: true, email: true },
         },
+        assignees: {
+          include: {
+            user: {
+              select: { id: true, fullName: true, username: true, avatarUrl: true, email: true },
+            },
+          },
+        },
         comments: {
           where: { deletedAt: null },
           include: {
@@ -278,6 +358,30 @@ export class WorkService {
 
     if (!workItem || workItem.projectId !== projectId) {
       throw new AppError('Work item not found in this project', 404);
+    }
+
+    // Auto-reconcile expired timer sessions (>= 30 mins elapsed without check-in)
+    if (workItem.status === 'IN_PROGRESS' && workItem.assignees && workItem.assignees.length > 0) {
+      const now = new Date();
+      for (const a of workItem.assignees) {
+        if (!a.isPaused && a.lastSessionStartedAt && !a.hasCompleted) {
+          const elapsed = Math.max(0, Math.floor((now.getTime() - new Date(a.lastSessionStartedAt).getTime()) / 1000));
+          if (elapsed >= 1800) {
+            await prisma.workItemAssignee.update({
+              where: { id: a.id },
+              data: {
+                totalDurationSeconds: a.totalDurationSeconds + 1800,
+                isPaused: true,
+                lastSessionStartedAt: null,
+                lastCheckInAt: now,
+              },
+            });
+            a.totalDurationSeconds += 1800;
+            a.isPaused = true;
+            a.lastSessionStartedAt = null;
+          }
+        }
+      }
     }
 
     return workItem;
@@ -307,15 +411,62 @@ export class WorkService {
       throw new AppError('Work item not found', 404);
     }
 
+    let assigneeIdsToSet: string[] | undefined = undefined;
+    if (data.assigneeIds !== undefined && data.assigneeIds !== null) {
+      assigneeIdsToSet = Array.from(new Set(data.assigneeIds.map((id) => id.trim()).filter(Boolean)));
+    } else if (data.assignedToId !== undefined) {
+      assigneeIdsToSet = data.assignedToId && data.assignedToId.trim() ? [data.assignedToId.trim()] : [];
+    }
+
+    if (assigneeIdsToSet) {
+      for (const aId of assigneeIdsToSet) {
+        await this.verifyAssigneeInProject(projectId, aId);
+      }
+    }
+
     const assignedToId =
-      data.assignedToId !== undefined
+      assigneeIdsToSet !== undefined
+        ? assigneeIdsToSet[0] || null
+        : data.assignedToId !== undefined
         ? data.assignedToId && data.assignedToId.trim()
           ? data.assignedToId.trim()
           : null
         : undefined;
 
-    if (assignedToId && assignedToId !== existing.assignedToId) {
+    if (assignedToId && assignedToId !== existing.assignedToId && !assigneeIdsToSet) {
       await this.verifyAssigneeInProject(projectId, assignedToId);
+    }
+
+    const access = await projectService.verifyProjectAccess(projectId, userId);
+    const isOwnerOrAdmin = access.isWsOwner || access.isWsAdmin || access.isAdmin;
+    const isCreator = existing.createdById === userId;
+
+    // Rule: Only Owner, Workspace Admin, Project Admin, or Task Creator can move tasks or change status directly
+    if (data.status !== undefined && data.status !== existing.status) {
+      if (!isOwnerOrAdmin && !isCreator) {
+        throw new AppError('Only the Task Creator, Project Admin, Workspace Admin, or Workspace Owner can move tasks between columns', 403);
+      }
+    }
+
+    // Rule: Project members cannot assign tasks to Workspace Owner or Workspace Admin
+    if (!isOwnerOrAdmin && assigneeIdsToSet && assigneeIdsToSet.length > 0) {
+      const restrictedMembers = await prisma.workspaceMember.findMany({
+        where: {
+          workspaceId: project.workspaceId,
+          OR: [{ role: 'WORKSPACE_ADMIN' }, { role: 'OWNER' }],
+        },
+        select: { userId: true },
+      });
+      const restrictedUserIds = new Set(restrictedMembers.map((m) => m.userId));
+      if (project.workspace?.ownerId) {
+        restrictedUserIds.add(project.workspace.ownerId);
+      }
+
+      for (const aId of assigneeIdsToSet) {
+        if (restrictedUserIds.has(aId)) {
+          throw new AppError('Project members cannot assign tasks to Workspace Owners or Workspace Administrators', 403);
+        }
+      }
     }
 
     const updatedItem = await prisma.$transaction(async (tx) => {
@@ -328,6 +479,16 @@ export class WorkService {
         }
       }
 
+      if (assigneeIdsToSet !== undefined) {
+        await tx.workItemAssignee.deleteMany({ where: { workItemId } });
+        if (assigneeIdsToSet.length > 0) {
+          await tx.workItemAssignee.createMany({
+            data: assigneeIdsToSet.map((uId) => ({ workItemId, userId: uId })),
+            skipDuplicates: true,
+          });
+        }
+      }
+
       const updated = await tx.workItem.update({
         where: { id: workItemId },
         data: {
@@ -337,7 +498,11 @@ export class WorkService {
           status: data.status !== undefined ? data.status : undefined,
           priority: data.priority !== undefined ? data.priority : undefined,
           assignedToId,
-          dueDate: data.dueDate !== undefined ? (data.dueDate ? new Date(data.dueDate) : null) : undefined,
+          dueDate: data.completedDueDate !== undefined ? (data.completedDueDate ? new Date(data.completedDueDate) : null) : (data.dueDate !== undefined ? (data.dueDate ? new Date(data.dueDate) : null) : undefined),
+          todoDueDate: data.todoDueDate !== undefined ? (data.todoDueDate ? new Date(data.todoDueDate) : null) : undefined,
+          inProgressDueDate: data.inProgressDueDate !== undefined ? (data.inProgressDueDate ? new Date(data.inProgressDueDate) : null) : undefined,
+          inReviewDueDate: data.inReviewDueDate !== undefined ? (data.inReviewDueDate ? new Date(data.inReviewDueDate) : null) : undefined,
+          completedDueDate: data.completedDueDate !== undefined ? (data.completedDueDate ? new Date(data.completedDueDate) : null) : undefined,
           completedAt,
         },
         include: {
@@ -346,6 +511,13 @@ export class WorkService {
           },
           assignedTo: {
             select: { id: true, fullName: true, username: true, avatarUrl: true },
+          },
+          assignees: {
+            include: {
+              user: {
+                select: { id: true, fullName: true, username: true, avatarUrl: true },
+              },
+            },
           },
         },
       });
@@ -543,7 +715,7 @@ export class WorkService {
   }
 
   /**
-   * Get aggregated work items for authenticated user across authorized projects
+   * Get aggregated work items for authenticated user across authorized projects with role-based visibility
    */
   async getMyWorkItems(
     userId: string,
@@ -560,15 +732,76 @@ export class WorkService {
     },
     workspaceId?: string
   ) {
-    // 1. Fetch all project IDs accessible to the user in the active workspace
-    const { all } = await projectService.getUserProjects(userId, workspaceId);
-    const projectIds = all.map((p) => p.id);
+    // 1. Fetch workspace role & accessible projects in the active workspace
+    let isWorkspaceOwnerOrAdmin = false;
+    let workspaceProjectIds: string[] = [];
 
-    if (projectIds.length === 0) {
+    if (workspaceId) {
+      const ws = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        include: {
+          members: {
+            where: { userId },
+          },
+        },
+      });
+
+      if (ws) {
+        if (ws.ownerId === userId) {
+          isWorkspaceOwnerOrAdmin = true;
+        } else if (ws.members.length > 0) {
+          const role = ws.members[0].role;
+          if (role === 'OWNER' || role === 'WORKSPACE_ADMIN') {
+            isWorkspaceOwnerOrAdmin = true;
+          }
+        }
+      }
+
+      if (isWorkspaceOwnerOrAdmin) {
+        const wsProjects = await prisma.project.findMany({
+          where: { workspaceId, status: { not: 'ARCHIVED' } },
+          select: { id: true },
+        });
+        workspaceProjectIds = wsProjects.map((p) => p.id);
+      }
+    }
+
+    // Projects where user is member or admin
+    const userMemberships = await prisma.projectMember.findMany({
+      where: {
+        userId,
+        project: workspaceId ? { workspaceId, status: { not: 'ARCHIVED' } } : { status: { not: 'ARCHIVED' } },
+      },
+      select: {
+        projectId: true,
+        role: true,
+        project: {
+          select: { id: true, createdById: true },
+        },
+      },
+    });
+
+    const projectAdminIds = new Set<string>();
+    const projectMemberIds = new Set<string>();
+
+    for (const m of userMemberships) {
+      if (m.role === 'PROJECT_ADMIN' || m.project.createdById === userId) {
+        projectAdminIds.add(m.projectId);
+      } else {
+        projectMemberIds.add(m.projectId);
+      }
+    }
+
+    // Determine project scope
+    const allAccessibleProjectIds = isWorkspaceOwnerOrAdmin
+      ? workspaceProjectIds
+      : Array.from(new Set([...projectAdminIds, ...projectMemberIds]));
+
+    if (allAccessibleProjectIds.length === 0) {
       return {
         workItems: [],
         summary: { total: 0, createdTotal: 0, inProgress: 0, dueSoon: 0, overdue: 0, blocked: 0, completed: 0 },
-        pagination: { page: 1, limit: params?.limit || 10, total: 0, totalPages: 0 },
+        pagination: { page: 1, limit: params?.limit || 200, total: 0, totalPages: 0 },
       };
     }
 
@@ -576,12 +809,62 @@ export class WorkService {
     const sevenDaysLater = new Date();
     sevenDaysLater.setDate(now.getDate() + 7);
 
-    // 2. Compute user's summary metrics across all assigned and created items
-    const [userAssignedItems, userCreatedItems] = await Promise.all([
+    // 2. Role-based visibility condition:
+    // - Workspace Owner / Admin: sees all tasks in workspace projects
+    // - Project Admin: sees all tasks in projects they admin
+    // - Project Member: sees only tasks they are part of (assigned, in assignees, or created by them)
+    let visibilityFilter: any = {};
+
+    if (isWorkspaceOwnerOrAdmin) {
+      visibilityFilter = {
+        projectId: params?.projectId ? params.projectId : { in: workspaceProjectIds },
+      };
+    } else {
+      const targetProjId = params?.projectId;
+      if (targetProjId) {
+        if (!allAccessibleProjectIds.includes(targetProjId)) {
+          throw new AppError('You do not have access to the specified project', 403);
+        }
+        if (projectAdminIds.has(targetProjId)) {
+          visibilityFilter = { projectId: targetProjId };
+        } else {
+          visibilityFilter = {
+            projectId: targetProjId,
+            OR: [
+              { assignedToId: userId },
+              { createdById: userId },
+              { assignees: { some: { userId } } },
+            ],
+          };
+        }
+      } else {
+        const conditions: any[] = [];
+        if (projectAdminIds.size > 0) {
+          conditions.push({ projectId: { in: Array.from(projectAdminIds) } });
+        }
+        if (projectMemberIds.size > 0) {
+          conditions.push({
+            projectId: { in: Array.from(projectMemberIds) },
+            OR: [
+              { assignedToId: userId },
+              { createdById: userId },
+              { assignees: { some: { userId } } },
+            ],
+          });
+        }
+        visibilityFilter = conditions.length > 1 ? { OR: conditions } : conditions[0] || {};
+      }
+    }
+
+    // 3. Compute user summary metrics based on their visible scope
+    const [assignedOrPartItems, createdItems] = await Promise.all([
       prisma.workItem.findMany({
         where: {
-          projectId: { in: projectIds },
-          assignedToId: userId,
+          ...visibilityFilter,
+          OR: [
+            { assignedToId: userId },
+            { assignees: { some: { userId } } },
+          ],
         },
         select: {
           id: true,
@@ -591,7 +874,7 @@ export class WorkService {
       }),
       prisma.workItem.findMany({
         where: {
-          projectId: { in: projectIds },
+          ...visibilityFilter,
           createdById: userId,
         },
         select: {
@@ -603,57 +886,42 @@ export class WorkService {
     ]);
 
     const summary = {
-      total: userAssignedItems.length,
-      createdTotal: userCreatedItems.length,
-      inProgress: userAssignedItems.filter((i) => i.status === 'IN_PROGRESS').length,
-      dueSoon: userAssignedItems.filter((i) => {
+      total: assignedOrPartItems.length,
+      createdTotal: createdItems.length,
+      inProgress: assignedOrPartItems.filter((i) => i.status === 'IN_PROGRESS').length,
+      dueSoon: assignedOrPartItems.filter((i) => {
         if (!i.dueDate || i.status === 'COMPLETED') return false;
         const due = new Date(i.dueDate);
         return due >= now && due <= sevenDaysLater;
       }).length,
-      overdue: userAssignedItems.filter((i) => {
+      overdue: assignedOrPartItems.filter((i) => {
         if (!i.dueDate || i.status === 'COMPLETED') return false;
         return new Date(i.dueDate) < now;
       }).length,
-      blocked: userAssignedItems.filter((i) => i.status === 'BLOCKED').length,
-      canceled: userAssignedItems.filter((i) => i.status === 'BLOCKED').length,
-      completed: userAssignedItems.filter((i) => i.status === 'COMPLETED').length,
+      blocked: assignedOrPartItems.filter((i) => i.status === 'BLOCKED').length,
+      canceled: assignedOrPartItems.filter((i) => i.status === 'BLOCKED').length,
+      completed: assignedOrPartItems.filter((i) => i.status === 'COMPLETED').length,
     };
 
-    // 3. Build dynamic query filters
+    // 4. Build dynamic query filters
     const where: any = {
-      projectId: params?.projectId ? params.projectId : { in: projectIds },
+      ...visibilityFilter,
     };
 
-    // If specific projectId requested, ensure user has access
-    if (params?.projectId && !projectIds.includes(params.projectId)) {
-      throw new AppError('You do not have access to the specified project', 403);
-    }
-
-    const tab = params?.tab || 'my-work';
-
-    if (tab === 'my-work') {
-      where.assignedToId = userId;
-    } else if (tab === 'created-work') {
+    const tab = params?.tab;
+    if (tab === 'created-work') {
       where.createdById = userId;
     } else if (tab === 'overdue') {
-      where.assignedToId = userId;
       where.status = { not: 'COMPLETED' };
       where.dueDate = { lt: now };
     } else if (tab === 'due-soon') {
-      where.assignedToId = userId;
       where.status = { not: 'COMPLETED' };
       where.dueDate = { gte: now, lte: sevenDaysLater };
     } else if (tab === 'completed') {
-      where.assignedToId = userId;
       where.status = 'COMPLETED';
     } else if (tab === 'blocked' || tab === 'canceled') {
-      where.assignedToId = userId;
       where.status = 'BLOCKED';
-    } else if (tab === 'all') {
-      // All items in user's accessible projects
     }
-
 
     if (params?.status) {
       where.status = params.status;
@@ -680,7 +948,7 @@ export class WorkService {
       ];
     }
 
-    // 4. Sorting
+    // 5. Sorting
     let orderBy: any = { createdAt: 'desc' };
     if (params?.sort === 'dueDate') {
       orderBy = { dueDate: 'asc' };
@@ -690,9 +958,9 @@ export class WorkService {
       orderBy = { updatedAt: 'desc' };
     }
 
-    // 5. Pagination
+    // 6. Pagination - default 200 for complete Kanban board experience
     const page = Math.max(1, params?.page || 1);
-    const limit = Math.min(100, Math.max(1, params?.limit || 10));
+    const limit = Math.min(1000, Math.max(1, params?.limit || 200));
     const skip = (page - 1) * limit;
 
     const [workItems, total] = await Promise.all([
@@ -704,6 +972,13 @@ export class WorkService {
           },
           assignedTo: {
             select: { id: true, fullName: true, username: true, avatarUrl: true },
+          },
+          assignees: {
+            include: {
+              user: {
+                select: { id: true, fullName: true, username: true, avatarUrl: true },
+              },
+            },
           },
           createdBy: {
             select: { id: true, fullName: true, username: true, avatarUrl: true },
@@ -731,6 +1006,261 @@ export class WorkService {
         totalPages,
       },
     };
+  }
+
+  /**
+   * Assignee starts their work on a task (TODO -> IN_PROGRESS when all start)
+   */
+  async startTask(projectId: string, workItemId: string, userId: string) {
+    await this.verifyProjectMember(projectId, userId);
+    const existing = await prisma.workItem.findUnique({
+      where: { id: workItemId },
+      include: { assignees: true },
+    });
+    if (!existing || existing.projectId !== projectId) {
+      throw new AppError('Work item not found', 404);
+    }
+    const assignee = existing.assignees.find((a) => a.userId === userId);
+    if (!assignee) {
+      throw new AppError('You are not assigned to this work item', 403);
+    }
+
+    const now = new Date();
+    await prisma.workItemAssignee.update({
+      where: { id: assignee.id },
+      data: {
+        hasStarted: true,
+        startedAt: assignee.startedAt || now,
+        lastSessionStartedAt: now,
+        isPaused: false,
+        lastCheckInCycle: 1,
+        lastCheckInAt: now,
+      },
+    });
+
+    // Check if ALL assignees have started
+    const allAssignees = await prisma.workItemAssignee.findMany({
+      where: { workItemId },
+    });
+    const allStarted = allAssignees.length > 0 && allAssignees.every((a) => a.hasStarted);
+    if (allStarted && existing.status === 'TODO') {
+      await prisma.workItem.update({
+        where: { id: workItemId },
+        data: { status: 'IN_PROGRESS' },
+      });
+      // Synchronize all assignees' timers so they start active together in IN_PROGRESS
+      await prisma.workItemAssignee.updateMany({
+        where: { workItemId },
+        data: {
+          lastSessionStartedAt: now,
+          lastCheckInAt: now,
+          isPaused: false,
+        },
+      });
+      publishToProject(projectId, 'WORK_STATUS_CHANGED', {
+        id: workItemId,
+        status: 'IN_PROGRESS',
+        from: 'TODO',
+      });
+    }
+
+    const updatedItem = await this.getWorkItemById(projectId, workItemId, userId);
+    publishToProject(projectId, 'WORK_UPDATED', { workItem: updatedItem });
+    return updatedItem;
+  }
+
+  /**
+   * Assignee checks in between minute 25 and 30 to keep timer running
+   */
+  async checkInTimer(projectId: string, workItemId: string, userId: string) {
+    await this.verifyProjectMember(projectId, userId);
+    const assignee = await prisma.workItemAssignee.findFirst({
+      where: { workItemId, userId },
+    });
+    if (!assignee) {
+      throw new AppError('Assignee record not found', 404);
+    }
+
+    const now = new Date();
+    let additionalSeconds = 0;
+    if (!assignee.isPaused && assignee.lastSessionStartedAt) {
+      const elapsed = Math.max(0, Math.floor((now.getTime() - new Date(assignee.lastSessionStartedAt).getTime()) / 1000));
+      additionalSeconds = Math.min(elapsed, 1800); // Capped at 30 min (1800s)
+    }
+
+    await prisma.workItemAssignee.update({
+      where: { id: assignee.id },
+      data: {
+        totalDurationSeconds: assignee.totalDurationSeconds + additionalSeconds,
+        lastSessionStartedAt: now,
+        isPaused: false,
+        lastCheckInCycle: (assignee.lastCheckInCycle || 0) + 1,
+        lastCheckInAt: now,
+      },
+    });
+
+    const updatedItem = await this.getWorkItemById(projectId, workItemId, userId);
+    publishToProject(projectId, 'WORK_UPDATED', { workItem: updatedItem });
+    return updatedItem;
+  }
+
+  /**
+   * Assignee resumes a paused timer
+   */
+  async resumeTimer(projectId: string, workItemId: string, userId: string) {
+    await this.verifyProjectMember(projectId, userId);
+    const assignee = await prisma.workItemAssignee.findFirst({
+      where: { workItemId, userId },
+    });
+    if (!assignee) {
+      throw new AppError('Assignee record not found', 404);
+    }
+
+    const now = new Date();
+    // Credit any previously uncredited time from a session that expired past 1800s
+    let additionalSeconds = 0;
+    if (assignee.lastSessionStartedAt) {
+      const elapsed = Math.max(0, Math.floor((now.getTime() - new Date(assignee.lastSessionStartedAt).getTime()) / 1000));
+      additionalSeconds = Math.min(elapsed, 1800);
+    }
+
+    await prisma.workItemAssignee.update({
+      where: { id: assignee.id },
+      data: {
+        totalDurationSeconds: assignee.totalDurationSeconds + additionalSeconds,
+        isPaused: false,
+        lastSessionStartedAt: now,
+        lastCheckInAt: now,
+      },
+    });
+
+    const updatedItem = await this.getWorkItemById(projectId, workItemId, userId);
+    publishToProject(projectId, 'WORK_UPDATED', { workItem: updatedItem });
+    return updatedItem;
+  }
+
+  /**
+   * Assignee marks their work as done
+   */
+  async completeWork(projectId: string, workItemId: string, userId: string) {
+    await this.verifyProjectMember(projectId, userId);
+    const existing = await prisma.workItem.findUnique({
+      where: { id: workItemId },
+      include: { assignees: true },
+    });
+    if (!existing || existing.projectId !== projectId) {
+      throw new AppError('Work item not found', 404);
+    }
+    const assignee = existing.assignees.find((a) => a.userId === userId);
+    if (!assignee) {
+      throw new AppError('You are not assigned to this work item', 403);
+    }
+
+    const now = new Date();
+    let additionalSeconds = 0;
+    if (!assignee.isPaused && assignee.lastSessionStartedAt) {
+      const elapsed = Math.max(0, Math.floor((now.getTime() - new Date(assignee.lastSessionStartedAt).getTime()) / 1000));
+      additionalSeconds = Math.min(elapsed, 1800); // Capped at 30 min (1800s)
+    }
+
+    await prisma.workItemAssignee.update({
+      where: { id: assignee.id },
+      data: {
+        hasCompleted: true,
+        completedAt: now,
+        isPaused: true,
+        lastSessionStartedAt: null,
+        totalDurationSeconds: assignee.totalDurationSeconds + additionalSeconds,
+      },
+    });
+
+    // Check if ALL assignees have completed
+    const allAssignees = await prisma.workItemAssignee.findMany({
+      where: { workItemId },
+    });
+    const allCompleted = allAssignees.length > 0 && allAssignees.every((a) => a.hasCompleted);
+    if (allCompleted && (existing.status === 'IN_PROGRESS' || existing.status === 'TODO')) {
+      await prisma.workItem.update({
+        where: { id: workItemId },
+        data: { status: 'IN_REVIEW' },
+      });
+      publishToProject(projectId, 'WORK_STATUS_CHANGED', {
+        id: workItemId,
+        status: 'IN_REVIEW',
+        from: existing.status,
+      });
+    }
+
+    const updatedItem = await this.getWorkItemById(projectId, workItemId, userId);
+    publishToProject(projectId, 'WORK_UPDATED', { workItem: updatedItem });
+    return updatedItem;
+  }
+
+  /**
+   * Creator, Project Admin, Workspace Admin, or Workspace Owner reviews task
+   */
+  async reviewTask(projectId: string, workItemId: string, userId: string, data: ReviewTaskInput) {
+    const access = await projectService.verifyProjectAccess(projectId, userId);
+    const existing = await prisma.workItem.findUnique({
+      where: { id: workItemId },
+      include: { assignees: true },
+    });
+    if (!existing || existing.projectId !== projectId) {
+      throw new AppError('Work item not found', 404);
+    }
+
+    const canReview = access.isWsOwner || access.isWsAdmin || access.isAdmin || existing.createdById === userId;
+    if (!canReview) {
+      throw new AppError('Only the Task Creator, Project Admin, Workspace Admin, or Workspace Owner can review tasks', 403);
+    }
+
+    const now = new Date();
+    if (data.action === 'APPROVE') {
+      await prisma.workItem.update({
+        where: { id: workItemId },
+        data: {
+          status: 'COMPLETED',
+          completedAt: now,
+          approvedAt: now,
+          approvedById: userId,
+        },
+      });
+      publishToProject(projectId, 'WORK_STATUS_CHANGED', {
+        id: workItemId,
+        status: 'COMPLETED',
+        from: existing.status,
+      });
+    } else {
+      // REJECT: Move back to IN_PROGRESS, preserve duration seconds, set hasCompleted = false
+      await prisma.$transaction([
+        prisma.workItem.update({
+          where: { id: workItemId },
+          data: {
+            status: 'IN_PROGRESS',
+            rejectionReason: data.reason || 'Work rejected by reviewer',
+            rejectedAt: now,
+            rejectedById: userId,
+          },
+        }),
+        prisma.workItemAssignee.updateMany({
+          where: { workItemId },
+          data: {
+            hasCompleted: false,
+            isPaused: true,
+            lastSessionStartedAt: null,
+          },
+        }),
+      ]);
+      publishToProject(projectId, 'WORK_STATUS_CHANGED', {
+        id: workItemId,
+        status: 'IN_PROGRESS',
+        from: existing.status,
+      });
+    }
+
+    const updatedItem = await this.getWorkItemById(projectId, workItemId, userId);
+    publishToProject(projectId, 'WORK_UPDATED', { workItem: updatedItem });
+    return updatedItem;
   }
 }
 

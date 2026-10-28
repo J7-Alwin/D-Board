@@ -14,33 +14,30 @@ import {
   CalendarIcon,
   FolderIcon,
   FileTextIcon,
-  ActivityIcon,
-  BellIcon,
   SearchIcon,
   PlusIcon,
   MailIcon,
   MenuIcon,
   CloseIcon,
-  UserIcon,
 } from '../ui/Icons';
 import { Button } from '../ui/Button';
 import { ProjectAvatar } from '../ui/ProjectAvatar';
 import { Logo } from '../ui/Logo';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { WorkspaceSwitcher } from '../workspace/WorkspaceSwitcher';
+import { ActiveTaskTimerBanner } from '../common/ActiveTaskTimerBanner';
 
 export interface AppLayoutProps {
   children: React.ReactNode;
 }
 
 export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
-  const { user, isLoading, logout } = useAuth();
+  const { user, isLoading } = useAuth();
   const { activeWorkspace, activeRole } = useWorkspace();
   const { socket, isConnected } = useSocket();
   const { path, navigate } = useRouter();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [pendingInviteCount, setPendingInviteCount] = useState<number>(0);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState<number>(0);
   const [projects, setProjects] = useState<{ owned: Project[]; joined: Project[] }>({
@@ -71,16 +68,12 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   // Close dropdown on outside click or Escape key
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setProfileDropdownOpen(false);
-      }
       if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
         setSearchOpen(false);
       }
     }
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
-        setProfileDropdownOpen(false);
         setSearchOpen(false);
         setMobileSearchOpen(false);
         setSidebarOpen(false);
@@ -232,11 +225,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     }
     return user.username.slice(0, 2).toUpperCase();
   }, [user]);
-
-  const handleLogout = async () => {
-    await logout();
-    navigate('/login');
-  };
 
   const canCreateProject = useMemo(() => {
     if (!activeWorkspace) return false;
@@ -390,7 +378,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               onClick={() => setSidebarOpen(false)}
             >
               <CheckSquareIcon size={18} />
-              <span>My Work</span>
+              <span>My Tasks</span>
             </Link>
             <Link
               to="/app/calendar"
@@ -415,25 +403,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             >
               <FileTextIcon size={18} />
               <span>Notes</span>
-            </Link>
-            <Link
-              to="/app/activity"
-              className={`workspace-nav-item ${path === '/app/activity' ? 'active' : ''}`}
-              onClick={() => setSidebarOpen(false)}
-            >
-              <ActivityIcon size={18} />
-              <span>Activity</span>
-            </Link>
-            <Link
-              to="/app/notifications"
-              className={`workspace-nav-item ${path === '/app/notifications' ? 'active' : ''}`}
-              onClick={() => setSidebarOpen(false)}
-            >
-              <BellIcon size={18} />
-              <span>Notifications</span>
-              {unreadNotificationCount > 0 && (
-                <span className="sidebar-invites-badge">{unreadNotificationCount}</span>
-              )}
             </Link>
           </nav>
 
@@ -514,7 +483,23 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
         {/* Sidebar Footer / User Row */}
         <div className="workspace-sidebar-footer">
-          <div className="sidebar-user-card" onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}>
+          <div
+            className="sidebar-user-card"
+            onClick={() => {
+              setSidebarOpen(false);
+              navigate('/app/settings/profile');
+            }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setSidebarOpen(false);
+                navigate('/app/settings/profile');
+              }
+            }}
+            title="Account Settings"
+          >
             <div className="sidebar-user-avatar">
               {user.avatarUrl ? (
                 <img src={user.avatarUrl} alt={user.fullName || user.username} />
@@ -802,9 +787,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               <button
                 type="button"
                 className="workspace-avatar-btn"
-                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                aria-expanded={profileDropdownOpen}
-                aria-haspopup="true"
+                onClick={() => navigate('/app/settings/profile')}
+                title="Account Settings"
+                aria-label="Account Settings"
               >
                 <div className="topbar-avatar-circle">
                   {user.avatarUrl ? (
@@ -815,50 +800,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                 </div>
                 <span className="topbar-username">{user.fullName || user.username}</span>
               </button>
-
-              {/* Profile Dropdown Menu */}
-              {profileDropdownOpen && (
-                <div className="profile-dropdown-menu" role="menu">
-                  <div className="dropdown-header">
-                    <div className="dropdown-name">{user.fullName || user.username}</div>
-                    <div className="dropdown-email">{user.email}</div>
-                  </div>
-                  <div className="dropdown-divider" />
-                  <button
-                    type="button"
-                    className="dropdown-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setProfileDropdownOpen(false);
-                      navigate('/app/settings/profile');
-                    }}
-                  >
-                    <UserIcon size={16} />
-                    <span>Account Settings</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="dropdown-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setProfileDropdownOpen(false);
-                      navigate('/app/invitations');
-                    }}
-                  >
-                    <MailIcon size={16} />
-                    <span>Pending Invitations</span>
-                  </button>
-                  <div className="dropdown-divider" />
-                  <button
-                    type="button"
-                    className="dropdown-item dropdown-item-danger"
-                    role="menuitem"
-                    onClick={handleLogout}
-                  >
-                    <span>Sign Out</span>
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         </header>
@@ -867,6 +808,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         <main className="workspace-content-body" key={activeWorkspace?.id || 'default'}>
           {children}
         </main>
+
+        {/* Global Floating Active Task Timer & Check-in Alert */}
+        <ActiveTaskTimerBanner />
       </div>
     </div>
   );

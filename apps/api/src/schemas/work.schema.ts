@@ -20,7 +20,12 @@ export const createWorkItemSchema = z.object({
     .optional()
     .default('MEDIUM'),
   assignedToId: z.string().uuid().optional().nullable().or(z.literal('')),
+  assigneeIds: z.array(z.string().uuid()).optional().nullable(),
   dueDate: z.string().optional().nullable(),
+  todoDueDate: z.string().optional().nullable(),
+  inProgressDueDate: z.string().optional().nullable(),
+  inReviewDueDate: z.string().optional().nullable(),
+  completedDueDate: z.string().optional().nullable(),
 });
 
 export const updateWorkItemSchema = z.object({
@@ -41,8 +46,20 @@ export const updateWorkItemSchema = z.object({
     .enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT'])
     .optional(),
   assignedToId: z.string().uuid().optional().nullable().or(z.literal('')),
+  assigneeIds: z.array(z.string().uuid()).optional().nullable(),
   dueDate: z.string().optional().nullable(),
+  todoDueDate: z.string().optional().nullable(),
+  inProgressDueDate: z.string().optional().nullable(),
+  inReviewDueDate: z.string().optional().nullable(),
+  completedDueDate: z.string().optional().nullable(),
+});
+
+export const reviewTaskSchema = z.object({
+  action: z.enum(['APPROVE', 'REJECT']),
+  reason: z.string().trim().max(1000).optional().nullable(),
 });
 
 export type CreateWorkItemInput = z.infer<typeof createWorkItemSchema>;
 export type UpdateWorkItemInput = z.infer<typeof updateWorkItemSchema>;
+export type ReviewTaskInput = z.infer<typeof reviewTaskSchema>;
+

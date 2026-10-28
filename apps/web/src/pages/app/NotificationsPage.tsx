@@ -218,15 +218,17 @@ export const NotificationsPage: React.FC = () => {
       {/* Top Floating Header Card */}
       <div className="cal-page-header notif-page-top-header">
         <div className="cal-header-left">
-          <div className="cal-title-row">
-            <span className="cal-header-icon-box notif-icon-box">
-              <BellIcon size={24} />
-            </span>
-            <h1 className="cal-header-title">Notifications</h1>
+          <div className="cal-header-icon-box notif-icon-box">
+            <BellIcon size={26} />
           </div>
-          <p className="cal-header-subtitle">
-            Stay updated on assignments, mentions, comments, and project milestones.
-          </p>
+          <div className="cal-banner-titles">
+            <div className="cal-title-row">
+              <h1 className="cal-header-title">Notifications</h1>
+            </div>
+            <p className="cal-header-subtitle">
+              Stay updated on assignments, mentions, comments, and project milestones.
+            </p>
+          </div>
         </div>
 
         {/* Atmosphere Quote & Illustration Artwork */}

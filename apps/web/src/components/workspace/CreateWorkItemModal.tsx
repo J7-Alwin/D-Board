@@ -12,7 +12,6 @@ import {
   ListIcon,
   BarChartIcon,
   UserIcon,
-  CalendarIcon,
   CheckIcon,
   ChevronDownIcon,
   BugIcon,
@@ -27,14 +26,19 @@ import {
   CheckCircleIcon,
   CircleDotIcon,
   TrashIcon,
+  SearchIcon,
+  LockIcon,
 } from '../ui/Icons';
 import { Checkbox } from '../ui/Checkbox';
+import { useAuth } from '../../context/AuthContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 
 interface CreateWorkItemModalProps {
   project?: Project | null;
   projects?: Project[];
   isOpen: boolean;
   defaultStatus?: WorkItemStatus;
+  lockProject?: boolean;
   onClose: () => void;
   onCreated: (workItem: WorkItem) => void;
 }
@@ -46,7 +50,7 @@ const TYPE_OPTIONS: {
   bg: string;
   color: string;
 }[] = [
-  { value: 'TASK', label: 'Task', icon: <ListIcon size={16} />, bg: '#E6F4EA', color: '#137333' },
+  { value: 'TASK', label: 'Task', icon: <ListIcon size={16} />, bg: '#E0F2FE', color: '#0284C7' },
   { value: 'BUG', label: 'Bug', icon: <BugIcon size={16} />, bg: '#FEE2E2', color: '#DC2626' },
   { value: 'FEATURE', label: 'Feature', icon: <CodeIcon size={16} />, bg: '#DBEAFE', color: '#2563EB' },
   { value: 'IMPROVEMENT', label: 'Improvement', icon: <TrendingUpIcon size={16} />, bg: '#F3E8FF', color: '#9333EA' },
@@ -125,22 +129,31 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
   projects: initialProjectsList,
   isOpen,
   defaultStatus = 'TODO',
+  lockProject,
   onClose,
   onCreated,
 }) => {
+  const isProjectLocked = lockProject !== undefined ? lockProject : Boolean(initialProject && (!initialProjectsList || initialProjectsList.length <= 1));
   const [allProjects, setAllProjects] = useState<Project[]>(initialProjectsList || []);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(
     initialProject?.id || (initialProjectsList && initialProjectsList.length > 0 ? initialProjectsList[0].id : '')
   );
   const [selectedProjectDetails, setSelectedProjectDetails] = useState<Project | null>(initialProject || null);
 
+  const { user } = useAuth();
+  const { activeWorkspace, activeRole } = useWorkspace();
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<WorkItemType>('TASK');
   const [status, setStatus] = useState<WorkItemStatus>(defaultStatus);
   const [priority, setPriority] = useState<WorkItemPriority>('MEDIUM');
-  const [assignedToId, setAssignedToId] = useState('');
-  const [dueDate, setDueDate] = useState('');
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  const [assigneeFilterText, setAssigneeFilterText] = useState('');
+  const [todoDueDate, setTodoDueDate] = useState<string>('');
+  const [inProgressDueDate, setInProgressDueDate] = useState<string>('');
+  const [inReviewDueDate, setInReviewDueDate] = useState<string>('');
+  const [completedDueDate, setCompletedDueDate] = useState<string>('');
   const [createAnother, setCreateAnother] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -237,11 +250,30 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
 
   if (!isOpen) return null;
 
+  // Role-based assignee restriction:
+  // Project Members cannot assign tasks to Workspace Owner or Workspace Admin
+  const isWsOwner = Boolean(
+    activeRole === 'OWNER' ||
+      activeWorkspace?.isOwner ||
+      (activeWorkspace?.ownerId && user?.id && activeWorkspace.ownerId === user.id)
+  );
+  const isWsAdmin = Boolean(
+    activeRole === 'WORKSPACE_ADMIN' ||
+      activeWorkspace?.userRole === 'WORKSPACE_ADMIN'
+  );
+  const isProjectAdmin = Boolean(
+    isWsOwner ||
+      isWsAdmin ||
+      selectedProjectDetails?.userRole === 'PROJECT_ADMIN' ||
+      (selectedProjectDetails?.createdById && user?.id && selectedProjectDetails.createdById === user.id)
+  );
+  const isProjectMemberOnly = !isWsOwner && !isWsAdmin && !isProjectAdmin;
+
   // Build list of assignable members for the active project
-  const assignableUsers: AssignableUser[] = [];
+  const rawAssignableUsers: AssignableUser[] = [];
   if (selectedProjectDetails) {
     if (selectedProjectDetails.createdBy) {
-      assignableUsers.push({
+      rawAssignableUsers.push({
         id: selectedProjectDetails.createdById,
         name: selectedProjectDetails.createdBy.fullName || selectedProjectDetails.createdBy.username,
         username: selectedProjectDetails.createdBy.username,
@@ -252,7 +284,7 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
     if (selectedProjectDetails.members) {
       selectedProjectDetails.members.forEach((m) => {
         if (m.userId !== selectedProjectDetails.createdById) {
-          assignableUsers.push({
+          rawAssignableUsers.push({
             id: m.userId,
             name: m.user.fullName || m.user.username,
             username: m.user.username,
@@ -264,17 +296,34 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
     }
   }
 
+  // Identify restricted user IDs (Workspace Owner and Workspace Admins)
+  const restrictedUserIds = new Set<string>();
+  const ownerUserId = activeWorkspace?.ownerId || (selectedProjectDetails as any)?.workspace?.ownerId;
+  if (ownerUserId) restrictedUserIds.add(ownerUserId);
+  const wsMembersList = (selectedProjectDetails as any)?.workspace?.members;
+  if (Array.isArray(wsMembersList)) {
+    wsMembersList.forEach((wm: any) => {
+      if (wm.role === 'WORKSPACE_ADMIN' || wm.role === 'OWNER') {
+        restrictedUserIds.add(wm.userId);
+      }
+    });
+  }
+
+  const assignableUsers = isProjectMemberOnly
+    ? rawAssignableUsers.filter((u) => !restrictedUserIds.has(u.id))
+    : rawAssignableUsers;
+
   const currentType = TYPE_OPTIONS.find((t) => t.value === type) || TYPE_OPTIONS[0];
   const currentPriority = PRIORITY_OPTIONS.find((p) => p.value === priority) || PRIORITY_OPTIONS[1];
   const currentStatus = STATUS_OPTIONS.find((s) => s.value === status) || STATUS_OPTIONS[0];
-  const currentAssignee = assignableUsers.find((u) => u.id === assignedToId);
+  const selectedAssignees = assignableUsers.filter((u) => assigneeIds.includes(u.id));
   const activeProject = allProjects.find((p) => p.id === selectedProjectId) || selectedProjectDetails;
 
   const handleProjectSelect = (p: Project) => {
     setSelectedProjectId(p.id);
     setSelectedProjectDetails(p);
     setOpenDropdown(null);
-    setAssignedToId('');
+    setAssigneeIds([]);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -314,8 +363,12 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
     setType('TASK');
     setStatus(defaultStatus);
     setPriority('MEDIUM');
-    setAssignedToId('');
-    setDueDate('');
+    setAssigneeIds([]);
+    setAssigneeFilterText('');
+    setTodoDueDate('');
+    setInProgressDueDate('');
+    setInReviewDueDate('');
+    setCompletedDueDate('');
     setSelectedFiles([]);
     setError(null);
     setOpenDropdown(null);
@@ -332,6 +385,30 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
       return;
     }
 
+    // Stage due dates validation
+    if (!todoDueDate || !inProgressDueDate || !inReviewDueDate || !completedDueDate) {
+      setError('Please provide due dates for all 4 stages: To Do, In Progress, In Review, and Completed.');
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (todoDueDate < todayStr) {
+      setError('To Do due date cannot be in the past.');
+      return;
+    }
+    if (inProgressDueDate < todoDueDate) {
+      setError('In Progress due date cannot be before To Do due date.');
+      return;
+    }
+    if (inReviewDueDate < inProgressDueDate) {
+      setError('In Review due date cannot be before In Progress due date.');
+      return;
+    }
+    if (completedDueDate < inReviewDueDate) {
+      setError('Completed due date cannot be before In Review due date.');
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
 
@@ -342,8 +419,13 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
         type,
         status,
         priority,
-        assignedToId: assignedToId ? assignedToId : null,
-        dueDate: dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : null,
+        assignedToId: assigneeIds[0] || null,
+        assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined,
+        dueDate: `${completedDueDate}T23:59:59Z`,
+        todoDueDate: `${todoDueDate}T23:59:59Z`,
+        inProgressDueDate: `${inProgressDueDate}T23:59:59Z`,
+        inReviewDueDate: `${inReviewDueDate}T23:59:59Z`,
+        completedDueDate: `${completedDueDate}T23:59:59Z`,
       });
 
       if (res.success && res.data.workItem) {
@@ -357,7 +439,7 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
         }
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to create work item');
+      setError(err.message || 'Failed to create task');
     } finally {
       setIsSubmitting(false);
     }
@@ -386,7 +468,7 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
               </svg>
             </div>
             <div className="cwm-header-titles">
-              <h2 className="cwm-title">Create Work Item</h2>
+              <h2 className="cwm-title">Create Task</h2>
               <p className="cwm-subtitle">
                 Add a new task, bug, or other work to keep your project moving forward.
               </p>
@@ -587,8 +669,15 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
                 <div className="cwm-dropdown-wrapper">
                   <button
                     type="button"
-                    className={`cwm-dropdown-button ${openDropdown === 'project' ? 'active' : ''}`}
-                    onClick={() => setOpenDropdown(openDropdown === 'project' ? null : 'project')}
+                    disabled={isProjectLocked}
+                    className={`cwm-dropdown-button ${openDropdown === 'project' ? 'active' : ''} ${isProjectLocked ? 'cwm-locked-field' : ''}`}
+                    onClick={() => {
+                      if (!isProjectLocked) {
+                        setOpenDropdown(openDropdown === 'project' ? null : 'project');
+                      }
+                    }}
+                    title={isProjectLocked ? `Project is locked to ${activeProject?.name || 'this project'}` : undefined}
+                    style={isProjectLocked ? { cursor: 'not-allowed', backgroundColor: '#F8FAFC', opacity: 0.92, borderColor: '#E2E8F0' } : undefined}
                   >
                     <div className="cwm-btn-left">
                       {activeProject?.avatarUrl ? (
@@ -602,10 +691,16 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
                         {activeProject ? activeProject.name : 'Select Project...'}
                       </span>
                     </div>
-                    <ChevronDownIcon size={15} className={`cwm-chevron ${openDropdown === 'project' ? 'open' : ''}`} />
+                    {isProjectLocked ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', color: '#94A3B8' }} title="Project cannot be changed">
+                        <LockIcon size={14} />
+                      </span>
+                    ) : (
+                      <ChevronDownIcon size={15} className={`cwm-chevron ${openDropdown === 'project' ? 'open' : ''}`} />
+                    )}
                   </button>
 
-                  {openDropdown === 'project' && (
+                  {!isProjectLocked && openDropdown === 'project' && (
                     <div className="cwm-options-menu">
                       {allProjects.length === 0 ? (
                         <div className="c-select-empty">No projects found</div>
@@ -659,165 +754,422 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
                     }}
                   >
                     <div className="cwm-btn-left">
-                      {currentAssignee ? (
-                        currentAssignee.avatarUrl ? (
-                          <img
-                            src={currentAssignee.avatarUrl}
-                            alt=""
-                            className="cwm-avatar-circle"
-                          />
-                        ) : (
-                          <span className="cwm-monogram-circle" style={{ backgroundColor: '#475569' }}>
-                            {currentAssignee.name.charAt(0).toUpperCase()}
+                      {selectedAssignees.length > 0 ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', marginRight: '4px' }}>
+                            {selectedAssignees.slice(0, 2).map((u, idx) => (
+                              <div
+                                key={u.id}
+                                style={{
+                                  marginLeft: idx > 0 ? '-6px' : '0',
+                                  position: 'relative',
+                                  zIndex: 2 - idx,
+                                }}
+                              >
+                                {u.avatarUrl ? (
+                                  <img
+                                    src={u.avatarUrl}
+                                    alt=""
+                                    className="cwm-avatar-circle"
+                                  />
+                                ) : (
+                                  <span className="cwm-monogram-circle" style={{ backgroundColor: '#475569' }}>
+                                    {u.name.charAt(0).toUpperCase()}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          <span className="cwm-btn-text">
+                            {selectedAssignees.length === 1
+                              ? selectedAssignees[0].name
+                              : selectedAssignees.length === 2
+                              ? `${selectedAssignees[0].name.split(' ')[0]}, ${selectedAssignees[1].name.split(' ')[0]}`
+                              : `${selectedAssignees[0].name.split(' ')[0]}, ${selectedAssignees[1].name.split(' ')[0]} (+${selectedAssignees.length - 2})`}
                           </span>
-                        )
+                        </div>
                       ) : (
-                        <span className="cwm-user-icon-box">
-                          <UserIcon size={15} />
-                        </span>
+                        <>
+                          <span className="cwm-user-icon-box">
+                            <UserIcon size={15} />
+                          </span>
+                          <span className="cwm-btn-text">Unassigned</span>
+                        </>
                       )}
-                      <span className="cwm-btn-text">
-                        {currentAssignee ? currentAssignee.name : 'Unassigned'}
-                      </span>
                     </div>
                     <ChevronDownIcon size={15} className={`cwm-chevron ${openDropdown === 'assignee' ? 'open' : ''}`} />
                   </button>
 
                   {openDropdown === 'assignee' && (
-                    <div className="cwm-options-menu">
+                    <div className="cwm-options-menu" style={{ maxHeight: '260px', overflowY: 'auto', padding: 0 }}>
+                      {/* Typeable search input to filter users in real time */}
                       <div
-                        className={`cwm-option-item ${!assignedToId ? 'selected' : ''}`}
-                        onClick={() => {
-                          setAssignedToId('');
-                          setOpenDropdown(null);
+                        style={{
+                          padding: '8px 10px',
+                          borderBottom: '1px solid #E2E8F0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          background: '#F8FAFC',
+                          position: 'sticky',
+                          top: 0,
+                          zIndex: 10,
                         }}
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="cwm-option-left">
-                          <span className="cwm-user-icon-box">
-                            <UserIcon size={15} />
-                          </span>
-                          <span className="cwm-option-label">Unassigned</span>
-                        </div>
-                        {!assignedToId && (
-                          <span className="cwm-option-check">
-                            <CheckIcon size={14} />
-                          </span>
+                        <SearchIcon size={14} style={{ color: '#94A3B8', flexShrink: 0 }} />
+                        <input
+                          type="text"
+                          placeholder="Type name to filter..."
+                          value={assigneeFilterText}
+                          onChange={(e) => setAssigneeFilterText(e.target.value)}
+                          autoFocus
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            outline: 'none',
+                            fontSize: '0.8125rem',
+                            width: '100%',
+                            color: '#0F172A',
+                          }}
+                        />
+                        {assigneeFilterText && (
+                          <button
+                            type="button"
+                            onClick={() => setAssigneeFilterText('')}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              cursor: 'pointer',
+                              padding: '2px',
+                              color: '#94A3B8',
+                              display: 'flex',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <CloseIcon size={12} />
+                          </button>
                         )}
                       </div>
 
-                      {assignableUsers.map((u) => {
-                        const isSelected = assignedToId === u.id;
-                        return (
-                          <div
-                            key={u.id}
-                            className={`cwm-option-item ${isSelected ? 'selected' : ''}`}
-                            onClick={() => {
-                              setAssignedToId(u.id);
-                              setOpenDropdown(null);
-                            }}
-                          >
-                            <div className="cwm-option-left">
-                              {u.avatarUrl ? (
-                                <img src={u.avatarUrl} alt="" className="cwm-option-avatar" />
-                              ) : (
-                                <span className="cwm-monogram-circle" style={{ backgroundColor: '#475569' }}>
-                                  {u.name.charAt(0).toUpperCase()}
-                                </span>
-                              )}
-                              <span className="cwm-option-label">{u.name}</span>
-                            </div>
-                            <div className="cwm-option-right">
-                              <span className={`cwm-role-tag role-${u.role.toLowerCase()}`}>
-                                {u.role}
-                              </span>
-                              {isSelected && (
-                                <span className="cwm-option-check">
-                                  <CheckIcon size={14} />
-                                </span>
-                              )}
-                            </div>
+                      {/* Unassigned Option */}
+                      {(!assigneeFilterText || 'unassigned'.includes(assigneeFilterText.toLowerCase())) && (
+                        <div
+                          className={`cwm-option-item ${assigneeIds.length === 0 ? 'selected' : ''}`}
+                          onClick={() => {
+                            setAssigneeIds([]);
+                          }}
+                        >
+                          <div className="cwm-option-left">
+                            <span className="cwm-user-icon-box">
+                              <UserIcon size={15} />
+                            </span>
+                            <span className="cwm-option-label">Unassigned</span>
                           </div>
+                          {assigneeIds.length === 0 && (
+                            <span className="cwm-option-check">
+                              <CheckIcon size={14} />
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Filtered Assignable Users with Checkboxes */}
+                      {assignableUsers
+                        .filter((u) => {
+                          if (!assigneeFilterText.trim()) return true;
+                          const q = assigneeFilterText.toLowerCase();
+                          return (
+                            u.name.toLowerCase().includes(q) ||
+                            u.username.toLowerCase().includes(q)
+                          );
+                        })
+                        .map((u) => {
+                          const isSelected = assigneeIds.includes(u.id);
+                          return (
+                            <div
+                              key={u.id}
+                              className={`cwm-option-item ${isSelected ? 'selected' : ''}`}
+                              onClick={() => {
+                                setAssigneeIds((prev) =>
+                                  prev.includes(u.id)
+                                    ? prev.filter((id) => id !== u.id)
+                                    : [...prev, u.id]
+                                );
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '8px 12px',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <div className="cwm-option-left" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {}}
+                                  style={{
+                                    width: '15px',
+                                    height: '15px',
+                                    accentColor: '#2563EB',
+                                    cursor: 'pointer',
+                                    flexShrink: 0,
+                                    pointerEvents: 'none',
+                                  }}
+                                />
+                                {u.avatarUrl ? (
+                                  <img src={u.avatarUrl} alt="" className="cwm-option-avatar" />
+                                ) : (
+                                  <span className="cwm-monogram-circle" style={{ backgroundColor: '#475569' }}>
+                                    {u.name.charAt(0).toUpperCase()}
+                                  </span>
+                                )}
+                                <span className="cwm-option-label">{u.name}</span>
+                              </div>
+                              <div className="cwm-option-right">
+                                <span className={`cwm-role-tag role-${u.role.toLowerCase()}`}>
+                                  {u.role}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                      {assignableUsers.filter((u) => {
+                        if (!assigneeFilterText.trim()) return true;
+                        const q = assigneeFilterText.toLowerCase();
+                        return (
+                          u.name.toLowerCase().includes(q) ||
+                          u.username.toLowerCase().includes(q)
                         );
-                      })}
+                      }).length === 0 && assigneeFilterText && (
+                        <div style={{ padding: '12px', fontSize: '0.8rem', color: '#94A3B8', textAlign: 'center' }}>
+                          No members matching "{assigneeFilterText}"
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* Row 3: Initial Status & Due Date */}
-            <div className="cwm-grid-cols-2">
-              {/* Initial Status */}
-              <div className="cwm-row-group">
-                <label className="cwm-field-label">
-                  Initial Status <span className="cwm-star">*</span>
-                </label>
-                <div className="cwm-dropdown-wrapper">
-                  <button
-                    type="button"
-                    className={`cwm-dropdown-button ${openDropdown === 'status' ? 'active' : ''}`}
-                    onClick={() => setOpenDropdown(openDropdown === 'status' ? null : 'status')}
-                  >
-                    <div className="cwm-btn-left">
-                      <span className="cwm-status-lead-icon" style={{ color: currentStatus.color }}>
-                        {currentStatus.icon}
-                      </span>
-                      <span className="cwm-btn-text">{currentStatus.label}</span>
-                    </div>
-                    <ChevronDownIcon size={15} className={`cwm-chevron ${openDropdown === 'status' ? 'open' : ''}`} />
-                  </button>
+            {/* Row 3: Initial Status */}
+            <div className="cwm-row-group">
+              <label className="cwm-field-label">
+                Initial Status <span className="cwm-star">*</span>
+              </label>
+              <div className="cwm-dropdown-wrapper">
+                <button
+                  type="button"
+                  className={`cwm-dropdown-button ${openDropdown === 'status' ? 'active' : ''}`}
+                  onClick={() => setOpenDropdown(openDropdown === 'status' ? null : 'status')}
+                >
+                  <div className="cwm-btn-left">
+                    <span className="cwm-status-lead-icon" style={{ color: currentStatus.color }}>
+                      {currentStatus.icon}
+                    </span>
+                    <span className="cwm-btn-text">{currentStatus.label}</span>
+                  </div>
+                  <ChevronDownIcon size={15} className={`cwm-chevron ${openDropdown === 'status' ? 'open' : ''}`} />
+                </button>
 
-                  {openDropdown === 'status' && (
-                    <div className="cwm-options-menu">
-                      {STATUS_OPTIONS.map((opt) => {
-                        const isSelected = opt.value === status;
-                        return (
-                          <div
-                            key={opt.value}
-                            className={`cwm-option-item ${isSelected ? 'selected' : ''}`}
-                            onClick={() => {
-                              setStatus(opt.value);
-                              setOpenDropdown(null);
-                            }}
-                          >
-                            <div className="cwm-option-left">
-                              <span
-                                className="cwm-option-badge"
-                                style={{ backgroundColor: opt.bg, color: opt.color }}
-                              >
-                                {opt.icon}
-                              </span>
-                              <span className="cwm-option-label">{opt.label}</span>
-                            </div>
-                            {isSelected && (
-                              <span className="cwm-option-check">
-                                <CheckIcon size={14} />
-                              </span>
-                            )}
+                {openDropdown === 'status' && (
+                  <div className="cwm-options-menu">
+                    {STATUS_OPTIONS.map((opt) => {
+                      const isSelected = opt.value === status;
+                      return (
+                        <div
+                          key={opt.value}
+                          className={`cwm-option-item ${isSelected ? 'selected' : ''}`}
+                          onClick={() => {
+                            setStatus(opt.value);
+                            setOpenDropdown(null);
+                          }}
+                        >
+                          <div className="cwm-option-left">
+                            <span
+                              className="cwm-option-badge"
+                              style={{ backgroundColor: opt.bg, color: opt.color }}
+                            >
+                              {opt.icon}
+                            </span>
+                            <span className="cwm-option-label">{opt.label}</span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                          {isSelected && (
+                            <span className="cwm-option-check">
+                              <CheckIcon size={14} />
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Stage Due Dates (Mandatory Sequential Dates) */}
+            <div
+              className="cwm-stage-dates-card"
+              style={{
+                background: '#F8FAFC',
+                border: '1px solid #E2E8F0',
+                borderRadius: '12px',
+                padding: '0.85rem 1rem',
+                marginBottom: '0.85rem',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '0.65rem',
+                  flexWrap: 'wrap',
+                  gap: '0.35rem',
+                }}
+              >
+                <span className="cwm-field-label" style={{ margin: 0, fontWeight: 700 }}>
+                  Stage Due Dates <span className="cwm-star">*</span>
+                </span>
+                <span style={{ fontSize: '0.7rem', color: '#64748B', fontWeight: 500 }}>
+                  Sequential: Today ≤ To Do ≤ In Progress ≤ In Review ≤ Completed
+                </span>
               </div>
 
-              {/* Due Date (Optional) */}
-              <div className="cwm-row-group">
-                <label htmlFor="cwm-duedate" className="cwm-field-label">
-                  Due Date (Optional)
-                </label>
-                <div className="cwm-input-container">
-                  <span className="cwm-leading-icon">
-                    <CalendarIcon size={15} />
-                  </span>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                  gap: '0.65rem',
+                }}
+              >
+                {/* 1. To Do Due Date */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label
+                    htmlFor="cwm-todo-date"
+                    style={{
+                      fontSize: '0.725rem',
+                      fontWeight: 600,
+                      color: '#1E293B',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#2563EB', display: 'inline-block' }} />
+                    <span>1. To Do</span>
+                  </label>
                   <input
-                    id="cwm-duedate"
+                    id="cwm-todo-date"
                     type="date"
-                    className="cwm-text-input cwm-date-input"
-                    value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
-                    placeholder="dd-mm-yyyy"
+                    className="cwm-text-input"
+                    value={todoDueDate}
+                    min={new Date().toISOString().split('T')[0]}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTodoDueDate(val);
+                      if (inProgressDueDate && inProgressDueDate < val) setInProgressDueDate(val);
+                      if (inReviewDueDate && inReviewDueDate < val) setInReviewDueDate(val);
+                      if (completedDueDate && completedDueDate < val) setCompletedDueDate(val);
+                    }}
+                    required
+                    style={{ padding: '0.4rem 0.55rem', fontSize: '0.75rem', borderRadius: '8px' }}
+                  />
+                </div>
+
+                {/* 2. In Progress Due Date */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label
+                    htmlFor="cwm-inprogress-date"
+                    style={{
+                      fontSize: '0.725rem',
+                      fontWeight: 600,
+                      color: '#1E293B',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#F59E0B', display: 'inline-block' }} />
+                    <span>2. In Progress</span>
+                  </label>
+                  <input
+                    id="cwm-inprogress-date"
+                    type="date"
+                    className="cwm-text-input"
+                    value={inProgressDueDate}
+                    min={todoDueDate || new Date().toISOString().split('T')[0]}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setInProgressDueDate(val);
+                      if (inReviewDueDate && inReviewDueDate < val) setInReviewDueDate(val);
+                      if (completedDueDate && completedDueDate < val) setCompletedDueDate(val);
+                    }}
+                    required
+                    style={{ padding: '0.4rem 0.55rem', fontSize: '0.75rem', borderRadius: '8px' }}
+                  />
+                </div>
+
+                {/* 3. In Review Due Date */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label
+                    htmlFor="cwm-inreview-date"
+                    style={{
+                      fontSize: '0.725rem',
+                      fontWeight: 600,
+                      color: '#1E293B',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#8B5CF6', display: 'inline-block' }} />
+                    <span>3. In Review</span>
+                  </label>
+                  <input
+                    id="cwm-inreview-date"
+                    type="date"
+                    className="cwm-text-input"
+                    value={inReviewDueDate}
+                    min={inProgressDueDate || todoDueDate || new Date().toISOString().split('T')[0]}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setInReviewDueDate(val);
+                      if (completedDueDate && completedDueDate < val) setCompletedDueDate(val);
+                    }}
+                    required
+                    style={{ padding: '0.4rem 0.55rem', fontSize: '0.75rem', borderRadius: '8px' }}
+                  />
+                </div>
+
+                {/* 4. Completed Due Date */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label
+                    htmlFor="cwm-completed-date"
+                    style={{
+                      fontSize: '0.725rem',
+                      fontWeight: 600,
+                      color: '#1E293B',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#10B981', display: 'inline-block' }} />
+                    <span>4. Completed</span>
+                  </label>
+                  <input
+                    id="cwm-completed-date"
+                    type="date"
+                    className="cwm-text-input"
+                    value={completedDueDate}
+                    min={inReviewDueDate || inProgressDueDate || todoDueDate || new Date().toISOString().split('T')[0]}
+                    onChange={(e) => setCompletedDueDate(e.target.value)}
+                    required
+                    style={{ padding: '0.4rem 0.55rem', fontSize: '0.75rem', borderRadius: '8px' }}
                   />
                 </div>
               </div>
@@ -1024,7 +1376,7 @@ export const CreateWorkItemModal: React.FC<CreateWorkItemModalProps> = ({
                 ) : (
                   <>
                     <span className="cwm-plus-icon">+</span>
-                    <span>Create Work Item</span>
+                    <span>Create Task</span>
                   </>
                 )}
               </button>

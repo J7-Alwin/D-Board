@@ -316,6 +316,48 @@ export class WorkspaceMemberService {
           },
         });
 
+        // Identify projects that no longer have an active designated Project Admin (Section 8)
+        const orphanedProjects = await tx.project.findMany({
+          where: {
+            id: { in: projectIds },
+            members: {
+              none: {
+                role: 'PROJECT_ADMIN',
+              },
+            },
+          },
+          select: { id: true, name: true },
+        });
+
+        if (orphanedProjects.length > 0) {
+          const adminMembers = await tx.workspaceMember.findMany({
+            where: {
+              workspaceId,
+              role: { in: ['OWNER', 'WORKSPACE_ADMIN'] },
+            },
+            select: { userId: true },
+          });
+
+          const notifyRecipients = new Set<string>([ws.ownerId, ...adminMembers.map((m) => m.userId)]);
+          notifyRecipients.delete(targetMember.userId);
+
+          for (const orphan of orphanedProjects) {
+            for (const recipientId of notifyRecipients) {
+              await tx.notification.create({
+                data: {
+                  recipientId,
+                  actorId,
+                  projectId: orphan.id,
+                  type: 'SYSTEM',
+                  title: 'Project Missing Designated Administrator',
+                  message: `Project "${orphan.name}" no longer has an active Project Administrator following the departure of ${targetMember.user.fullName || targetMember.user.username}. Please appoint a replacement administrator.`,
+                  link: `/app/projects/${orphan.id}/members`,
+                },
+              }).catch(() => {});
+            }
+          }
+        }
+
         // 3. Invalidate/cancel any pending project invitations for this member in this workspace
         await tx.invitation.updateMany({
           where: {

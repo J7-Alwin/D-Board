@@ -973,18 +973,21 @@ export const NotesPage: React.FC<NotesPageProps> = ({
         />
       )}
 
-      {/* Top Header Row with Atmosphere Banner & Action Button */}
-      <div className="cal-page-header notes-page-top-header">
+      {/* Top Header Row with Atmosphere Banner & Action Button: Hidden in project overview page for now per user request */}
+      {!hideHeader && (
+        <div className="cal-page-header notes-page-top-header">
           <div className="cal-header-left">
-            <div className="cal-title-row">
-              <span className="cal-header-icon-box notes-icon-box">
-                <FileTextIcon size={24} />
-              </span>
-              <h1 className="cal-header-title">Notes</h1>
+            <div className="cal-header-icon-box notes-icon-box">
+              <FileTextIcon size={26} />
             </div>
-            <p className="cal-header-subtitle">
-              Capture ideas, keep track of important information, and collaborate with your team.
-            </p>
+            <div className="cal-banner-titles">
+              <div className="cal-title-row">
+                <h1 className="cal-header-title">Notes</h1>
+              </div>
+              <p className="cal-header-subtitle">
+                Capture ideas, keep track of important information, and collaborate with your team.
+              </p>
+            </div>
           </div>
 
           {/* Atmosphere Quote & Illustration */}
@@ -1002,6 +1005,7 @@ export const NotesPage: React.FC<NotesPageProps> = ({
             </button>
           </div>
         </div>
+      )}
 
         {/* Feedback Banner */}
         {feedback && (
@@ -1147,6 +1151,32 @@ export const NotesPage: React.FC<NotesPageProps> = ({
                 <ListIcon size={16} />
               </button>
             </div>
+
+            {hideHeader && (
+              <button
+                type="button"
+                className="cal-btn-new-event"
+                onClick={handleOpenCreate}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 14px',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  fontSize: '0.8125rem',
+                  background: '#0F172A',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                  marginLeft: 'auto',
+                }}
+              >
+                <PlusIcon size={14} />
+                <span>New Note</span>
+              </button>
+            )}
           </div>
         </div>
 

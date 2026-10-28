@@ -74,7 +74,7 @@ export class ProjectService {
       // Re-verify target workspace is not deleted inside the transaction
       const targetWs = await tx.workspace.findUnique({
         where: { id: targetWorkspaceId },
-        select: { id: true, isPersonal: true, deletedAt: true },
+        select: { id: true, ownerId: true, isPersonal: true, deletedAt: true, adminPermissions: true },
       });
       if (!targetWs || targetWs.deletedAt) {
         throw new AppError('Workspace not found', 404);
@@ -114,6 +114,58 @@ export class ProjectService {
         },
       });
 
+      // Include Workspace Owner in project's member list (Section 4)
+      if (!targetWs.isPersonal && targetWs.ownerId && targetWs.ownerId !== userId) {
+        const ownerMember = await tx.projectMember.findUnique({
+          where: { projectId_userId: { projectId: project.id, userId: targetWs.ownerId } },
+        });
+        if (!ownerMember) {
+          await tx.projectMember.create({
+            data: {
+              projectId: project.id,
+              userId: targetWs.ownerId,
+              role: 'PROJECT_ADMIN',
+            },
+          });
+        }
+      }
+
+      // Check Workspace Owner's auto-include admins preference
+      const perms = (targetWs.adminPermissions as any) || {};
+      const autoIncludeSetting =
+        perms.autoIncludeAdminsInNewProjects === true ||
+        perms.workspaceAdmin?.autoIncludeAdminsInNewProjects === true;
+      const shouldAutoIncludeAdmins = (data as any).autoIncludeAdmins !== undefined
+        ? (data as any).autoIncludeAdmins === true
+        : autoIncludeSetting;
+
+      if (shouldAutoIncludeAdmins && !targetWs.isPersonal && targetWs.ownerId) {
+        const otherAdmins = await tx.workspaceMember.findMany({
+          where: {
+            workspaceId: targetWorkspaceId,
+            role: 'WORKSPACE_ADMIN',
+            userId: { notIn: [userId, targetWs.ownerId] },
+            user: { isDeactivated: false },
+          },
+          select: { userId: true },
+        });
+
+        for (const adm of otherAdmins) {
+          const already = await tx.projectMember.findUnique({
+            where: { projectId_userId: { projectId: project.id, userId: adm.userId } },
+          });
+          if (!already) {
+            await tx.projectMember.create({
+              data: {
+                projectId: project.id,
+                userId: adm.userId,
+                role: 'PROJECT_ADMIN',
+              },
+            });
+          }
+        }
+      }
+
       // 3. Process invitations (if provided)
       const creator = await tx.user.findUnique({
         where: { id: userId },
@@ -143,11 +195,11 @@ export class ProjectService {
 
           let isWsMember = false;
           if (existingUser && !existingUser.isDeactivated) {
-            const targetWs = await tx.workspace.findUnique({
+            const targetWsRecord = await tx.workspace.findUnique({
               where: { id: targetWorkspaceId },
               select: { ownerId: true },
             });
-            if (targetWs?.ownerId === existingUser.id) {
+            if (targetWsRecord?.ownerId === existingUser.id) {
               isWsMember = true;
             } else {
               const wsMember = await tx.workspaceMember.findUnique({
@@ -164,6 +216,27 @@ export class ProjectService {
 
           if (!isWsMember) {
             throw new AppError(`Cannot invite ${normalizedEmail}: user must be an active member of this workspace`, 400);
+          }
+
+          // If the invited user is already an explicit project member (e.g. Owner or auto-included Admin)
+          if (existingUser) {
+            const alreadyMember = await tx.projectMember.findUnique({
+              where: {
+                projectId_userId: {
+                  projectId: project.id,
+                  userId: existingUser.id,
+                },
+              },
+            });
+            if (alreadyMember) {
+              if (inv.role && inv.role !== alreadyMember.role) {
+                await tx.projectMember.update({
+                  where: { id: alreadyMember.id },
+                  data: { role: inv.role },
+                });
+              }
+              continue;
+            }
           }
 
           // 7-day expiration for invitations
@@ -327,8 +400,10 @@ export class ProjectService {
     let canAccess = false;
     if (isWsOwner || isWsAdmin) {
       canAccess = true;
-    } else if (isProjectMember) {
-      canAccess = true;
+    } else if (project.workspace.isPersonal) {
+      canAccess = isProjectMember;
+    } else {
+      canAccess = isProjectMember || project.visibility === 'WORKSPACE';
     }
 
     if (!canAccess) {
@@ -359,7 +434,8 @@ export class ProjectService {
    * - Workspace membership prerequisite before project membership grants access.
    * - Personal workspace Restricted-project policy.
    * - Team workspace WORKSPACE-visible projects for workspace members.
-   * - Workspace Owner/Admin full visibility.
+   * - Workspace Owner full portfolio visibility.
+   * - Workspace Admin & Member sees projects they explicitly belong to or qualify for under visibility policy.
    */
   async getAccessibleProjectIds(userId: string, workspaceId?: string): Promise<string[]> {
     if (workspaceId) {
@@ -389,10 +465,24 @@ export class ProjectService {
         return projects.map((p) => p.id);
       }
 
+      if (ws.isPersonal) {
+        const projects = await prisma.project.findMany({
+          where: {
+            workspaceId,
+            members: { some: { userId } },
+          },
+          select: { id: true },
+        });
+        return projects.map((p) => p.id);
+      }
+
       const projects = await prisma.project.findMany({
         where: {
           workspaceId,
-          members: { some: { userId } },
+          OR: [
+            { visibility: 'WORKSPACE' },
+            { members: { some: { userId } } },
+          ],
         },
         select: { id: true },
       });
@@ -421,6 +511,14 @@ export class ProjectService {
             members: { some: { userId } },
             workspace: {
               deletedAt: null,
+              members: { some: { userId } },
+            },
+          },
+          {
+            visibility: 'WORKSPACE',
+            workspace: {
+              deletedAt: null,
+              isPersonal: false,
               members: { some: { userId } },
             },
           },
@@ -456,36 +554,50 @@ export class ProjectService {
         return { all: [], owned: [], joined: [] };
       }
 
-      if (isWsOwner || isWsAdmin) {
+      if (isWsOwner) {
         where = { workspaceId, workspace: { deletedAt: null } };
-      } else {
+      } else if (ws.isPersonal) {
         where = {
           workspaceId,
           workspace: { deletedAt: null },
           members: { some: { userId } },
         };
+      } else {
+        where = {
+          workspaceId,
+          workspace: { deletedAt: null },
+          OR: [
+            { visibility: 'WORKSPACE' },
+            { members: { some: { userId } } },
+          ],
+        };
       }
     } else {
-      const adminWorkspaces = await prisma.workspace.findMany({
+      const ownerWorkspaces = await prisma.workspace.findMany({
         where: {
           deletedAt: null,
-          OR: [
-            { ownerId: userId },
-            { members: { some: { userId, role: 'WORKSPACE_ADMIN' } } },
-          ],
+          ownerId: userId,
         },
         select: { id: true },
       });
-      const adminWorkspaceIds = adminWorkspaces.map((w) => w.id);
+      const ownerWorkspaceIds = ownerWorkspaces.map((w) => w.id);
 
       where = {
         workspace: { deletedAt: null },
         OR: [
-          { workspaceId: { in: adminWorkspaceIds } },
+          { workspaceId: { in: ownerWorkspaceIds } },
           {
             members: { some: { userId } },
             workspace: {
               deletedAt: null,
+              members: { some: { userId } },
+            },
+          },
+          {
+            visibility: 'WORKSPACE',
+            workspace: {
+              deletedAt: null,
+              isPersonal: false,
               members: { some: { userId } },
             },
           },
@@ -600,6 +712,15 @@ export class ProjectService {
           include: {
             user: {
               select: { id: true, fullName: true, username: true, avatarUrl: true, email: true },
+            },
+          },
+        },
+        workspace: {
+          select: {
+            id: true,
+            ownerId: true,
+            members: {
+              select: { userId: true, role: true },
             },
           },
         },

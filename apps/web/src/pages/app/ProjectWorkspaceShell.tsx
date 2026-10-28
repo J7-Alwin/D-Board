@@ -143,6 +143,7 @@ export const ProjectWorkspaceShell: React.FC = () => {
         <CreateWorkItemModal
           project={project}
           isOpen={createWorkModalOpen}
+          lockProject={true}
           onClose={() => setCreateWorkModalOpen(false)}
           onCreated={() => {
             setCreateWorkModalOpen(false);

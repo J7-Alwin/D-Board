@@ -35,6 +35,29 @@ import {
   MessageSquareIcon,
 } from '../../components/ui/Icons';
 
+const DashboardStatWave: React.FC<{ colorBack: string; colorFront: string }> = ({
+  colorBack,
+  colorFront,
+}) => (
+  <svg
+    className="stat-card-wave"
+    viewBox="0 0 160 90"
+    preserveAspectRatio="none"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <path
+      d="M0 90 C35 76 67 20 102 18 C128 16 147 23 160 29 V90 H0 Z"
+      fill={colorBack}
+    />
+    <path
+      d="M32 90 C64 90 88 56 115 52 C134 49 150 56 160 59 V90 H32 Z"
+      fill={colorFront}
+    />
+  </svg>
+);
+
 const DashboardInviteIllustration: React.FC = () => {
   return (
     <svg
@@ -467,6 +490,146 @@ export const DashboardPage: React.FC = () => {
         </div>
       )}
 
+      {/* ==========================================================================
+         TOP ROW: 4 STAT METRICS CARDS + TURN IDEAS INTO PROGRESS PROMO CARD
+         ========================================================================== */}
+      {data && !isLoading && (
+        <div className="dashboard-top-row-flex">
+          {/* Card 1: My Projects */}
+          <div
+            className="stat-box cursor-pointer card-theme-blue"
+            onClick={() => setActiveTab('owned')}
+            tabIndex={0}
+            role="button"
+            onKeyDown={(e) => e.key === 'Enter' && setActiveTab('owned')}
+          >
+            <DashboardStatWave colorBack="#EFF6FE" colorFront="#DBEAFE" />
+            <div className="stat-box-top">
+              <div className="stat-icon-wrapper icon-blue">
+                <LayersIcon size={20} />
+              </div>
+              <span className="stat-val">{data.stats.myProjectsCount}</span>
+            </div>
+            <div className="stat-box-bottom">
+              <span className="stat-tag">My Projects</span>
+              <div className="stat-arrow-circle">
+                <ArrowRightIcon size={13} strokeWidth={2.4} />
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2: Joined Projects */}
+          <div
+            className="stat-box cursor-pointer card-theme-green"
+            onClick={() => setActiveTab('joined')}
+            tabIndex={0}
+            role="button"
+            onKeyDown={(e) => e.key === 'Enter' && setActiveTab('joined')}
+          >
+            <DashboardStatWave colorBack="#ECFDF5" colorFront="#D1FAE5" />
+            <div className="stat-box-top">
+              <div className="stat-icon-wrapper icon-green">
+                <UsersIcon size={20} />
+              </div>
+              <span className="stat-val">{data.stats.joinedProjectsCount}</span>
+            </div>
+            <div className="stat-box-bottom">
+              <span className="stat-tag">Joined Projects</span>
+              <div className="stat-arrow-circle">
+                <ArrowRightIcon size={13} strokeWidth={2.4} />
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: My Open Work */}
+          <div
+            className="stat-box cursor-pointer card-theme-orange"
+            onClick={() => navigate('/app/my-work?tab=my-work')}
+            tabIndex={0}
+            role="button"
+            onKeyDown={(e) => e.key === 'Enter' && navigate('/app/my-work?tab=my-work')}
+          >
+            <DashboardStatWave colorBack="#FFF8ED" colorFront="#FED7AA" />
+            <div className="stat-box-top">
+              <div className="stat-icon-wrapper icon-orange">
+                <CheckSquareIcon size={20} />
+              </div>
+              <span className="stat-val">{data.stats.myOpenWorkCount}</span>
+            </div>
+            <div className="stat-box-bottom">
+              <span className="stat-tag">My Open Work</span>
+              <div className="stat-arrow-circle">
+                <ArrowRightIcon size={13} strokeWidth={2.4} />
+              </div>
+            </div>
+          </div>
+
+          {/* Card 4: Upcoming Deadlines */}
+          <div
+            className="stat-box cursor-pointer card-theme-purple"
+            onClick={() => navigate('/app/my-work?tab=due-soon')}
+            tabIndex={0}
+            role="button"
+            onKeyDown={(e) => e.key === 'Enter' && navigate('/app/my-work?tab=due-soon')}
+          >
+            <DashboardStatWave colorBack="#FAF5FF" colorFront="#F3E8FF" />
+            <div className="stat-box-top">
+              <div className="stat-icon-wrapper icon-purple">
+                <CalendarIcon size={20} />
+              </div>
+              <span className="stat-val">{data.stats.upcomingDeadlinesCount}</span>
+            </div>
+            <div className="stat-box-bottom">
+              <span className="stat-tag">Upcoming Deadlines</span>
+              <div className="stat-arrow-circle">
+                <ArrowRightIcon size={13} strokeWidth={2.4} />
+              </div>
+            </div>
+          </div>
+
+          {/* Turn ideas into progress Promo Card (in the same row) */}
+          <div className="dashboard-promo-card">
+            <div className="promo-card-content">
+              <h3 className="promo-card-title">
+                Turn ideas into<br />progress
+              </h3>
+              <p className="promo-card-desc">
+                Create a project, invite your team, and start organizing...
+              </p>
+              <button
+                type="button"
+                className="promo-learn-more-btn"
+                onClick={() => setIsLearnMoreOpen(true)}
+              >
+                <span>Learn more</span>
+                <ExternalLinkIcon size={13} />
+              </button>
+            </div>
+
+            {/* Illustrated Team Avatars & Kanban Graphic */}
+            <div className="promo-card-graphic" aria-hidden="true">
+              <div className="promo-graphic-backdrop-blob" />
+              <div className="promo-graphic-sheet">
+                <div className="promo-sheet-line line-1" />
+                <div className="promo-sheet-line line-2" />
+                <div className="promo-sheet-check">
+                  <CheckIcon size={11} strokeWidth={2.8} />
+                </div>
+              </div>
+
+              <div className="promo-avatar-pill avatar-top-blue">
+                <UsersIcon size={12} />
+              </div>
+              <div className="promo-avatar-pill avatar-right-green" />
+              <div className="promo-avatar-pill avatar-bottom-purple" />
+              <div className="promo-avatar-pill avatar-left-check">
+                <CheckIcon size={11} strokeWidth={2.8} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Pending Invitations Banner */}
       {pendingInvitations.length > 0 && !isLoading && (
         <div className="dashboard-invitations-banner">
@@ -580,132 +743,6 @@ export const DashboardPage: React.FC = () => {
           <Button variant="outline" size="sm" onClick={() => fetchDashboardData()}>
             Retry
           </Button>
-        </div>
-      )}
-
-      {/* ==========================================================================
-         TOP ROW: 4 STAT METRICS CARDS + TURN IDEAS INTO PROGRESS PROMO CARD
-         ========================================================================== */}
-      {data && !isLoading && (
-        <div className="dashboard-top-row-flex">
-          {/* 4 Stat Cards */}
-          <div
-            className="stat-box cursor-pointer"
-            onClick={() => setActiveTab('owned')}
-            tabIndex={0}
-            role="button"
-            onKeyDown={(e) => e.key === 'Enter' && setActiveTab('owned')}
-          >
-            <div className="stat-box-top">
-              <div className="stat-icon-wrapper icon-blue">
-                <LayersIcon size={20} />
-              </div>
-              <span className="stat-val">{data.stats.myProjectsCount}</span>
-            </div>
-            <div className="stat-box-bottom">
-              <span className="stat-tag">My Projects</span>
-              <ArrowRightIcon size={15} className="stat-arrow-indicator" />
-            </div>
-          </div>
-
-          <div
-            className="stat-box cursor-pointer"
-            onClick={() => setActiveTab('joined')}
-            tabIndex={0}
-            role="button"
-            onKeyDown={(e) => e.key === 'Enter' && setActiveTab('joined')}
-          >
-            <div className="stat-box-top">
-              <div className="stat-icon-wrapper icon-green">
-                <UsersIcon size={20} />
-              </div>
-              <span className="stat-val">{data.stats.joinedProjectsCount}</span>
-            </div>
-            <div className="stat-box-bottom">
-              <span className="stat-tag">Joined Projects</span>
-              <ArrowRightIcon size={15} className="stat-arrow-indicator" />
-            </div>
-          </div>
-
-          <div
-            className="stat-box cursor-pointer"
-            onClick={() => navigate('/app/my-work?tab=my-work')}
-            tabIndex={0}
-            role="button"
-            onKeyDown={(e) => e.key === 'Enter' && navigate('/app/my-work?tab=my-work')}
-          >
-            <div className="stat-box-top">
-              <div className="stat-icon-wrapper icon-orange">
-                <CheckSquareIcon size={20} />
-              </div>
-              <span className="stat-val">{data.stats.myOpenWorkCount}</span>
-            </div>
-            <div className="stat-box-bottom">
-              <span className="stat-tag">My Open Work</span>
-              <ArrowRightIcon size={15} className="stat-arrow-indicator" />
-            </div>
-          </div>
-
-          <div
-            className="stat-box cursor-pointer"
-            onClick={() => navigate('/app/my-work?tab=due-soon')}
-            tabIndex={0}
-            role="button"
-            onKeyDown={(e) => e.key === 'Enter' && navigate('/app/my-work?tab=due-soon')}
-          >
-            <div className="stat-box-top">
-              <div className="stat-icon-wrapper icon-purple">
-                <CalendarIcon size={20} />
-              </div>
-              <span className="stat-val">{data.stats.upcomingDeadlinesCount}</span>
-            </div>
-            <div className="stat-box-bottom">
-              <span className="stat-tag">Upcoming Deadlines</span>
-              <ArrowRightIcon size={15} className="stat-arrow-indicator" />
-            </div>
-          </div>
-
-          {/* Turn ideas into progress Promo Card (in the same row) */}
-          <div className="dashboard-promo-card">
-            <div className="promo-card-content">
-              <h3 className="promo-card-title">Turn ideas into progress</h3>
-              <p className="promo-card-desc">
-                Create a project, invite your team, and start organizing your work in one place.
-              </p>
-              <button
-                type="button"
-                className="promo-learn-more-btn"
-                onClick={() => setIsLearnMoreOpen(true)}
-              >
-                <span>Learn more</span>
-                <ExternalLinkIcon size={14} />
-              </button>
-            </div>
-
-            {/* Illustrated Team Avatars & Kanban Graphic */}
-            <div className="promo-card-graphic" aria-hidden="true">
-              <div className="promo-graphic-sheet">
-                <div className="promo-sheet-line line-1" />
-                <div className="promo-sheet-line line-2" />
-                <div className="promo-sheet-check">
-                  <CheckIcon size={13} />
-                </div>
-              </div>
-
-              <div className="promo-avatar-pill avatar-top-blue">
-                <UsersIcon size={12} />
-              </div>
-              <div className="promo-avatar-pill avatar-right-green">
-                <span className="avatar-dot" />
-              </div>
-              <div className="promo-avatar-pill avatar-bottom-purple">
-                <span className="avatar-dot" />
-              </div>
-              <div className="promo-avatar-pill avatar-left-check">
-                <CheckIcon size={12} />
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1002,7 +1039,7 @@ export const DashboardPage: React.FC = () => {
                     <CheckSquareIcon size={16} />
                   </div>
                   <div className="qa-btn-text">
-                    <span className="qa-btn-label">My Work</span>
+                    <span className="qa-btn-label">My Tasks</span>
                     <span className="qa-btn-sub">View assigned items</span>
                   </div>
                 </button>
@@ -1130,7 +1167,7 @@ export const DashboardPage: React.FC = () => {
                   <span className="tip-badge">Pro Tip</span>
                 </div>
                 <p className="tip-widget-text">
-                  Break major features into bite-sized work items to boost team delivery velocity.
+                  Break major features into bite-sized tasks to boost team delivery velocity.
                 </p>
                 <button
                   type="button"

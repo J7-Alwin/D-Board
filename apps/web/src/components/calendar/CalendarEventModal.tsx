@@ -64,25 +64,25 @@ const CATEGORY_OPTIONS: {
     bg: '#EFF6FF',
   },
   {
-    value: 'RELEASE',
-    label: 'Release',
-    icon: <TrendingUpIcon size={15} />,
-    color: '#16A34A',
-    bg: '#F0FDF4',
-  },
-  {
-    value: 'MILESTONE',
-    label: 'Milestone',
-    icon: <CheckSquareIcon size={15} />,
-    color: '#D97706',
-    bg: '#FEF3C7',
-  },
-  {
     value: 'DEADLINE',
     label: 'Deadline',
     icon: <AlertCircleIcon size={15} />,
     color: '#DC2626',
     bg: '#FEF2F2',
+  },
+  {
+    value: 'MILESTONE',
+    label: 'Milestone',
+    icon: <CheckSquareIcon size={15} />,
+    color: '#7C3AED',
+    bg: '#F5F3FF',
+  },
+  {
+    value: 'RELEASE',
+    label: 'Release',
+    icon: <TrendingUpIcon size={15} />,
+    color: '#D97706',
+    bg: '#FEF3C7',
   },
   {
     value: 'OTHER',
@@ -891,9 +891,9 @@ export const CalendarEventModal: React.FC<CalendarEventModalProps> = ({
               </div>
             </div>
 
-            {/* Related Work Item */}
+            {/* Related Task */}
             <div className="cem-field-group">
-              <label className="cem-field-label">Related Work Item (Optional)</label>
+              <label className="cem-field-label">Related Task (Optional)</label>
               <div className="cem-dropdown-wrapper">
                 <button
                   type="button"

@@ -358,9 +358,10 @@ export class WorkspaceService {
           isPersonal: boolean;
           maxMembers: number | null;
           deletedAt: Date | null;
+          adminPermissions: unknown;
         }>
       >`
-        SELECT id, name, slug, "ownerId", "isPersonal", "maxMembers", "deletedAt"
+        SELECT id, name, slug, "ownerId", "isPersonal", "maxMembers", "deletedAt", "adminPermissions"
         FROM "Workspace"
         WHERE id = ${workspaceId}
         FOR UPDATE
@@ -387,6 +388,18 @@ export class WorkspaceService {
             400
           );
         }
+      }
+
+      if (data.autoIncludeAdminsInNewProjects !== undefined) {
+        const rawPerms = (ws.adminPermissions as any) || {};
+        updateData.adminPermissions = {
+          ...rawPerms,
+          autoIncludeAdminsInNewProjects: data.autoIncludeAdminsInNewProjects,
+          workspaceAdmin: {
+            ...((rawPerms.workspaceAdmin as any) || {}),
+            autoIncludeAdminsInNewProjects: data.autoIncludeAdminsInNewProjects,
+          },
+        };
       }
 
       const res = await tx.workspace.update({
@@ -527,7 +540,8 @@ export class WorkspaceService {
         input.canManageRoles !== undefined ||
         input.canDirectlyCompleteProject !== undefined ||
         input.canArchiveProjects !== undefined ||
-        input.canManagePermissions !== undefined
+        input.canManagePermissions !== undefined ||
+        input.autoIncludeAdminsInNewProjects !== undefined
       ) {
         throw new AppError('Workspace administrators cannot modify administrator permissions', 403);
       }
@@ -541,6 +555,7 @@ export class WorkspaceService {
       canDirectlyCompleteProject: input.workspaceAdmin?.canDirectlyCompleteProject ?? input.canDirectlyCompleteProject ?? current.workspaceAdmin.canDirectlyCompleteProject,
       canArchiveProjects: input.workspaceAdmin?.canArchiveProjects ?? input.canArchiveProjects ?? current.workspaceAdmin.canArchiveProjects,
       canManagePermissions: input.workspaceAdmin?.canManagePermissions ?? input.canManagePermissions ?? current.workspaceAdmin.canManagePermissions,
+      autoIncludeAdminsInNewProjects: input.workspaceAdmin?.autoIncludeAdminsInNewProjects ?? input.autoIncludeAdminsInNewProjects ?? current.workspaceAdmin.autoIncludeAdminsInNewProjects ?? true,
     };
 
     const updatedProjAdmin = {
@@ -557,6 +572,7 @@ export class WorkspaceService {
     const updated = {
       ...rawCurrentPerms,
       ...updatedWsAdmin,
+      autoIncludeAdminsInNewProjects: updatedWsAdmin.autoIncludeAdminsInNewProjects,
       workspaceAdmin: updatedWsAdmin,
       projectAdmin: updatedProjAdmin,
       workspaceMember: updatedWsMember,

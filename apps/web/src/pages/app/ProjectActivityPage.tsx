@@ -206,7 +206,7 @@ export const ProjectActivityPage: React.FC<ProjectActivityPageProps> = ({
   // Filter Categories matching ActivityPage
   const filterCategories: { id: 'all' | 'work' | 'comments' | 'notes' | 'calendar' | 'files' | 'members'; label: string; icon: React.ReactNode }[] = [
     { id: 'all', label: 'All Activity', icon: <LayersIcon size={14} /> },
-    { id: 'work', label: 'Work Items', icon: <TaskCheckIcon size={14} /> },
+    { id: 'work', label: 'Tasks', icon: <TaskCheckIcon size={14} /> },
     { id: 'comments', label: 'Comments', icon: <CommentBubbleIcon size={14} /> },
     { id: 'notes', label: 'Notes', icon: <NoteDocIcon size={14} /> },
     { id: 'calendar', label: 'Calendar', icon: <CalIcon size={14} /> },
@@ -544,25 +544,27 @@ export const ProjectActivityPage: React.FC<ProjectActivityPageProps> = ({
         />
       )}
 
-      {/* Top Atmosphere Header Card Matching Pic 4 */}
-      <div className="cal-page-header activity-page-top-header" style={{ marginBottom: '1.25rem' }}>
-        <div className="cal-header-left">
-          <div className="cal-title-row">
-            <span className="wap-banner-icon-badge">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F172A" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-              </svg>
-            </span>
-            <h1 className="cal-header-title">Project Activity</h1>
+      {/* Top Atmosphere Header Card: Hidden in project overview page for now per user request */}
+      {!hideHeader && (
+        <div className="cal-page-header activity-page-top-header" style={{ marginBottom: '1.25rem' }}>
+          <div className="cal-header-left">
+            <div className="cal-title-row">
+              <span className="wap-banner-icon-badge">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F172A" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                </svg>
+              </span>
+              <h1 className="cal-header-title">Project Activity</h1>
+            </div>
+            <p className="cal-header-subtitle">
+              Real-time chronological stream of events for this project.
+            </p>
           </div>
-          <p className="cal-header-subtitle">
-            Real-time chronological stream of events for this project.
-          </p>
-        </div>
 
-        {/* Atmosphere Quote & Art on Right */}
-        <ActivityHeaderAtmosphere />
-      </div>
+          {/* Atmosphere Quote & Art on Right */}
+          <ActivityHeaderAtmosphere />
+        </div>
+      )}
 
       {/* 1. Unified Toolbar Matching ActivityPage (Search Box & Category Filter Pills) */}
       <div className="wap-toolbar" style={{ marginBottom: '1.25rem' }}>

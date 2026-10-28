@@ -204,15 +204,17 @@ export const InvitationsPage: React.FC = () => {
       {/* Top Floating Header Card */}
       <div className="cal-page-header invitations-page-top-header">
         <div className="cal-header-left">
-          <div className="cal-title-row">
-            <span className="cal-header-icon-box invitations-icon-box">
-              <MailIcon size={24} />
-            </span>
-            <h1 className="cal-header-title">Collaboration Invitations</h1>
+          <div className="cal-header-icon-box invitations-icon-box">
+            <MailIcon size={26} />
           </div>
-          <p className="cal-header-subtitle">
-            Review and respond to invitations to join team workspaces and collaborate on projects.
-          </p>
+          <div className="cal-banner-titles">
+            <div className="cal-title-row">
+              <h1 className="cal-header-title">Collaboration Invitations</h1>
+            </div>
+            <p className="cal-header-subtitle">
+              Review and respond to invitations to join team workspaces and collaborate on projects.
+            </p>
+          </div>
         </div>
 
         {/* Atmosphere Quote & Illustration Artwork */}

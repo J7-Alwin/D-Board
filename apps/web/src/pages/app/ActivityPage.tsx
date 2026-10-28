@@ -784,17 +784,19 @@ export const ActivityPage: React.FC = () => {
       {/* 1. Top Section - Matching Exact Layout in Uploaded Reference */}
       <div className="cal-page-header activity-page-top-header">
         <div className="cal-header-left">
-          <div className="cal-title-row">
-            <span className="wap-banner-icon-badge">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F172A" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-              </svg>
-            </span>
-            <h1 className="cal-header-title">Workspace Activity</h1>
+          <div className="cal-header-icon-box wap-banner-icon-badge">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1E293B" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+            </svg>
           </div>
-          <p className="cal-header-subtitle">
-            Real-time chronological stream of events across all projects you collaborate on.
-          </p>
+          <div className="cal-banner-titles">
+            <div className="cal-title-row">
+              <h1 className="cal-header-title">Workspace Activity</h1>
+            </div>
+            <p className="cal-header-subtitle">
+              Real-time chronological stream of events across all projects you collaborate on.
+            </p>
+          </div>
         </div>
 
         {/* Atmosphere Quote & Art on Right */}

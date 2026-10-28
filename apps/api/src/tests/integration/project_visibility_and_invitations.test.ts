@@ -228,7 +228,7 @@ describe('Project Visibility Model and Cross-Workspace Invitations Integration T
       expect(restrictedProj.visibility).toBe('Restricted');
     });
 
-    it('2. Workspace Admin sees both projects with identical visibility labels as Owner', async () => {
+    it('2. Workspace Admin project listing follows explicit-participant rule (sees Workspace-visible, but not unassigned Restricted project)', async () => {
       const res = await request(app)
         .get('/api/projects')
         .set('Cookie', adminCookie)
@@ -241,8 +241,8 @@ describe('Project Visibility Model and Cross-Workspace Invitations Integration T
       expect(openProj).toBeDefined();
       expect(openProj.visibility).toBe('Workspace');
 
-      expect(restrictedProj).toBeDefined();
-      expect(restrictedProj.visibility).toBe('Restricted');
+      // Per Section 7: Show only projects in which the Workspace Admin is an explicit project participant or otherwise qualifies under workspace policy
+      expect(restrictedProj).toBeUndefined();
     });
 
     it('3. Workspace Member can see Workspace-visible project without explicit ProjectMember assignment', async () => {

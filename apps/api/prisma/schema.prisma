@@ -213,6 +213,7 @@ model User {
   receivedInvitations        Invitation[]    @relation("ReceivedInvitations")
   createdWorkItems           WorkItem[]      @relation("CreatedWorkItems")
   assignedWorkItems          WorkItem[]      @relation("AssignedWorkItems")
+  assignedWorkItemEntries    WorkItemAssignee[]
   comments                   Comment[]       @relation("UserComments")
   activities                 Activity[]      @relation("UserActivities")
   createdNotes               Note[]          @relation("CreatedNotes")
@@ -409,22 +410,54 @@ model WorkItem {
   createdBy      User             @relation("CreatedWorkItems", fields: [createdById], references: [id], onDelete: Restrict)
   assignedToId   String?
   assignedTo     User?            @relation("AssignedWorkItems", fields: [assignedToId], references: [id], onDelete: SetNull)
-  dueDate        DateTime?
-  completedAt    DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  dueDate             DateTime?
+  todoDueDate         DateTime?
+  inProgressDueDate   DateTime?
+  inReviewDueDate     DateTime?
+  completedDueDate    DateTime?
+  rejectionReason     String?
+  rejectedAt          DateTime?
+  rejectedById        String?
+  approvedAt          DateTime?
+  approvedById        String?
+  completedAt         DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   comments       Comment[]
   activities     Activity[]
   calendarEvents CalendarEvent[]
   attachments    Attachment[]
   notifications  Notification[]
+  assignees      WorkItemAssignee[]
 
   @@index([projectId, status])
   @@index([assignedToId])
   @@index([dueDate])
   @@index([priority])
   @@index([createdById])
+}
+
+model WorkItemAssignee {
+  id                    String    @id @default(uuid())
+  workItemId            String
+  workItem              WorkItem  @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedAt            DateTime  @default(now())
+  hasStarted            Boolean   @default(false)
+  startedAt             DateTime?
+  hasCompleted          Boolean   @default(false)
+  completedAt           DateTime?
+  totalDurationSeconds  Int       @default(0)
+  lastSessionStartedAt  DateTime?
+  isPaused              Boolean   @default(true)
+  lastCheckInCycle      Int       @default(0)
+  lastCheckInAt         DateTime?
+
+  @@unique([workItemId, userId])
+  @@index([workItemId])
+  @@index([userId])
 }
 
 model Comment {

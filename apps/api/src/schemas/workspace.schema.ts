@@ -6,7 +6,11 @@ export const createWorkspaceSchema = z.object({
     .trim()
     .min(2, 'Workspace name must be at least 2 characters')
     .max(100, 'Workspace name must not exceed 100 characters'),
-  avatarUrl: z.string().url('Invalid avatar URL').optional().nullable(),
+  avatarUrl: z.union([
+    z.string().url('Invalid avatar URL'),
+    z.string().startsWith('data:image/'),
+    z.literal(''),
+  ]).optional().nullable(),
   maxMembers: z.number().int().min(1, 'Member limit must be at least 1').nullable().optional(),
   isPersonal: z.boolean().optional(),
 });
@@ -18,8 +22,13 @@ export const updateWorkspaceSchema = z.object({
     .min(2, 'Workspace name must be at least 2 characters')
     .max(100, 'Workspace name must not exceed 100 characters')
     .optional(),
-  avatarUrl: z.string().url('Invalid avatar URL').optional().nullable(),
+  avatarUrl: z.union([
+    z.string().url('Invalid avatar URL'),
+    z.string().startsWith('data:image/'),
+    z.literal(''),
+  ]).optional().nullable(),
   maxMembers: z.number().int().min(1, 'Member limit must be at least 1').nullable().optional(),
+  autoIncludeAdminsInNewProjects: z.boolean().optional(),
 }).refine((data) => Object.keys(data).length > 0, {
   message: 'At least one field to update must be provided',
 });
@@ -42,6 +51,7 @@ export const workspaceAdminPermissionsSchema = z.object({
   canDirectlyCompleteProject: z.boolean().default(true),
   canArchiveProjects: z.boolean().default(true),
   canManagePermissions: z.boolean().default(false),
+  autoIncludeAdminsInNewProjects: z.boolean().default(false),
 });
 
 export const projectAdminPermissionsSchema = z.object({
@@ -64,6 +74,7 @@ export interface WorkspaceFullPermissions extends LegacyAdminPermissions {
   canDirectlyCompleteProject: boolean;
   canArchiveProjects: boolean;
   canManagePermissions: boolean;
+  autoIncludeAdminsInNewProjects: boolean;
   workspaceAdmin: z.infer<typeof workspaceAdminPermissionsSchema>;
   projectAdmin: z.infer<typeof projectAdminPermissionsSchema>;
   workspaceMember: z.infer<typeof workspaceMemberPermissionsSchema>;
@@ -79,6 +90,7 @@ export const updateWorkspaceAdminPermissionsSchema = z.object({
   canDirectlyCompleteProject: z.boolean().optional(),
   canArchiveProjects: z.boolean().optional(),
   canManagePermissions: z.boolean().optional(),
+  autoIncludeAdminsInNewProjects: z.boolean().optional(),
   workspaceAdmin: z.object({
     canInviteMembers: z.boolean().optional(),
     canRemoveMembers: z.boolean().optional(),
@@ -87,6 +99,7 @@ export const updateWorkspaceAdminPermissionsSchema = z.object({
     canDirectlyCompleteProject: z.boolean().optional(),
     canArchiveProjects: z.boolean().optional(),
     canManagePermissions: z.boolean().optional(),
+    autoIncludeAdminsInNewProjects: z.boolean().optional(),
   }).optional(),
   projectAdmin: z.object({
     canCreateProjects: z.boolean().optional(),
@@ -123,6 +136,7 @@ export const DEFAULT_FULL_WORKSPACE_PERMISSIONS: WorkspaceFullPermissions = {
   canDirectlyCompleteProject: true,
   canArchiveProjects: true,
   canManagePermissions: false,
+  autoIncludeAdminsInNewProjects: false,
   workspaceAdmin: {
     canInviteMembers: true,
     canRemoveMembers: false,
@@ -131,6 +145,7 @@ export const DEFAULT_FULL_WORKSPACE_PERMISSIONS: WorkspaceFullPermissions = {
     canDirectlyCompleteProject: true,
     canArchiveProjects: true,
     canManagePermissions: false,
+    autoIncludeAdminsInNewProjects: false,
   },
   projectAdmin: {
     canCreateProjects: false,
@@ -149,6 +164,7 @@ export const PERSONAL_FULL_WORKSPACE_PERMISSIONS: WorkspaceFullPermissions = {
   canDirectlyCompleteProject: false,
   canArchiveProjects: false,
   canManagePermissions: false,
+  autoIncludeAdminsInNewProjects: false,
   workspaceAdmin: {
     canInviteMembers: false,
     canRemoveMembers: false,
@@ -157,6 +173,7 @@ export const PERSONAL_FULL_WORKSPACE_PERMISSIONS: WorkspaceFullPermissions = {
     canDirectlyCompleteProject: false,
     canArchiveProjects: false,
     canManagePermissions: false,
+    autoIncludeAdminsInNewProjects: false,
   },
   projectAdmin: {
     canCreateProjects: false,
@@ -192,6 +209,7 @@ export function resolveFullWorkspacePermissions(workspace: {
     canDirectlyCompleteProject: typeof rawWsAdmin.canDirectlyCompleteProject === 'boolean' ? rawWsAdmin.canDirectlyCompleteProject : (typeof raw.canDirectlyCompleteProject === 'boolean' ? raw.canDirectlyCompleteProject : true),
     canArchiveProjects: typeof rawWsAdmin.canArchiveProjects === 'boolean' ? rawWsAdmin.canArchiveProjects : (typeof raw.canArchiveProjects === 'boolean' ? raw.canArchiveProjects : true),
     canManagePermissions: typeof rawWsAdmin.canManagePermissions === 'boolean' ? rawWsAdmin.canManagePermissions : (typeof raw.canManagePermissions === 'boolean' ? raw.canManagePermissions : false),
+    autoIncludeAdminsInNewProjects: typeof rawWsAdmin.autoIncludeAdminsInNewProjects === 'boolean' ? rawWsAdmin.autoIncludeAdminsInNewProjects : (typeof raw.autoIncludeAdminsInNewProjects === 'boolean' ? raw.autoIncludeAdminsInNewProjects : false),
   };
 
   const rawProjAdmin = raw.projectAdmin || {};
@@ -207,6 +225,7 @@ export function resolveFullWorkspacePermissions(workspace: {
 
   return {
     ...wsAdmin,
+    autoIncludeAdminsInNewProjects: wsAdmin.autoIncludeAdminsInNewProjects,
     workspaceAdmin: wsAdmin,
     projectAdmin: projAdmin,
     workspaceMember: wsMember,

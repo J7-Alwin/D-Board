@@ -11,6 +11,7 @@ export interface WorkspaceAdminPermissions {
   canDirectlyCompleteProject?: boolean;
   canArchiveProjects?: boolean;
   canManagePermissions?: boolean;
+  autoIncludeAdminsInNewProjects?: boolean;
   workspaceAdmin?: {
     canInviteMembers: boolean;
     canRemoveMembers: boolean;
@@ -19,6 +20,7 @@ export interface WorkspaceAdminPermissions {
     canDirectlyCompleteProject: boolean;
     canArchiveProjects: boolean;
     canManagePermissions: boolean;
+    autoIncludeAdminsInNewProjects?: boolean;
   };
   projectAdmin?: {
     canCreateProjects: boolean;
@@ -83,6 +85,7 @@ export interface WorkspaceMemberItem {
     username: string;
     email: string;
     avatarUrl: string | null;
+    isDeactivated?: boolean;
   };
 }
 

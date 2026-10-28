@@ -10,6 +10,7 @@ import { ProjectWorkspaceHeader } from '../../components/workspace/ProjectWorksp
 import { TeamMembersHeaderAtmosphere } from '../../components/common/HeaderAtmosphereArt';
 import { InviteMemberModal } from '../../components/workspace/InviteMemberModal';
 import { CreateWorkItemModal } from '../../components/workspace/CreateWorkItemModal';
+import { ProjectAdminHandoverModal } from '../../components/workspace/ProjectAdminHandoverModal';
 import {
   UsersIcon,
   SearchIcon,
@@ -73,6 +74,10 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [createWorkModalOpen, setCreateWorkModalOpen] = useState(false);
   const [memberToDelete, setMemberToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [handoverState, setHandoverState] = useState<{
+    member: ProjectMemberDetail;
+    action: 'DEMOTE' | 'REMOVE';
+  } | null>(null);
 
   useEffect(() => {
     if (propProject) {
@@ -141,6 +146,12 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
   const isAdmin = isWsLeader || userRole === 'PROJECT_ADMIN' || project?.createdById === user?.id;
 
   const handleRoleChange = async (memberId: string, newRole: 'PROJECT_ADMIN' | 'PROJECT_MEMBER') => {
+    const target = members.find((m) => m.id === memberId);
+    if (target && target.role === 'PROJECT_ADMIN' && newRole === 'PROJECT_MEMBER') {
+      setHandoverState({ member: target, action: 'DEMOTE' });
+      setOpenMenuMemberId(null);
+      return;
+    }
     try {
       const res = await membersApi.updateMemberRole(projectId, memberId, newRole);
       if (res.success) {
@@ -155,6 +166,12 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
   };
 
   const handleRemoveMember = (memberId: string, memberName: string) => {
+    const target = members.find((m) => m.id === memberId);
+    if (target && target.role === 'PROJECT_ADMIN') {
+      setHandoverState({ member: target, action: 'REMOVE' });
+      setOpenMenuMemberId(null);
+      return;
+    }
     setMemberToDelete({ id: memberId, name: memberName });
   };
 
@@ -294,26 +311,31 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
           project={project}
           currentTab="members"
           onOpenCreateWorkModal={() => setCreateWorkModalOpen(true)}
+          onOpenInviteModal={isAdmin ? () => setInviteModalOpen(true) : undefined}
         />
       )}
 
       <div className="team-members-page-content">
-        {/* Top Hero Atmosphere Card: "Team & Members" + "Together, we build progress." */}
-        <div className="team-atmosphere-card">
-          <div className="team-atmosphere-left">
-            <div className="team-atmosphere-title-row">
-              <UsersIcon size={22} className="team-atmosphere-icon" />
-              <h1 className="team-atmosphere-title">Team & Members</h1>
+        {/* Top Hero Atmosphere Card: Hidden in project overview page for now per user request */}
+        {!hideHeader && (
+          <div className="team-atmosphere-card">
+            <div className="team-atmosphere-left">
+              <div className="team-atmosphere-icon-box">
+                <UsersIcon size={24} className="team-atmosphere-icon" />
+              </div>
+              <div className="team-atmosphere-text">
+                <h1 className="team-atmosphere-title">Team & Members</h1>
+                <p className="team-atmosphere-subtitle">
+                  Manage project collaborators, roles, and pending email invitations.
+                </p>
+              </div>
             </div>
-            <p className="team-atmosphere-subtitle">
-              Manage project collaborators, roles, and pending email invitations.
-            </p>
-          </div>
 
-          <div className="team-atmosphere-right">
-            <TeamMembersHeaderAtmosphere />
+            <div className="team-atmosphere-right">
+              <TeamMembersHeaderAtmosphere />
+            </div>
           </div>
-        </div>
+        )}
 
         {error && (
           <div
@@ -424,6 +446,18 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
                 <ListIcon size={16} />
               </button>
             </div>
+
+            {isAdmin && (
+              <button
+                type="button"
+                className="team-invite-black-pill-btn"
+                style={{ padding: '0.45rem 0.85rem', fontSize: '0.8125rem' }}
+                onClick={() => setInviteModalOpen(true)}
+              >
+                <UserPlusIcon size={14} />
+                <span>Add Member</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -590,15 +624,15 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
                       </span>
                     </div>
 
-                    {/* Work Items Clickable Row */}
+                    {/* Tasks Clickable Row */}
                     <div
                       className="team-member-work-row"
                       onClick={() => navigate(`/app/projects/${projectId}/board`)}
-                      title="View assigned work items on Board"
+                      title="View assigned tasks on Board"
                     >
                       <div className="team-work-label-wrap">
                         <CheckSquareIcon size={15} />
-                        <span>Work Items</span>
+                        <span>Tasks</span>
                       </div>
                       <div className="team-work-count-wrap">
                         <span>{assignedItems} assigned</span>
@@ -609,13 +643,13 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
                 );
               })}
 
-            {/* Right Placeholder: Invite Team Members Dashed Card */}
-            {statusFilter !== 'PENDING' && (
+            {/* Right Placeholder: Add Team Members Dashed Card (Admins only) */}
+            {statusFilter !== 'PENDING' && isAdmin && (
               <div className="team-invite-dashed-card">
                 <div className="team-invite-icon-box">
                   <UserPlusIcon size={24} />
                 </div>
-                <h3 className="team-invite-title">Invite Team Members</h3>
+                <h3 className="team-invite-title">Add Workspace Members</h3>
                 <p className="team-invite-subtitle">
                   Collaborate with your team to get more done.
                 </p>
@@ -624,8 +658,8 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
                   className="team-invite-black-pill-btn"
                   onClick={() => setInviteModalOpen(true)}
                 >
-                  <MailIcon size={14} />
-                  <span>Invite Members</span>
+                  <UserPlusIcon size={14} />
+                  <span>Add Members</span>
                 </button>
               </div>
             )}
@@ -643,7 +677,7 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
                   <th>Role</th>
                   <th>Joined</th>
                   <th>Activity</th>
-                  <th>Work Items</th>
+                  <th>Tasks</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
@@ -816,6 +850,19 @@ export const ProjectMembersPage: React.FC<ProjectMembersPageProps> = ({
           onClose={() => setCreateWorkModalOpen(false)}
           project={project}
           onCreated={() => loadData()}
+        />
+      )}
+
+      {/* Handover Modal for Project Admins */}
+      {handoverState && (
+        <ProjectAdminHandoverModal
+          isOpen={Boolean(handoverState)}
+          onClose={() => setHandoverState(null)}
+          projectId={projectId}
+          projectName={project.name}
+          targetMember={handoverState.member}
+          action={handoverState.action}
+          onSuccess={() => loadData(true)}
         />
       )}
 

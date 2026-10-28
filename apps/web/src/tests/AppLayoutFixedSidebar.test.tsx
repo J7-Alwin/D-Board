@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import '@testing-library/jest-dom';
 import { AppLayout } from '../components/layout/AppLayout';
 
 const mockNavigate = vi.fn();
@@ -131,8 +132,8 @@ describe('AppLayout Fixed Sidebar and Layout Integrity', () => {
     expect(nav.querySelector('a[href="/app/calendar"]')).toBeInTheDocument();
     expect(nav.querySelector('a[href="/app/files"]')).toBeInTheDocument();
     expect(nav.querySelector('a[href="/app/notes"]')).toBeInTheDocument();
-    expect(nav.querySelector('a[href="/app/activity"]')).toBeInTheDocument();
-    expect(nav.querySelector('a[href="/app/notifications"]')).toBeInTheDocument();
+    expect(nav.querySelector('a[href="/app/activity"]')).not.toBeInTheDocument();
+    expect(nav.querySelector('a[href="/app/notifications"]')).not.toBeInTheDocument();
 
     // 3. Projects section header
     expect(screen.getByText('RECENT PROJECTS')).toBeInTheDocument();

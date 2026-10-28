@@ -134,6 +134,96 @@ export class WorkController {
       next(error);
     }
   }
+
+  async startTask(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const workItemId = String(req.params.workItemId);
+      const workItem = await workService.startTask(projectId, workItemId, req.user.userId);
+      res.status(200).json({
+        success: true,
+        message: 'Task started successfully',
+        data: { workItem },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async checkInTimer(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const workItemId = String(req.params.workItemId);
+      const workItem = await workService.checkInTimer(projectId, workItemId, req.user.userId);
+      res.status(200).json({
+        success: true,
+        message: 'Timer cycle continued successfully',
+        data: { workItem },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async resumeTimer(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const workItemId = String(req.params.workItemId);
+      const workItem = await workService.resumeTimer(projectId, workItemId, req.user.userId);
+      res.status(200).json({
+        success: true,
+        message: 'Timer resumed successfully',
+        data: { workItem },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async completeWork(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const workItemId = String(req.params.workItemId);
+      const workItem = await workService.completeWork(projectId, workItemId, req.user.userId);
+      res.status(200).json({
+        success: true,
+        message: 'Work marked as completed successfully',
+        data: { workItem },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async reviewTask(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const workItemId = String(req.params.workItemId);
+      const workItem = await workService.reviewTask(projectId, workItemId, req.user.userId, req.body);
+      res.status(200).json({
+        success: true,
+        message: `Task ${req.body.action === 'APPROVE' ? 'approved' : 'rejected'} successfully`,
+        data: { workItem },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const workController = new WorkController();

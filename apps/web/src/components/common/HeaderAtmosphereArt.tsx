@@ -1752,9 +1752,9 @@ export const WorkspaceSettingsHeaderAtmosphere: React.FC = () => {
   return (
     <div className="as-atmosphere-group" aria-hidden="true">
       <div className="as-atmosphere-quote-wrap">
-        <span className="as-atmosphere-quote-line">Your team.</span>
-        <span className="as-atmosphere-quote-line">Your workspace.</span>
-        <span className="as-atmosphere-quote-line">Your mission.</span>
+        <span className="as-atmosphere-quote-line">“A great workspace</span>
+        <span className="as-atmosphere-quote-line">brings people, ideas, and progress</span>
+        <span className="as-atmosphere-quote-line">together.”</span>
         <svg
           className="as-quote-underline-svg"
           viewBox="0 0 85 14"
@@ -1762,8 +1762,8 @@ export const WorkspaceSettingsHeaderAtmosphere: React.FC = () => {
           xmlns="http://www.w3.org/2000/svg"
         >
           <path
-            d="M3 6.5C24 2 52 2.5 76 5.5M16 10C36 7.5 58 6.5 74 8.5"
-            stroke="#22C55E"
+            d="M 3 7 C 24 12, 55 13, 82 6"
+            stroke="#10B981"
             strokeWidth="2.2"
             strokeLinecap="round"
           />
@@ -1772,85 +1772,182 @@ export const WorkspaceSettingsHeaderAtmosphere: React.FC = () => {
 
       <svg
         className="as-atmosphere-art-svg"
-        viewBox="0 0 165 85"
+        viewBox="0 0 215 70"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
         <defs>
           <filter id="ws-card-shadow" x="-15%" y="-15%" width="130%" height="130%">
-            <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#0F172A" floodOpacity="0.05" />
+            <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#0F172A" floodOpacity="0.06" />
           </filter>
         </defs>
 
-        {/* Soft pastel green rolling ground */}
+        {/* Soft pastel green rolling background hills */}
         <path
-          d="M0 85 C30 68 75 62 165 68 L165 85 L0 85 Z"
+          d="M 0 70 C 35 48, 80 44, 140 50 C 170 54, 195 48, 215 44 L 215 70 L 0 70 Z"
           fill="#DCFCE7"
-          opacity="0.85"
+          opacity="0.8"
+        />
+        <path
+          d="M 140 70 C 160 56, 185 50, 215 54 L 215 70 Z"
+          fill="#A7F3D0"
+          opacity="0.7"
         />
 
         {/* Soft background clouds */}
         <path
-          d="M10 50 C10 46 13 43 17 43 C19 43 21 44 22 46 C24 45 27 46 28 48 C29 50 28 52 26 52 L12 52 C10 52 10 50 10 50 Z"
-          fill="#F1F5F9"
-          opacity="0.9"
+          d="M 14 32 C 14 28, 17 26, 20 26 C 22 26, 24 27, 25 28 C 26 27, 29 28, 30 30 C 31 32, 30 34, 28 34 L 16 34 C 14 34, 14 32, 14 32 Z"
+          fill="#FFFFFF"
+          opacity="0.85"
         />
         <path
-          d="M130 45 C130 41 133 38 137 38 C139 38 141 39 142 41 C144 40 147 41 148 43 C149 45 148 47 146 47 L132 47 C130 47 130 45 130 45 Z"
-          fill="#F1F5F9"
-          opacity="0.9"
+          d="M 180 24 C 180 20, 183 18, 186 18 C 188 18, 190 19, 191 20 C 192 19, 195 20, 196 22 C 197 24, 196 26, 194 26 L 182 26 C 180 26, 180 24, 180 24 Z"
+          fill="#FFFFFF"
+          opacity="0.85"
         />
 
-        {/* Yellow Sunburst Rays */}
-        <line x1="94" y1="12" x2="94" y2="4" stroke="#FBBF24" strokeWidth="2.5" strokeLinecap="round" />
-        <line x1="102" y1="16" x2="111" y2="10" stroke="#FBBF24" strokeWidth="2.5" strokeLinecap="round" />
-        <line x1="106" y1="25" x2="116" y2="23" stroke="#FBBF24" strokeWidth="2.5" strokeLinecap="round" />
+        {/* Botanical Plant on Left of Card */}
+        <g>
+          {/* Stem */}
+          <path
+            d="M 38 68 C 37 56, 35 44, 34 32"
+            stroke="#1A3B2B"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+          {/* Lower left leaf */}
+          <path
+            d="M 35 52 C 23 54, 14 45, 18 38 C 26 35, 33 42, 35 52 Z"
+            fill="#86EFAC"
+            stroke="#15803D"
+            strokeWidth="1.1"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M 35 52 C 28 47, 22 43, 18 38"
+            stroke="#15803D"
+            strokeWidth="0.75"
+            strokeLinecap="round"
+          />
+          {/* Upper left tall leaf */}
+          <path
+            d="M 34 38 C 25 30, 19 14, 25 9 C 34 9, 39 24, 34 38 Z"
+            fill="#4ADE80"
+            stroke="#15803D"
+            strokeWidth="1.2"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M 34 38 C 29 28, 27 18, 25 9"
+            stroke="#15803D"
+            strokeWidth="0.8"
+            strokeLinecap="round"
+          />
+          {/* Lower right leaf */}
+          <path
+            d="M 35 46 C 43 41, 50 44, 47 49 C 43 54, 37 52, 35 46 Z"
+            fill="#22C55E"
+            stroke="#15803D"
+            strokeWidth="1.1"
+            strokeLinejoin="round"
+          />
+        </g>
 
-        {/* Back Card (Layered depth effect) */}
-        <rect
-          x="46"
-          y="15"
-          width="54"
-          height="48"
-          rx="8"
-          fill="#F8FAFC"
-          stroke="#E2E8F0"
+        {/* Golden Sun with soft outer halo behind Top-Right of Browser Card */}
+        <circle cx="123" cy="16" r="14" fill="#FEF08A" opacity="0.6" />
+        <circle cx="123" cy="16" r="9.5" fill="#FBBF24" />
+
+        {/* Dashed Flight Trajectory Arc */}
+        <path
+          d="M 130 52 C 148 48, 158 36, 172 23"
+          stroke="#94A3B8"
           strokeWidth="1.2"
+          strokeDasharray="2 2.5"
+          strokeLinecap="round"
         />
-        <rect x="52" y="24" width="22" height="4" rx="2" fill="#E2E8F0" />
-        <rect x="52" y="32" width="36" height="3" rx="1.5" fill="#EEF2F6" />
-        <rect x="52" y="39" width="30" height="3" rx="1.5" fill="#EEF2F6" />
 
-        {/* Front Workspace ID / Team Card */}
+        {/* Browser Window Card */}
         <g filter="url(#ws-card-shadow)">
+          {/* Card Base */}
           <rect
-            x="64"
-            y="22"
-            width="68"
-            height="46"
-            rx="9"
+            x="44"
+            y="18"
+            width="82"
+            height="50"
+            rx="7"
             fill="#FFFFFF"
             stroke="#E2E8F0"
-            strokeWidth="1.2"
+            strokeWidth="1.1"
           />
 
-          {/* Workspace Avatar/Icon inside Card */}
-          <rect x="74" y="30" width="18" height="18" rx="5" fill="#4F46E5" />
-          <circle cx="83" cy="37" r="3" fill="#FFFFFF" />
-          <path d="M78 45 C78 42 80 40 83 40 C86 40 88 42 88 45 Z" fill="#FFFFFF" opacity="0.9" />
-
-          {/* Card Text lines */}
-          <rect x="97" y="32" width="26" height="5" rx="2.5" fill="#0F172A" />
-          <rect x="97" y="41" width="20" height="3.5" rx="1.75" fill="#94A3B8" />
-
-          {/* Verified / Active check badge */}
-          <circle cx="120" cy="56" r="7" fill="#10B981" />
+          {/* Header Bar */}
           <path
-            d="M117 56.2 L119.2 58.4 L123.5 54.1"
+            d="M 44 25 C 44 22, 47 18, 51 18 L 119 18 C 123 18, 126 22, 126 25 L 126 28 L 44 28 Z"
+            fill="#64748B"
+          />
+
+          {/* Window Control Dots */}
+          <circle cx="52" cy="23.5" r="1.5" fill="#EF4444" />
+          <circle cx="57" cy="23.5" r="1.5" fill="#FBBF24" />
+          <circle cx="62" cy="23.5" r="1.5" fill="#10B981" />
+
+          {/* Row 1: Blue Avatar + Text Bars + Green Check Badge */}
+          <circle cx="55" cy="38" r="6" fill="#2563EB" />
+          <circle cx="55" cy="36" r="1.8" fill="#FFFFFF" />
+          <path
+            d="M 51 40.5 C 51 38.5, 52.8 38, 55 38 C 57.2 38, 59 38.5, 59 40.5 Z"
+            fill="#FFFFFF"
+          />
+
+          <rect x="65" y="35" width="24" height="3" rx="1.5" fill="#E2E8F0" />
+          <rect x="65" y="40" width="15" height="2.5" rx="1.25" fill="#F1F5F9" />
+
+          {/* Green Checkmark Circle Badge */}
+          <circle cx="112" cy="38" r="6.5" fill="#00D26A" />
+          <path
+            d="M 109.2 38 L 111.1 39.9 L 115 36.1"
             stroke="#FFFFFF"
-            strokeWidth="1.6"
+            strokeWidth="1.4"
             strokeLinecap="round"
             strokeLinejoin="round"
+          />
+
+          {/* Row 2: Green Avatar + Text Bars */}
+          <circle cx="55" cy="54" r="6" fill="#10B981" />
+          <circle cx="55" cy="52" r="1.8" fill="#FFFFFF" />
+          <path
+            d="M 51 56.5 C 51 54.5, 52.8 54, 55 54 C 57.2 54, 59 54.5, 59 56.5 Z"
+            fill="#FFFFFF"
+          />
+
+          <rect x="65" y="51" width="26" height="3" rx="1.5" fill="#E2E8F0" />
+          <rect x="65" y="56" width="18" height="2.5" rx="1.25" fill="#F1F5F9" />
+        </g>
+
+        {/* Origami Paper Airplane */}
+        <g transform="translate(172, 20) rotate(22)">
+          <path
+            d="M 19 0 L 0 10.5 L 7 15.5 L 19 0 Z"
+            fill="#FFFFFF"
+            stroke="#475569"
+            strokeWidth="1.2"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M 19 0 L 7 15.5 L 10.5 15.5 L 19 0 Z"
+            fill="#CBD5E1"
+            stroke="#475569"
+            strokeWidth="1.2"
+            strokeLinejoin="round"
+          />
+          <line
+            x1="7"
+            y1="15.5"
+            x2="19"
+            y2="0"
+            stroke="#475569"
+            strokeWidth="1.2"
+            strokeLinecap="round"
           />
         </g>
       </svg>

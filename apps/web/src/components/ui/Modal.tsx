@@ -7,6 +7,8 @@ export interface ModalProps {
   title?: string;
   children: React.ReactNode;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl';
+  className?: string;
+  hideHeader?: boolean;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -15,6 +17,8 @@ export const Modal: React.FC<ModalProps> = ({
   title,
   children,
   maxWidth = 'md',
+  className = '',
+  hideHeader = false,
 }) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -36,13 +40,15 @@ export const Modal: React.FC<ModalProps> = ({
 
   return (
     <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
-      <div className={`modal-container modal-${maxWidth}`} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          {title && <h3 className="modal-title">{title}</h3>}
-          <button type="button" onClick={onClose} className="modal-close-btn" aria-label="Close modal">
-            <CloseIcon size={18} />
-          </button>
-        </div>
+      <div className={`modal-container modal-${maxWidth} ${className}`} onClick={(e) => e.stopPropagation()}>
+        {!hideHeader && (
+          <div className="modal-header">
+            {title && <h3 className="modal-title">{title}</h3>}
+            <button type="button" onClick={onClose} className="modal-close-btn" aria-label="Close modal">
+              <CloseIcon size={18} />
+            </button>
+          </div>
+        )}
         <div className="modal-body">{children}</div>
       </div>
     </div>

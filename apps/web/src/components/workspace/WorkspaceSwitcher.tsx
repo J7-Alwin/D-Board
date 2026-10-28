@@ -2,10 +2,6 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useRouter } from '../../router/Router';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { type WorkspaceSummary } from '../../api/workspaces.api';
-import { Modal } from '../ui/Modal';
-import { Button } from '../ui/Button';
-import { Input } from '../ui/Input';
-import { Textarea } from '../ui/Textarea';
 import {
   ChevronDownIcon,
   CheckIcon,
@@ -14,6 +10,7 @@ import {
   LayersIcon,
 } from '../ui/Icons';
 import { WorkspaceManageModal } from './WorkspaceManageModal';
+import { CreateWorkspaceModal } from './CreateWorkspaceModal';
 import './WorkspaceSwitcher.css';
 
 export interface WorkspaceSwitcherProps {
@@ -30,18 +27,12 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
     isLoading,
     error,
     setActiveWorkspaceId,
-    createWorkspace,
     recoverWorkspace,
   } = useWorkspace();
 
   const [isOpen, setIsOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [manageModalOpen, setManageModalOpen] = useState(false);
-  const [workspaceType, setWorkspaceType] = useState<'PERSONAL' | 'TEAM'>('TEAM');
-  const [newWsName, setNewWsName] = useState('');
-  const [newWsDescription, setNewWsDescription] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
   const [recoveringId, setRecoveringId] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
@@ -93,43 +84,7 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
 
   const handleOpenCreateModal = () => {
     setIsOpen(false);
-    setWorkspaceType('TEAM');
-    setNewWsName('');
-    setNewWsDescription('');
-    setFormError(null);
     setModalOpen(true);
-  };
-
-  const handleCreateSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = newWsName.trim();
-    if (!trimmed) {
-      setFormError('Workspace name is required');
-      return;
-    }
-    if (trimmed.length < 2) {
-      setFormError('Workspace name must be at least 2 characters');
-      return;
-    }
-
-    try {
-      setIsSubmitting(true);
-      setFormError(null);
-      const isPersonal = workspaceType === 'PERSONAL';
-      const created = await createWorkspace({
-        name: trimmed,
-        description: newWsDescription.trim() || undefined,
-        isPersonal,
-      });
-      setModalOpen(false);
-      if (onWorkspaceSwitched) {
-        onWorkspaceSwitched(created);
-      }
-    } catch (err: any) {
-      setFormError(err.message || 'Failed to create workspace');
-    } finally {
-      setIsSubmitting(false);
-    }
   };
 
   const getWorkspaceInitials = (name: string) => {
@@ -490,114 +445,15 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({ onWorkspac
       )}
 
       {/* Create Workspace Modal */}
-      <Modal
+      <CreateWorkspaceModal
         isOpen={modalOpen}
-        onClose={() => !isSubmitting && setModalOpen(false)}
-        title="Create New Workspace"
-        maxWidth="sm"
-      >
-        <form onSubmit={handleCreateSubmit} className="workspace-create-form">
-          {formError && (
-            <div className="workspace-form-error" role="alert">
-              {formError}
-            </div>
-          )}
-
-          {/* Workspace Type Selector */}
-          <div style={{ marginBottom: '1.25rem' }}>
-            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#334155', marginBottom: '0.5rem' }}>
-              Workspace Type
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-              <button
-                type="button"
-                style={{
-                  padding: '0.75rem',
-                  borderRadius: '8px',
-                  border: workspaceType === 'PERSONAL' ? '2px solid #2563EB' : '1px solid #CBD5E1',
-                  backgroundColor: workspaceType === 'PERSONAL' ? '#EFF6FF' : '#FFFFFF',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-                onClick={() => setWorkspaceType('PERSONAL')}
-              >
-                <div style={{ fontWeight: 700, fontSize: '0.875rem', color: workspaceType === 'PERSONAL' ? '#1E40AF' : '#1E293B' }}>
-                  Personal
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '2px', lineHeight: 1.3 }}>
-                  Categorized under My Workspaces
-                </div>
-              </button>
-
-              <button
-                type="button"
-                style={{
-                  padding: '0.75rem',
-                  borderRadius: '8px',
-                  border: workspaceType === 'TEAM' ? '2px solid #2563EB' : '1px solid #CBD5E1',
-                  backgroundColor: workspaceType === 'TEAM' ? '#EFF6FF' : '#FFFFFF',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-                onClick={() => setWorkspaceType('TEAM')}
-              >
-                <div style={{ fontWeight: 700, fontSize: '0.875rem', color: workspaceType === 'TEAM' ? '#1E40AF' : '#1E293B' }}>
-                  Team
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '2px', lineHeight: 1.3 }}>
-                  Categorized under Team Workspaces
-                </div>
-              </button>
-            </div>
-          </div>
-
-          <div style={{ marginBottom: '1rem' }}>
-            <Input
-              label="Workspace Name"
-              placeholder="e.g. Acme Corp, Mobile Studio"
-              value={newWsName}
-              onChange={(e) => setNewWsName(e.target.value)}
-              required
-              autoFocus
-              disabled={isSubmitting}
-            />
-          </div>
-
-          <div style={{ marginBottom: '1.25rem' }}>
-            <Textarea
-              label="Description (Optional)"
-              placeholder="What is this workspace for?"
-              value={newWsDescription}
-              onChange={(e) => setNewWsDescription(e.target.value)}
-              rows={3}
-              disabled={isSubmitting}
-            />
-          </div>
-
-          <div className="workspace-modal-actions">
-            <Button
-              type="button"
-              variant="outline"
-              size="md"
-              onClick={() => setModalOpen(false)}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="md"
-              isLoading={isSubmitting}
-              leftIcon={<PlusIcon size={16} />}
-            >
-              Create Workspace
-            </Button>
-          </div>
-        </form>
-      </Modal>
+        onClose={() => setModalOpen(false)}
+        onSuccess={(created) => {
+          if (onWorkspaceSwitched) {
+            onWorkspaceSwitched(created);
+          }
+        }}
+      />
 
       {/* Workspace Management Modal */}
       {manageModalOpen && (

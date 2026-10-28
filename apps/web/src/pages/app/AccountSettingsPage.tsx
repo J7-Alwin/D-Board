@@ -29,6 +29,7 @@ import {
   LinkIcon,
   EditIcon,
   SaveIcon,
+  LogOutIcon,
 } from '../../components/ui/Icons';
 import {
   AccountSettingsHeaderAtmosphere,
@@ -44,7 +45,7 @@ type SettingsTab = 'profile' | 'security' | 'notifications' | 'data';
 
 export const AccountSettingsPage: React.FC = () => {
   const { navigate } = useRouter();
-  const { refreshUser } = useAuth();
+  const { refreshUser, logout } = useAuth();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -102,6 +103,10 @@ export const AccountSettingsPage: React.FC = () => {
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isExportingData, setIsExportingData] = useState(false);
+
+  // Sign Out Confirmation Modal State
+  const [showSignOutModal, setShowSignOutModal] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -269,6 +274,34 @@ export const AccountSettingsPage: React.FC = () => {
     }
   };
 
+  const handleConfirmSignOut = async () => {
+    setIsSigningOut(true);
+    try {
+      await logout();
+      navigate('/login');
+    } catch {
+      window.location.href = '/login';
+    }
+  };
+
+  // Keyboard accessibility & scroll locking for modals
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (!isDeletingAccount) setShowDeleteModal(false);
+        if (!isSigningOut) setShowSignOutModal(false);
+      }
+    };
+    if (showDeleteModal || showSignOutModal) {
+      document.body.style.overflow = 'hidden';
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showDeleteModal, showSignOutModal, isDeletingAccount, isSigningOut]);
+
   if (loading) {
     return (
       <div className="account-settings-loading">
@@ -396,6 +429,18 @@ export const AccountSettingsPage: React.FC = () => {
           >
             <DatabaseIcon size={18} />
             <span>Workspace Data</span>
+          </button>
+
+          <div className="as-sidebar-divider" />
+
+          <button
+            type="button"
+            className="as-sidebar-nav-item as-sidebar-signout-btn"
+            onClick={() => setShowSignOutModal(true)}
+            title="Sign Out of D-Board"
+          >
+            <LogOutIcon size={18} />
+            <span>Sign Out</span>
           </button>
         </div>
 
@@ -1327,8 +1372,58 @@ export const AccountSettingsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* =====================================================================
+          SIGN OUT CONFIRMATION MODAL
+          ===================================================================== */}
+      {showSignOutModal && (
+        <div
+          className="modal-backdrop"
+          onClick={() => !isSigningOut && setShowSignOutModal(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="as-signout-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="as-signout-modal-header">
+              <div className="as-signout-icon-box">
+                <LogOutIcon size={24} />
+              </div>
+              <div>
+                <h3>Sign out of D-Board?</h3>
+                <p>You can sign back in anytime with your credentials.</p>
+              </div>
+            </div>
+
+            <div className="as-signout-modal-body">
+              <p>
+                Are you sure you want to sign out? Any unsaved changes in your active tasks or documents may be lost.
+              </p>
+            </div>
+
+            <div className="as-signout-modal-footer">
+              <button
+                type="button"
+                className="as-btn-cancel"
+                onClick={() => setShowSignOutModal(false)}
+                disabled={isSigningOut}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="as-btn-confirm-signout"
+                onClick={handleConfirmSignOut}
+                disabled={isSigningOut}
+              >
+                {isSigningOut ? 'Signing out...' : 'Sign Out'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default AccountSettingsPage;
+

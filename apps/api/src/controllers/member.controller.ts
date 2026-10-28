@@ -21,6 +21,24 @@ export class MemberController {
     }
   }
 
+  async addMember(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const member = await memberService.addMember(projectId, req.user.userId, req.body);
+
+      res.status(201).json({
+        success: true,
+        message: 'Member added to project successfully',
+        data: { member },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async updateMemberRole(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       if (!req.user) {
@@ -55,6 +73,50 @@ export class MemberController {
       res.status(200).json({
         success: true,
         message: result.message,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getHandoverSummary(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const memberId = String(req.params.memberId);
+
+      const result = await memberService.getHandoverSummary(projectId, memberId, req.user.userId);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async executeHandover(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const memberId = String(req.params.memberId);
+
+      const result = await memberService.executeHandover(
+        projectId,
+        memberId,
+        req.user.userId,
+        req.body
+      );
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
+        data: result,
       });
     } catch (error) {
       next(error);

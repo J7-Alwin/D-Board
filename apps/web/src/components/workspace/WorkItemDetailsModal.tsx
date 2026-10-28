@@ -7,11 +7,13 @@ import {
   type WorkItemStatus,
   type WorkItemPriority,
   type WorkItemType,
+  type WorkItemAssignee,
 } from '../../api/work.api';
 import { commentsApi } from '../../api/comments.api';
 import { filesApi, type AttachmentDTO } from '../../api/files.api';
 import { membersApi, type ProjectMemberDetail } from '../../api/members.api';
 import { useAuth } from '../../context/AuthContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { useProjectSocket } from '../../context/SocketContext';
 import {
   CloseIcon,
@@ -43,11 +45,14 @@ import {
   ChatBubblesIcon,
   CircleDotIcon,
   ChevronUpIcon,
+  ChevronDownIcon,
+  PlusIcon,
   BanIcon,
   EyeIcon,
   ImageIcon,
   LockIcon,
   GlobeIcon,
+  SearchIcon,
 } from '../ui/Icons';
 import { Button } from '../ui/Button';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -90,6 +95,7 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
   const [attachmentSort, setAttachmentSort] = useState<'newest' | 'oldest' | 'name' | 'size'>('newest');
   const [uploadIsPrivate, setUploadIsPrivate] = useState<boolean>(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const modalBodyRef = React.useRef<HTMLDivElement>(null);
 
   const [selectedFileForViewer, setSelectedFileForViewer] = useState<AttachmentDTO | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -99,6 +105,8 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeletingWorkItem, setIsDeletingWorkItem] = useState(false);
   const [loadedMembers, setLoadedMembers] = useState<ProjectMemberDetail[]>([]);
+  const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
+  const [assigneeSearchQuery, setAssigneeSearchQuery] = useState('');
 
   // Always load live project members so assignable options are never missing
   useEffect(() => {
@@ -123,6 +131,7 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
       {
         id: string;
         name: string;
+        username?: string;
         role: 'Owner' | 'Admin' | 'Member';
         badgeType: 'owner' | 'admin' | 'member';
         avatarUrl?: string | null;
@@ -135,6 +144,7 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
       map.set(project.createdById, {
         id: project.createdById,
         name: `${project.createdBy.fullName || project.createdBy.username} (Owner)`,
+        username: project.createdBy.username,
         role: 'Owner',
         badgeType: 'owner',
         avatarUrl: project.createdBy.avatarUrl,
@@ -149,6 +159,7 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
           map.set(m.userId, {
             id: m.userId,
             name: m.user.fullName || m.user.username,
+            username: m.user.username,
             role: m.role === 'PROJECT_ADMIN' ? 'Admin' : 'Member',
             badgeType: m.role === 'PROJECT_ADMIN' ? 'admin' : 'member',
             avatarUrl: m.user.avatarUrl,
@@ -166,6 +177,7 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
           name: m.isCreator
             ? `${m.user.fullName || m.user.username} (Owner)`
             : m.user.fullName || m.user.username,
+          username: m.user.username,
           role: m.isCreator ? 'Owner' : m.role === 'PROJECT_ADMIN' ? 'Admin' : 'Member',
           badgeType: m.isCreator ? 'owner' : m.role === 'PROJECT_ADMIN' ? 'admin' : 'member',
           avatarUrl: m.user.avatarUrl,
@@ -627,6 +639,13 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
       }
     };
 
+    const handleWorkItemSocketUpdate = (payload: any) => {
+      if (payload?.id === workItemId || payload?.workItem?.id === workItemId) {
+        loadWorkItemData();
+      }
+    };
+
+    socket.on('WORK_ITEM_UPDATED', handleWorkItemSocketUpdate);
     socket.on('COMMENT_CREATED', handleCommentEvent);
     socket.on('COMMENT_UPDATED', handleCommentEvent);
     socket.on('COMMENT_DELETED', handleCommentEvent);
@@ -635,6 +654,7 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
     socket.on('FILE_DELETED', handleFileEvent);
 
     return () => {
+      socket.off('WORK_ITEM_UPDATED', handleWorkItemSocketUpdate);
       socket.off('COMMENT_CREATED', handleCommentEvent);
       socket.off('COMMENT_UPDATED', handleCommentEvent);
       socket.off('COMMENT_DELETED', handleCommentEvent);
@@ -663,13 +683,284 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
 
   if (!workItemId) return null;
 
-  const isProjectAdmin = project.userRole === 'PROJECT_ADMIN' || project.createdById === user?.id;
-  const isCreator = workItem?.createdById === user?.id;
+  const { activeRole, activeWorkspace } = useWorkspace();
+  const isWsOwner = Boolean(
+    activeRole === 'OWNER' ||
+      (activeRole as string)?.toUpperCase() === 'OWNER' ||
+      activeWorkspace?.isOwner ||
+      (activeWorkspace?.ownerId && user?.id && activeWorkspace.ownerId === user.id)
+  );
+  const isWsAdmin = Boolean(
+    isWsOwner ||
+      activeRole === 'WORKSPACE_ADMIN' ||
+      (activeRole as string)?.toUpperCase() === 'WORKSPACE_ADMIN' ||
+      (activeRole as string)?.toUpperCase() === 'ADMIN' ||
+      activeWorkspace?.userRole === 'WORKSPACE_ADMIN'
+  );
+  const isProjectAdmin = isWsAdmin || project.userRole === 'PROJECT_ADMIN' || project.createdById === user?.id;
+  const isCreator = Boolean(workItem?.createdById && user?.id && workItem.createdById === user.id);
+  const canManageStatus = isWsAdmin || isProjectAdmin || isCreator;
   const canDelete = isProjectAdmin || isCreator;
+
+  // Real-time ticking state for timers
+  const [currentTime, setCurrentTime] = useState<number>(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Rejection modal & actions state
+  const [showRejectPrompt, setShowRejectPrompt] = useState(false);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState('');
+  const [workflowActionLoading, setWorkflowActionLoading] = useState<string | null>(null);
+
+  // Current user assignee record
+  const currentAssigneeRecord = useMemo(() => {
+    if (!workItem || !user?.id) return null;
+    if (workItem.assignees && workItem.assignees.length > 0) {
+      return workItem.assignees.find((a) => a.userId === user.id) || null;
+    }
+    if (workItem.assignedToId === user.id) {
+      return {
+        id: 'legacy-assignee',
+        workItemId: workItem.id,
+        userId: user.id,
+        user: {
+          id: user.id,
+          fullName: user.fullName || null,
+          username: user.username,
+          avatarUrl: user.avatarUrl || null,
+        },
+        hasStarted: false,
+        hasCompleted: false,
+        totalDurationSeconds: 0,
+        isPaused: false,
+        lastSessionStartedAt: null,
+        startedAt: null,
+        completedAt: null,
+        lastCheckInCycle: 0,
+        lastCheckInAt: null,
+        assignedAt: workItem.createdAt,
+      } as WorkItemAssignee;
+    }
+    return null;
+  }, [workItem, user?.id]);
+
+  const isUserAssigned = Boolean(currentAssigneeRecord);
+
+  // Current continuous session elapsed in seconds
+  const currentSessionElapsed = useMemo(() => {
+    if (
+      workItem?.status === 'IN_PROGRESS' &&
+      currentAssigneeRecord?.hasStarted &&
+      !currentAssigneeRecord?.hasCompleted &&
+      !currentAssigneeRecord?.isPaused &&
+      currentAssigneeRecord?.lastSessionStartedAt
+    ) {
+      return Math.max(0, Math.floor((currentTime - new Date(currentAssigneeRecord.lastSessionStartedAt).getTime()) / 1000));
+    }
+    return 0;
+  }, [currentTime, workItem?.status, currentAssigneeRecord]);
+
+  // If session exceeded 1800s (30 mins) without check-in, timer auto-pauses
+  const isMissedCheckInPaused =
+    workItem?.status === 'IN_PROGRESS' &&
+    Boolean(currentAssigneeRecord?.hasStarted) &&
+    !currentAssigneeRecord?.hasCompleted &&
+    !currentAssigneeRecord?.isPaused &&
+    currentSessionElapsed >= 1800;
+
+  const isCurrentTimerPaused = Boolean(currentAssigneeRecord?.isPaused) || isMissedCheckInPaused;
+
+  // Calculate live cumulative duration for an assignee (stacks without resetting)
+  const getAssigneeTotalSeconds = useCallback(
+    (assignee: WorkItemAssignee | null) => {
+      if (!assignee) return 0;
+      let total = assignee.totalDurationSeconds || 0;
+      if (
+        workItem?.status === 'IN_PROGRESS' &&
+        assignee.hasStarted &&
+        !assignee.hasCompleted &&
+        !assignee.isPaused &&
+        assignee.lastSessionStartedAt
+      ) {
+        const rawElapsed = Math.floor((currentTime - new Date(assignee.lastSessionStartedAt).getTime()) / 1000);
+        // Capped at 1800s (30 mins) per session
+        const sessionSec = Math.min(Math.max(0, rawElapsed), 1800);
+        total += sessionSec;
+      }
+      return total;
+    },
+    [currentTime, workItem?.status]
+  );
+
+  const currentLiveSeconds = getAssigneeTotalSeconds(currentAssigneeRecord);
+
+  // 25 to 30 min window (1500s to 1800s of current continuous session)
+  const isCheckInWindowActive =
+    workItem?.status === 'IN_PROGRESS' &&
+    Boolean(currentAssigneeRecord?.hasStarted) &&
+    !currentAssigneeRecord?.hasCompleted &&
+    !currentAssigneeRecord?.isPaused &&
+    currentSessionElapsed >= 1500 &&
+    currentSessionElapsed < 1800;
+
+  const formatDurationDisplay = (totalSec: number) => {
+    const hrs = Math.floor(totalSec / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
+    const secs = totalSec % 60;
+    if (hrs > 0) {
+      return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Workflow Action Handlers
+  const handleStartTask = async () => {
+    if (!workItem) return;
+    setWorkflowActionLoading('start');
+    setError(null);
+    try {
+      const res = await workApi.startTask(project.id, workItem.id);
+      if (res.success && res.data.workItem) {
+        setWorkItem(res.data.workItem);
+        onUpdated(res.data.workItem);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to start task');
+    } finally {
+      setWorkflowActionLoading(null);
+    }
+  };
+
+  const handleCheckInTimer = async () => {
+    if (!workItem) return;
+    setWorkflowActionLoading('checkin');
+    setError(null);
+    try {
+      const res = await workApi.checkInTimer(project.id, workItem.id);
+      if (res.success && res.data.workItem) {
+        setWorkItem(res.data.workItem);
+        onUpdated(res.data.workItem);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to check in timer');
+    } finally {
+      setWorkflowActionLoading(null);
+    }
+  };
+
+  const handleResumeTimer = async () => {
+    if (!workItem) return;
+    setWorkflowActionLoading('resume');
+    setError(null);
+    try {
+      const res = await workApi.resumeTimer(project.id, workItem.id);
+      if (res.success && res.data.workItem) {
+        setWorkItem(res.data.workItem);
+        onUpdated(res.data.workItem);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to resume timer');
+    } finally {
+      setWorkflowActionLoading(null);
+    }
+  };
+
+  const handleCompleteWork = async () => {
+    if (!workItem) return;
+    setWorkflowActionLoading('complete');
+    setError(null);
+    try {
+      const res = await workApi.completeWork(project.id, workItem.id);
+      if (res.success && res.data.workItem) {
+        setWorkItem(res.data.workItem);
+        onUpdated(res.data.workItem);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to complete work');
+    } finally {
+      setWorkflowActionLoading(null);
+    }
+  };
+
+  const handleReview = async (action: 'APPROVE' | 'REJECT') => {
+    if (!workItem) return;
+    if (action === 'REJECT' && !rejectionReasonInput.trim()) {
+      setError('Please provide a reason for rejecting the task');
+      return;
+    }
+    setWorkflowActionLoading(action.toLowerCase());
+    setError(null);
+    try {
+      const res = await workApi.reviewTask(project.id, workItem.id, {
+        action,
+        reason: action === 'REJECT' ? rejectionReasonInput.trim() : undefined,
+      });
+      if (res.success && res.data.workItem) {
+        setWorkItem(res.data.workItem);
+        onUpdated(res.data.workItem);
+        setShowRejectPrompt(false);
+        setRejectionReasonInput('');
+      }
+    } catch (err: any) {
+      setError(err.message || `Failed to ${action.toLowerCase()} task`);
+    } finally {
+      setWorkflowActionLoading(null);
+    }
+  };
+
+  const handleStageDueDateChange = async (
+    stage: 'todoDueDate' | 'inProgressDueDate' | 'inReviewDueDate' | 'completedDueDate',
+    newDate: string | null
+  ) => {
+    if (!workItem) return;
+    if (newDate) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (newDate < todayStr) {
+        setError('Stage due date cannot be in the past');
+        return;
+      }
+      const candidateDates = {
+        todoDueDate: stage === 'todoDueDate' ? newDate : (workItem.todoDueDate?.split('T')[0] || null),
+        inProgressDueDate: stage === 'inProgressDueDate' ? newDate : (workItem.inProgressDueDate?.split('T')[0] || null),
+        inReviewDueDate: stage === 'inReviewDueDate' ? newDate : (workItem.inReviewDueDate?.split('T')[0] || null),
+        completedDueDate: stage === 'completedDueDate' ? newDate : (workItem.completedDueDate?.split('T')[0] || null),
+      };
+      if (candidateDates.todoDueDate && candidateDates.inProgressDueDate && candidateDates.todoDueDate > candidateDates.inProgressDueDate) {
+        setError('To Do due date cannot be after In Progress due date');
+        return;
+      }
+      if (candidateDates.inProgressDueDate && candidateDates.inReviewDueDate && candidateDates.inProgressDueDate > candidateDates.inReviewDueDate) {
+        setError('In Progress due date cannot be after In Review due date');
+        return;
+      }
+      if (candidateDates.inReviewDueDate && candidateDates.completedDueDate && candidateDates.inReviewDueDate > candidateDates.completedDueDate) {
+        setError('In Review due date cannot be after Completed due date');
+        return;
+      }
+    }
+    setError(null);
+    try {
+      const res = await workApi.updateWorkItem(project.id, workItem.id, {
+        [stage]: newDate ? new Date(newDate).toISOString() : null,
+      });
+      if (res.success && res.data.workItem) {
+        setWorkItem(res.data.workItem);
+        onUpdated(res.data.workItem);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to update stage due date');
+    }
+  };
 
   // Status transition handler
   const handleStatusChange = async (newStatus: WorkItemStatus) => {
     if (!workItem || workItem.status === newStatus) return;
+    if (!canManageStatus) {
+      setError('Only project administrators and the task creator can manually change status');
+      return;
+    }
     try {
       const res = await workApi.updateWorkItem(project.id, workItem.id, { status: newStatus });
       if (res.success && res.data.workItem) {
@@ -699,23 +990,36 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
     }
   };
 
-  // Assignee change handler
-  const handleAssigneeChange = async (newAssigneeId: string) => {
+  // Toggle multi-assignee handler
+  const handleToggleAssignee = async (userId: string) => {
     if (!workItem) return;
     try {
+      const currentIds =
+        workItem.assignees && workItem.assignees.length > 0
+          ? workItem.assignees.map((a) => a.userId)
+          : workItem.assignedToId
+          ? [workItem.assignedToId]
+          : [];
+
+      const newIds = currentIds.includes(userId)
+        ? currentIds.filter((id) => id !== userId)
+        : [...currentIds, userId];
+
       const res = await workApi.updateWorkItem(project.id, workItem.id, {
-        assignedToId: newAssigneeId || null,
+        assigneeIds: newIds,
+        assignedToId: newIds[0] || null,
       });
       if (res.success && res.data.workItem) {
         setWorkItem({
           ...workItem,
           assignedToId: res.data.workItem.assignedToId,
           assignedTo: res.data.workItem.assignedTo,
+          assignees: res.data.workItem.assignees,
         });
         onUpdated(res.data.workItem);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to update assignee');
+      setError(err.message || 'Failed to update assignees');
     }
   };
 
@@ -990,7 +1294,14 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
         ) : workItem ? (
           <>
             {/* Header with Squircle Icon, Title, Subtitle, Badges & Actions */}
-            <div className="widm-modal-top-header">
+            <div
+              className="widm-modal-top-header"
+              onWheel={(e) => {
+                if (modalBodyRef.current) {
+                  modalBodyRef.current.scrollTop += e.deltaY;
+                }
+              }}
+            >
               <div className="widm-header-main-info">
                 <div className="widm-squircle-icon-box">
                   <div className="widm-squircle-inner-circle">
@@ -1068,17 +1379,695 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
             {error && <div className="widm-error-banner">{error}</div>}
 
             {/* Modal Body: 2 Columns */}
-            <div className="widm-modal-body">
+            <div className="widm-modal-body" ref={modalBodyRef}>
               {/* Left Column: Status Pills, Tabs, Comments/Attachments/Activity */}
               <div className="widm-main-column">
-                {/* Status Segmented Row */}
+                {/* REJECTION REASON ALERT (If previously rejected) */}
+                {workItem.rejectionReason && (
+                  <div className="widm-rejection-banner">
+                    <div className="widm-rejection-title">
+                      <AlertCircleIcon size={15} />
+                      <span>Task Revision Requested</span>
+                    </div>
+                    <div style={{ marginTop: '2px' }}>{workItem.rejectionReason}</div>
+                  </div>
+                )}
+
+                {/* 4 STAGES TIMELINE BAR */}
+                <div className="widm-stages-timeline">
+                  <div className="widm-stage-line" />
+                  {[
+                    { key: 'TODO', label: 'To Do', date: workItem.todoDueDate },
+                    { key: 'IN_PROGRESS', label: 'In Progress', date: workItem.inProgressDueDate },
+                    { key: 'IN_REVIEW', label: 'In Review', date: workItem.inReviewDueDate },
+                    { key: 'COMPLETED', label: 'Completed', date: workItem.completedDueDate },
+                  ].map((step, idx) => {
+                    const order = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'COMPLETED'];
+                    const currentIdx = order.indexOf(workItem.status);
+                    const stepIdx = order.indexOf(step.key);
+                    const state = stepIdx < currentIdx ? 'completed' : stepIdx === currentIdx ? 'active' : 'upcoming';
+                    const formattedDate = step.date
+                      ? new Date(step.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                      : 'No date';
+
+                    return (
+                      <div key={step.key} className={`widm-stage-step ${state}`}>
+                        <div className="widm-stage-node">
+                          {state === 'completed' ? <CheckIcon size={14} /> : idx + 1}
+                        </div>
+                        <span className="widm-stage-title">{step.label}</span>
+                        <span className="widm-stage-date">{formattedDate}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* DYNAMIC WORKFLOW ACTION CARD */}
+                <div className={`widm-workflow-card ${workItem.status.toLowerCase().replace('_', '-')}`}>
+                  <div className="widm-workflow-card-header">
+                    <div className="widm-workflow-card-title">
+                      {workItem.status === 'TODO' && (
+                        <>
+                          <CircleDotIcon size={18} style={{ color: '#3B82F6' }} />
+                          <span>Stage: To Do</span>
+                        </>
+                      )}
+                      {workItem.status === 'IN_PROGRESS' && (
+                        <>
+                          <PlayIcon size={18} style={{ color: '#F59E0B' }} />
+                          <span>Stage: In Progress</span>
+                        </>
+                      )}
+                      {workItem.status === 'IN_REVIEW' && (
+                        <>
+                          <UserIcon size={18} style={{ color: '#8B5CF6' }} />
+                          <span>Stage: In Review</span>
+                        </>
+                      )}
+                      {workItem.status === 'COMPLETED' && (
+                        <>
+                          <CheckIcon size={18} style={{ color: '#10B981' }} />
+                          <span>Stage: Completed</span>
+                        </>
+                      )}
+                      {workItem.status === 'BLOCKED' && (
+                        <>
+                          <BanIcon size={18} style={{ color: '#EF4444' }} />
+                          <span>Stage: Canceled</span>
+                        </>
+                      )}
+                    </div>
+
+                    <div className="widm-workflow-actions-group">
+                      {/* Cancel Task Button (Available in any active stage for Creator/Admins) */}
+                      {canManageStatus && workItem.status !== 'BLOCKED' && workItem.status !== 'COMPLETED' && (
+                        <button
+                          type="button"
+                          className="widm-move-pill"
+                          style={{ borderColor: '#FECACA', color: '#DC2626' }}
+                          onClick={() => handleStatusChange('BLOCKED')}
+                          title="Cancel Task"
+                        >
+                          <BanIcon size={13} />
+                          <span>Cancel Task</span>
+                        </button>
+                      )}
+                      {canManageStatus && workItem.status === 'BLOCKED' && (
+                        <button
+                          type="button"
+                          className="widm-move-pill"
+                          style={{ background: '#0F172A', color: '#FFF' }}
+                          onClick={() => handleStatusChange('TODO')}
+                          title="Restore Task"
+                        >
+                          <RotateCcwIcon size={13} />
+                          <span>Restore Task</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* STAGE: TODO BODY */}
+                  {workItem.status === 'TODO' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                      {/* User Start Task Action */}
+                      {isUserAssigned && (
+                        <div
+                          style={{
+                            background: '#F1F5F9',
+                            borderRadius: '10px',
+                            padding: '0.85rem 1rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: '0.75rem',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0F172A' }}>
+                              {!currentAssigneeRecord?.hasStarted
+                                ? 'You are assigned to this task'
+                                : 'You have started working on this task'}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                              {!currentAssigneeRecord?.hasStarted
+                                ? 'Click start when you begin. The task automatically moves to In Progress once all assignees start.'
+                                : 'Timer is active. Waiting for all other assignees to start.'}
+                            </div>
+                          </div>
+
+                          {!currentAssigneeRecord?.hasStarted ? (
+                            <button
+                              type="button"
+                              onClick={handleStartTask}
+                              disabled={workflowActionLoading !== null}
+                              style={{
+                                background: '#0F172A',
+                                color: '#FFFFFF',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '0.55rem 1.15rem',
+                                fontWeight: 700,
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                boxShadow: '0 2px 5px rgba(0,0,0,0.15)',
+                              }}
+                            >
+                              <PlayIcon size={14} />
+                              <span>{workflowActionLoading === 'start' ? 'Starting...' : 'Start Task'}</span>
+                            </button>
+                          ) : (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '0.4rem 0.8rem',
+                                background: '#ECFDF5',
+                                color: '#059669',
+                                borderRadius: '8px',
+                                fontWeight: 700,
+                                fontSize: '0.8125rem',
+                              }}
+                            >
+                              <CheckIcon size={14} />
+                              <span>Started</span>
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Assignee Progress Tracker */}
+                      {workItem.assignees && workItem.assignees.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B', marginBottom: '6px' }}>
+                            ASSIGNEE STATUS ({workItem.assignees.filter((a) => a.hasStarted).length} of {workItem.assignees.length} STARTED)
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {workItem.assignees.map((a) => (
+                              <div
+                                key={a.id}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  padding: '6px 10px',
+                                  background: '#F8FAFC',
+                                  border: '1px solid #E2E8F0',
+                                  borderRadius: '8px',
+                                  fontSize: '0.8125rem',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  {a.user.avatarUrl ? (
+                                    <img src={a.user.avatarUrl} alt="" style={{ width: '22px', height: '22px', borderRadius: '50%' }} />
+                                  ) : (
+                                    <div
+                                      style={{
+                                        width: '22px',
+                                        height: '22px',
+                                        borderRadius: '50%',
+                                        background: '#CBD5E1',
+                                        color: '#334155',
+                                        fontSize: '0.65rem',
+                                        fontWeight: 700,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                      }}
+                                    >
+                                      {(a.user.fullName || a.user.username)[0].toUpperCase()}
+                                    </div>
+                                  )}
+                                  <span style={{ fontWeight: 600, color: '#1E293B' }}>
+                                    {a.user.fullName || a.user.username}
+                                  </span>
+                                </div>
+                                <span
+                                  style={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    padding: '2px 8px',
+                                    borderRadius: '6px',
+                                    background: a.hasStarted ? '#ECFDF5' : '#F1F5F9',
+                                    color: a.hasStarted ? '#059669' : '#64748B',
+                                  }}
+                                >
+                                  {a.hasStarted ? '✓ Started' : 'Not started'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Manual Override for Admins & Creator */}
+                      {canManageStatus && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '4px' }}>
+                          <button
+                            type="button"
+                            className="widm-move-pill"
+                            style={{ background: '#0F172A', color: '#FFFFFF', borderColor: '#0F172A' }}
+                            onClick={() => handleStatusChange('IN_PROGRESS')}
+                          >
+                            <PlayIcon size={12} />
+                            <span>Advance to In Progress (Manual Override)</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* STAGE: IN_PROGRESS BODY */}
+                  {workItem.status === 'IN_PROGRESS' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                      {/* Active Assignee Live Stacking Timer & Check-in */}
+                      {isUserAssigned && (
+                        <div
+                          style={{
+                            background: '#F8FAFC',
+                            border: '1px solid #E2E8F0',
+                            borderRadius: '10px',
+                            padding: '0.9rem 1.1rem',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+                            <div>
+                              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
+                                Your Stacked Work Timer
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                                <div className={`widm-timer-badge ${isCurrentTimerPaused ? 'paused' : ''}`}>
+                                  <ClockIcon size={16} />
+                                  <span>{formatDurationDisplay(currentLiveSeconds)}</span>
+                                </div>
+                                <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                                  {isCurrentTimerPaused
+                                    ? 'Paused at cycle mark'
+                                    : currentAssigneeRecord?.hasCompleted
+                                    ? 'Completed & frozen'
+                                    : 'Stacking cumulatively'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              {isCurrentTimerPaused && (
+                                <button
+                                  type="button"
+                                  onClick={handleResumeTimer}
+                                  disabled={workflowActionLoading !== null}
+                                  style={{
+                                    background: '#3B82F6',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    padding: '0.45rem 0.9rem',
+                                    fontWeight: 700,
+                                    fontSize: '0.8125rem',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                  }}
+                                >
+                                  <PlayIcon size={13} />
+                                  <span>{workflowActionLoading === 'resume' ? 'Resuming...' : 'Resume Timer'}</span>
+                                </button>
+                              )}
+
+                              {!currentAssigneeRecord?.hasCompleted ? (
+                                <button
+                                  type="button"
+                                  onClick={handleCompleteWork}
+                                  disabled={workflowActionLoading !== null}
+                                  style={{
+                                    background: '#10B981',
+                                    color: '#FFFFFF',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    padding: '0.5rem 1rem',
+                                    fontWeight: 700,
+                                    fontSize: '0.8125rem',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                  }}
+                                >
+                                  <CheckIcon size={14} />
+                                  <span>{workflowActionLoading === 'complete' ? 'Saving...' : 'Mark as Done'}</span>
+                                </button>
+                              ) : (
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '0.4rem 0.8rem',
+                                    background: '#ECFDF5',
+                                    color: '#059669',
+                                    borderRadius: '8px',
+                                    fontWeight: 700,
+                                    fontSize: '0.8125rem',
+                                  }}
+                                >
+                                  <CheckIcon size={14} />
+                                  <span>Work Completed</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* 25-30 Minute Cycle Check-In Alert Box */}
+                          {isCheckInWindowActive && (
+                            <div className="widm-checkin-alert-box">
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <AlertCircleIcon size={18} style={{ color: '#D97706', flexShrink: 0 }} />
+                                <span className="widm-checkin-alert-text">
+                                  <strong>25-30 Minute Cycle Check-In:</strong> Confirm you are still working to prevent auto-pause at the 30-minute mark.
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                className="widm-checkin-btn"
+                                onClick={handleCheckInTimer}
+                                disabled={workflowActionLoading !== null}
+                              >
+                                {workflowActionLoading === 'checkin' ? 'Saving...' : 'Continue Timer'}
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Missed Check-in / Paused Alert Box */}
+                          {isCurrentTimerPaused && (
+                            <div
+                              style={{
+                                background: '#FEF2F2',
+                                border: '1px solid #FECACA',
+                                borderRadius: '10px',
+                                padding: '0.75rem 1rem',
+                                marginTop: '0.75rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '8px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <AlertCircleIcon size={18} style={{ color: '#DC2626', flexShrink: 0 }} />
+                                <span style={{ fontSize: '0.8125rem', color: '#991B1B' }}>
+                                  <strong>Timer Paused:</strong> Check-in was missed at the 30-minute mark. Click Resume to continue stacking your time.
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={handleResumeTimer}
+                                disabled={workflowActionLoading !== null}
+                                style={{
+                                  background: '#DC2626',
+                                  color: '#FFFFFF',
+                                  border: 'none',
+                                  borderRadius: '6px',
+                                  padding: '0.4rem 0.8rem',
+                                  fontWeight: 700,
+                                  fontSize: '0.75rem',
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                Resume Timer
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Team Assignees Progress & Live Durations */}
+                      {workItem.assignees && workItem.assignees.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B', marginBottom: '6px' }}>
+                            TEAM PROGRESS ({workItem.assignees.filter((a) => a.hasCompleted).length} of {workItem.assignees.length} COMPLETED)
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {workItem.assignees.map((a) => {
+                              const sec = getAssigneeTotalSeconds(a);
+                              return (
+                                <div
+                                  key={a.id}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    padding: '6px 10px',
+                                    background: '#F8FAFC',
+                                    border: '1px solid #E2E8F0',
+                                    borderRadius: '8px',
+                                    fontSize: '0.8125rem',
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    {a.user.avatarUrl ? (
+                                      <img src={a.user.avatarUrl} alt="" style={{ width: '22px', height: '22px', borderRadius: '50%' }} />
+                                    ) : (
+                                      <div
+                                        style={{
+                                          width: '22px',
+                                          height: '22px',
+                                          borderRadius: '50%',
+                                          background: '#CBD5E1',
+                                          color: '#334155',
+                                          fontSize: '0.65rem',
+                                          fontWeight: 700,
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                        }}
+                                      >
+                                        {(a.user.fullName || a.user.username)[0].toUpperCase()}
+                                      </div>
+                                    )}
+                                    <span style={{ fontWeight: 600, color: '#1E293B' }}>
+                                      {a.user.fullName || a.user.username}
+                                    </span>
+                                  </div>
+
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#475569', fontSize: '0.8rem' }}>
+                                      {formatDurationDisplay(sec)}
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontSize: '0.72rem',
+                                        fontWeight: 700,
+                                        padding: '2px 8px',
+                                        borderRadius: '6px',
+                                        background: a.hasCompleted ? '#ECFDF5' : a.isPaused ? '#FEF2F2' : '#EFF6FF',
+                                        color: a.hasCompleted ? '#059669' : a.isPaused ? '#DC2626' : '#2563EB',
+                                      }}
+                                    >
+                                      {a.hasCompleted ? '✓ Done' : a.isPaused ? 'Paused' : 'In Progress'}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Manual Move to In Review for Admins & Creator */}
+                      {canManageStatus && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '4px' }}>
+                          <button
+                            type="button"
+                            className="widm-move-pill"
+                            style={{ background: '#8B5CF6', color: '#FFFFFF', borderColor: '#8B5CF6' }}
+                            onClick={() => handleStatusChange('IN_REVIEW')}
+                          >
+                            <UserIcon size={12} />
+                            <span>Move to In Review</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* STAGE: IN_REVIEW BODY */}
+                  {workItem.status === 'IN_REVIEW' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                      {canManageStatus ? (
+                        <div>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0F172A', marginBottom: '4px' }}>
+                            Review Required
+                          </div>
+                          <p style={{ fontSize: '0.75rem', color: '#64748B', marginBottom: '12px' }}>
+                            Assignees have completed their work. You can approve this task to mark it Completed, or reject it with notes to return it to In Progress (timers will continue from where they were).
+                          </p>
+
+                          {!showRejectPrompt ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleReview('APPROVE')}
+                                disabled={workflowActionLoading !== null}
+                                style={{
+                                  background: '#10B981',
+                                  color: '#FFFFFF',
+                                  border: 'none',
+                                  borderRadius: '8px',
+                                  padding: '0.55rem 1.25rem',
+                                  fontWeight: 700,
+                                  fontSize: '0.85rem',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                }}
+                              >
+                                <CheckIcon size={15} />
+                                <span>{workflowActionLoading === 'approve' ? 'Approving...' : 'Approve Task'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setShowRejectPrompt(true)}
+                                disabled={workflowActionLoading !== null}
+                                style={{
+                                  background: '#FFFFFF',
+                                  color: '#DC2626',
+                                  border: '1px solid #FECACA',
+                                  borderRadius: '8px',
+                                  padding: '0.55rem 1.25rem',
+                                  fontWeight: 700,
+                                  fontSize: '0.85rem',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                }}
+                              >
+                                <CloseIcon size={15} />
+                                <span>Reject & Request Changes</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div
+                              style={{
+                                background: '#FEF2F2',
+                                border: '1px solid #FECACA',
+                                borderRadius: '10px',
+                                padding: '0.9rem',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px',
+                              }}
+                            >
+                              <label style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#991B1B' }}>
+                                Reason for Rejection / Revision Notes (Required):
+                              </label>
+                              <textarea
+                                value={rejectionReasonInput}
+                                onChange={(e) => setRejectionReasonInput(e.target.value)}
+                                placeholder="Explain what changes or updates are needed..."
+                                rows={3}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 10px',
+                                  borderRadius: '6px',
+                                  border: '1px solid #FCA5A5',
+                                  fontSize: '0.8125rem',
+                                  outline: 'none',
+                                }}
+                              />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowRejectPrompt(false);
+                                    setRejectionReasonInput('');
+                                  }}
+                                  style={{
+                                    background: 'transparent',
+                                    border: '1px solid #CBD5E1',
+                                    borderRadius: '6px',
+                                    padding: '0.4rem 0.8rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    color: '#475569',
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleReview('REJECT')}
+                                  disabled={!rejectionReasonInput.trim() || workflowActionLoading !== null}
+                                  style={{
+                                    background: '#DC2626',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    padding: '0.4rem 0.9rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    color: '#FFFFFF',
+                                    opacity: !rejectionReasonInput.trim() ? 0.6 : 1,
+                                  }}
+                                >
+                                  {workflowActionLoading === 'reject' ? 'Submitting...' : 'Confirm Rejection'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '0.8125rem', color: '#64748B' }}>
+                          This task has been submitted for review. An administrator or the task creator will review and approve or request revisions.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* STAGE: COMPLETED BODY */}
+                  {workItem.status === 'COMPLETED' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#059669', fontSize: '0.8125rem' }}>
+                      <CheckIcon size={16} />
+                      <span>This task has been completed and approved.</span>
+                    </div>
+                  )}
+
+                  {/* STAGE: BLOCKED BODY */}
+                  {workItem.status === 'BLOCKED' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#DC2626', fontSize: '0.8125rem' }}>
+                      <BanIcon size={16} />
+                      <span>This task is currently marked as Canceled.</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Status Segmented Row (Permission-guarded) */}
                 <div className="widm-status-section">
-                  <span className="widm-status-heading">Status</span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span className="widm-status-heading">Stage Status</span>
+                    {!canManageStatus && (
+                      <span style={{ fontSize: '0.72rem', color: '#94A3B8', fontStyle: 'italic' }}>
+                        Read only for regular members
+                      </span>
+                    )}
+                  </div>
                   <div className="widm-move-pills-list">
                     <button
                       type="button"
                       className={`widm-move-pill ${workItem.status === 'TODO' ? 'active' : ''}`}
                       onClick={() => handleStatusChange('TODO')}
+                      disabled={!canManageStatus}
+                      style={{ cursor: canManageStatus ? 'pointer' : 'default', opacity: canManageStatus || workItem.status === 'TODO' ? 1 : 0.5 }}
                     >
                       <CircleDotIcon size={13} />
                       <span>To Do</span>
@@ -1088,6 +2077,8 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
                       type="button"
                       className={`widm-move-pill ${workItem.status === 'IN_PROGRESS' ? 'active' : ''}`}
                       onClick={() => handleStatusChange('IN_PROGRESS')}
+                      disabled={!canManageStatus}
+                      style={{ cursor: canManageStatus ? 'pointer' : 'default', opacity: canManageStatus || workItem.status === 'IN_PROGRESS' ? 1 : 0.5 }}
                     >
                       <PlayIcon size={12} />
                       <span>In Progress</span>
@@ -1097,6 +2088,8 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
                       type="button"
                       className={`widm-move-pill ${workItem.status === 'IN_REVIEW' ? 'active' : ''}`}
                       onClick={() => handleStatusChange('IN_REVIEW')}
+                      disabled={!canManageStatus}
+                      style={{ cursor: canManageStatus ? 'pointer' : 'default', opacity: canManageStatus || workItem.status === 'IN_REVIEW' ? 1 : 0.5 }}
                     >
                       <UserIcon size={13} />
                       <span>In Review</span>
@@ -1106,6 +2099,8 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
                       type="button"
                       className={`widm-move-pill ${workItem.status === 'COMPLETED' ? 'active' : ''}`}
                       onClick={() => handleStatusChange('COMPLETED')}
+                      disabled={!canManageStatus}
+                      style={{ cursor: canManageStatus ? 'pointer' : 'default', opacity: canManageStatus || workItem.status === 'COMPLETED' ? 1 : 0.5 }}
                     >
                       <CheckIcon size={13} />
                       <span>Completed</span>
@@ -1115,6 +2110,8 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
                       type="button"
                       className={`widm-move-pill ${workItem.status === 'BLOCKED' ? 'active' : ''}`}
                       onClick={() => handleStatusChange('BLOCKED')}
+                      disabled={!canManageStatus}
+                      style={{ cursor: canManageStatus ? 'pointer' : 'default', opacity: canManageStatus || workItem.status === 'BLOCKED' ? 1 : 0.5 }}
                     >
                       <BanIcon size={13} />
                       <span>Canceled</span>
@@ -1584,34 +2581,295 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
 
               {/* Right Sidebar Column */}
               <div className="widm-sidebar-column">
-                {/* ASSIGNEE */}
-                <div className="widm-sidebar-field">
-                  <div className="widm-sidebar-label">
-                    <UserIcon size={15} />
-                    <span>Assignee</span>
+                {/* ASSIGNEES (Multi-assignee support) */}
+                <div className="widm-sidebar-field" style={{ position: 'relative' }}>
+                  <div className="widm-sidebar-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <UserIcon size={15} />
+                      <span>Assignees</span>
+                    </div>
+                    {((workItem.assignees && workItem.assignees.length > 0)
+                      ? workItem.assignees.length
+                      : workItem.assignedTo
+                      ? 1
+                      : 0) > 0 && (
+                      <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>
+                        {workItem.assignees && workItem.assignees.length > 0
+                          ? workItem.assignees.length
+                          : 1}
+                      </span>
+                    )}
                   </div>
-                  <CustomSelect
-                    value={workItem.assignedToId || ''}
-                    onChange={(val) => handleAssigneeChange(val)}
-                    placeholder="Unassigned"
-                    options={[
-                      {
-                        value: '',
-                        label: 'Unassigned',
-                        icon: <UserIcon size={15} />,
-                        iconBg: '#F3F4F6',
-                        iconColor: '#4B5563',
-                      },
-                      ...assignableUsers.map((u) => ({
-                        value: u.id,
-                        label: u.name,
-                        badge: u.role,
-                        badgeType: u.badgeType,
-                        avatarUrl: u.avatarUrl,
-                        initials: u.initials,
-                      })),
-                    ]}
-                  />
+
+                  {/* Assigned members chip list */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '8px' }}>
+                    {((workItem.assignees && workItem.assignees.length > 0)
+                      ? workItem.assignees.map((a) => a.user)
+                      : workItem.assignedTo
+                      ? [workItem.assignedTo]
+                      : []
+                    ).length === 0 ? (
+                      <div style={{ fontSize: '0.8125rem', color: '#94A3B8', fontStyle: 'italic', padding: '4px 0' }}>
+                        No assignees
+                      </div>
+                    ) : (
+                      ((workItem.assignees && workItem.assignees.length > 0)
+                        ? workItem.assignees.map((a) => a.user)
+                        : workItem.assignedTo
+                        ? [workItem.assignedTo]
+                        : []
+                      ).map((assignee) => (
+                        <div
+                          key={assignee.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '4px 8px',
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            border: '1px solid rgba(255, 255, 255, 0.08)',
+                            borderRadius: '8px',
+                            fontSize: '0.8125rem',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {assignee.avatarUrl ? (
+                              <img
+                                src={assignee.avatarUrl}
+                                alt=""
+                                style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover' }}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: '22px',
+                                  height: '22px',
+                                  borderRadius: '50%',
+                                  background: '#475569',
+                                  color: '#FFF',
+                                  fontSize: '0.65rem',
+                                  fontWeight: 700,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                {(assignee.fullName || assignee.username || 'U')[0].toUpperCase()}
+                              </div>
+                            )}
+                            <span style={{ fontWeight: 500, color: '#E2E8F0' }}>
+                              {assignee.fullName || assignee.username}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleAssignee(assignee.id)}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#94A3B8',
+                              cursor: 'pointer',
+                              padding: '2px',
+                              display: 'flex',
+                              alignItems: 'center',
+                            }}
+                            title="Remove assignee"
+                          >
+                            <CloseIcon size={13} />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Add / Toggle Assignee Dropdown */}
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      type="button"
+                      onClick={() => setAssigneeDropdownOpen(!assigneeDropdownOpen)}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '6px 10px',
+                        background: 'rgba(255, 255, 255, 0.04)',
+                        border: '1px dashed rgba(255, 255, 255, 0.2)',
+                        borderRadius: '8px',
+                        color: '#94A3B8',
+                        fontSize: '0.8125rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <PlusIcon size={14} />
+                        <span>Manage Assignees</span>
+                      </span>
+                      <ChevronDownIcon size={14} />
+                    </button>
+
+                    {assigneeDropdownOpen && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: 'calc(100% + 4px)',
+                          left: 0,
+                          right: 0,
+                          background: '#1E293B',
+                          border: '1px solid #334155',
+                          borderRadius: '8px',
+                          boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                          zIndex: 100,
+                          maxHeight: '260px',
+                          overflowY: 'auto',
+                          padding: '4px',
+                        }}
+                      >
+                        {/* Typeable search filter input */}
+                        <div
+                          style={{
+                            padding: '6px 8px',
+                            borderBottom: '1px solid #334155',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: '#0F172A',
+                            borderRadius: '6px 6px 0 0',
+                            marginBottom: '4px',
+                            position: 'sticky',
+                            top: 0,
+                            zIndex: 5,
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <SearchIcon size={13} style={{ color: '#94A3B8', flexShrink: 0 }} />
+                          <input
+                            type="text"
+                            placeholder="Type name to filter..."
+                            value={assigneeSearchQuery}
+                            onChange={(e) => setAssigneeSearchQuery(e.target.value)}
+                            autoFocus
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              outline: 'none',
+                              color: '#F8FAFC',
+                              fontSize: '0.8rem',
+                              width: '100%',
+                            }}
+                          />
+                          {assigneeSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setAssigneeSearchQuery('')}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#94A3B8',
+                                cursor: 'pointer',
+                                padding: 0,
+                                display: 'flex',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <CloseIcon size={12} />
+                            </button>
+                          )}
+                        </div>
+
+                        {assignableUsers
+                          .filter((u) => {
+                            if (!assigneeSearchQuery.trim()) return true;
+                            const q = assigneeSearchQuery.toLowerCase();
+                            return (
+                              u.name.toLowerCase().includes(q) ||
+                              Boolean(u.username && u.username.toLowerCase().includes(q))
+                            );
+                          })
+                          .map((u) => {
+                            const activeIds =
+                              workItem.assignees && workItem.assignees.length > 0
+                                ? workItem.assignees.map((a) => a.userId)
+                                : workItem.assignedToId
+                                ? [workItem.assignedToId]
+                                : [];
+                            const isAssigned = activeIds.includes(u.id);
+
+                            return (
+                              <div
+                                key={u.id}
+                                onClick={() => handleToggleAssignee(u.id)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  padding: '6px 8px',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  background: isAssigned ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                                  color: isAssigned ? '#93C5FD' : '#E2E8F0',
+                                  fontSize: '0.8125rem',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isAssigned}
+                                    onChange={() => {}}
+                                    style={{
+                                      width: '14px',
+                                      height: '14px',
+                                      accentColor: '#3B82F6',
+                                      cursor: 'pointer',
+                                      flexShrink: 0,
+                                      pointerEvents: 'none',
+                                    }}
+                                  />
+                                  {u.avatarUrl ? (
+                                    <img
+                                      src={u.avatarUrl}
+                                      alt=""
+                                      style={{ width: '20px', height: '20px', borderRadius: '50%' }}
+                                    />
+                                  ) : (
+                                    <div
+                                      style={{
+                                        width: '20px',
+                                        height: '20px',
+                                        borderRadius: '50%',
+                                        background: '#475569',
+                                        color: '#FFF',
+                                        fontSize: '0.625rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                      }}
+                                    >
+                                      {u.name[0].toUpperCase()}
+                                    </div>
+                                  )}
+                                  <span>{u.name}</span>
+                                </div>
+                                {isAssigned && <CheckIcon size={14} />}
+                              </div>
+                            );
+                          })}
+
+                        {assignableUsers.filter((u) => {
+                          if (!assigneeSearchQuery.trim()) return true;
+                          const q = assigneeSearchQuery.toLowerCase();
+                          return (
+                            u.name.toLowerCase().includes(q) ||
+                            Boolean(u.username && u.username.toLowerCase().includes(q))
+                          );
+                        }).length === 0 && assigneeSearchQuery && (
+                          <div style={{ padding: '8px', fontSize: '0.75rem', color: '#94A3B8', textAlign: 'center' }}>
+                            No members matching "{assigneeSearchQuery}"
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* PRIORITY */}
@@ -1683,6 +2941,100 @@ export const WorkItemDetailsModal: React.FC<WorkItemDetailsModalProps> = ({
                         <CloseIcon size={14} />
                       </button>
                     )}
+                  </div>
+                </div>
+
+                {/* 4 STAGE DUE DATES */}
+                <div className="widm-sidebar-field" style={{ marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div className="widm-sidebar-label" style={{ marginBottom: '8px' }}>
+                    <CalendarIcon size={15} />
+                    <span>Stage Due Dates</span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {/* To Do Due Date */}
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: '#94A3B8', marginBottom: '2px', fontWeight: 600 }}>
+                        TO DO DUE DATE
+                      </div>
+                      <div className="widm-date-box" style={{ padding: '4px 8px', minHeight: '32px' }}>
+                        <input
+                          type="date"
+                          className="widm-date-native-input"
+                          value={workItem.todoDueDate ? workItem.todoDueDate.split('T')[0] : ''}
+                          onChange={(e) => handleStageDueDateChange('todoDueDate', e.target.value || null)}
+                          disabled={!canManageStatus}
+                        />
+                        <span className="widm-date-display" style={{ fontSize: '0.75rem' }}>
+                          {workItem.todoDueDate
+                            ? new Date(workItem.todoDueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            : 'Not set'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* In Progress Due Date */}
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: '#94A3B8', marginBottom: '2px', fontWeight: 600 }}>
+                        IN PROGRESS DUE DATE
+                      </div>
+                      <div className="widm-date-box" style={{ padding: '4px 8px', minHeight: '32px' }}>
+                        <input
+                          type="date"
+                          className="widm-date-native-input"
+                          value={workItem.inProgressDueDate ? workItem.inProgressDueDate.split('T')[0] : ''}
+                          onChange={(e) => handleStageDueDateChange('inProgressDueDate', e.target.value || null)}
+                          disabled={!canManageStatus}
+                        />
+                        <span className="widm-date-display" style={{ fontSize: '0.75rem' }}>
+                          {workItem.inProgressDueDate
+                            ? new Date(workItem.inProgressDueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            : 'Not set'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* In Review Due Date */}
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: '#94A3B8', marginBottom: '2px', fontWeight: 600 }}>
+                        IN REVIEW DUE DATE
+                      </div>
+                      <div className="widm-date-box" style={{ padding: '4px 8px', minHeight: '32px' }}>
+                        <input
+                          type="date"
+                          className="widm-date-native-input"
+                          value={workItem.inReviewDueDate ? workItem.inReviewDueDate.split('T')[0] : ''}
+                          onChange={(e) => handleStageDueDateChange('inReviewDueDate', e.target.value || null)}
+                          disabled={!canManageStatus}
+                        />
+                        <span className="widm-date-display" style={{ fontSize: '0.75rem' }}>
+                          {workItem.inReviewDueDate
+                            ? new Date(workItem.inReviewDueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            : 'Not set'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Completed Due Date */}
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: '#94A3B8', marginBottom: '2px', fontWeight: 600 }}>
+                        COMPLETED DUE DATE
+                      </div>
+                      <div className="widm-date-box" style={{ padding: '4px 8px', minHeight: '32px' }}>
+                        <input
+                          type="date"
+                          className="widm-date-native-input"
+                          value={workItem.completedDueDate ? workItem.completedDueDate.split('T')[0] : ''}
+                          onChange={(e) => handleStageDueDateChange('completedDueDate', e.target.value || null)}
+                          disabled={!canManageStatus}
+                        />
+                        <span className="widm-date-display" style={{ fontSize: '0.75rem' }}>
+                          {workItem.completedDueDate
+                            ? new Date(workItem.completedDueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            : 'Not set'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 

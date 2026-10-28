@@ -3,15 +3,13 @@ import { useRouter, Link } from '../../router/Router';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { projectsApi } from '../../api/projects.api';
+import { workspacesApi, type WorkspaceMemberItem } from '../../api/workspaces.api';
 import { Button } from '../../components/ui/Button';
 import { CreateProjectHeaderAtmosphere } from '../../components/common/HeaderAtmosphereArt';
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
   CheckIcon,
-  PlusIcon,
-  TrashIcon,
-  MailIcon,
   UsersIcon,
   FileTextIcon,
   LayersIcon,
@@ -20,14 +18,20 @@ import {
   FolderPlusIcon,
   GlobeIcon,
   LockIcon,
+  SearchIcon,
 } from '../../components/ui/Icons';
 
-interface InvitationDraft {
+export interface ProjectParticipant {
+  userId: string;
   email: string;
-  role: 'PROJECT_ADMIN' | 'PROJECT_MEMBER';
-  message: string;
-  invitedAt?: string;
+  name: string;
+  workspaceRole: string;
+  projectRole: 'PROJECT_ADMIN' | 'PROJECT_MEMBER';
+  isAutoIncluded: boolean;
+  isLocked: boolean;
+  message?: string;
 }
+
 
 const CATEGORY_OPTIONS = [
   { value: 'Web Application', label: 'Web Application', icon: '🌐', desc: 'SaaS, SPA, dashboards & web portals' },
@@ -38,11 +42,6 @@ const CATEGORY_OPTIONS = [
   { value: 'Tooling & Library', label: 'Tooling & Library', icon: '📦', desc: 'SDKs, CLI tools, npm packages & components' },
   { value: 'Product & Design', label: 'Product & Design', icon: '🎨', desc: 'Design systems, prototyping & UI kits' },
   { value: 'Other', label: 'Other', icon: '📁', desc: 'General project workspace domain' },
-];
-
-const ROLE_OPTIONS = [
-  { value: 'PROJECT_MEMBER', label: 'Member', icon: '👤', desc: 'Standard task, sprint & notes access' },
-  { value: 'PROJECT_ADMIN', label: 'Admin', icon: '🛡️', desc: 'Full workspace & access controls' },
 ];
 
 const PRESET_LOGOS = ['⚡', '🚀', '💎', '🛡️', '🌐', '🔥', '👾', '📦', '🎨', '💡'];
@@ -130,14 +129,12 @@ export const CreateProjectPage: React.FC = () => {
   const [liveUrl, setLiveUrl] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
-  const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
 
-  // Step 2: Team & Invitations
-  const [invitations, setInvitations] = useState<InvitationDraft[]>([]);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<'PROJECT_ADMIN' | 'PROJECT_MEMBER'>('PROJECT_MEMBER');
-  const [inviteMessage, setInviteMessage] = useState('');
-  const [inviteInputError, setInviteInputError] = useState('');
+  // Step 2: Team & Workspace Members
+  const [wsMembers, setWsMembers] = useState<WorkspaceMemberItem[]>([]);
+  const [loadingWsMembers, setLoadingWsMembers] = useState(false);
+  const [selectedParticipants, setSelectedParticipants] = useState<Map<string, ProjectParticipant>>(new Map());
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
 
   // Form & submission state
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -258,39 +255,171 @@ export const CreateProjectPage: React.FC = () => {
     return Object.keys(errs).length === 0;
   };
 
-  // Step 2: Add invitation
-  const handleAddInvitation = () => {
-    setInviteInputError('');
-    if (!inviteEmail.trim()) {
-      setInviteInputError('Email address is required');
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail.trim())) {
-      setInviteInputError('Please enter a valid email address');
-      return;
+  // Load active workspace members and set default participants
+  useEffect(() => {
+    if (!activeWorkspace?.id) return;
+
+    let mounted = true;
+    setLoadingWsMembers(true);
+
+    workspacesApi
+      .getMembers(activeWorkspace.id, { limit: 100 })
+      .then((res) => {
+        if (!mounted) return;
+        if (res.success && res.data?.members) {
+          const activeList = res.data.members.filter((m) => !m.user.isDeactivated);
+          setWsMembers(activeList);
+
+          const perms = activeWorkspace.adminPermissions;
+          const autoIncludeAdmins =
+            perms?.autoIncludeAdminsInNewProjects === true ||
+            perms?.workspaceAdmin?.autoIncludeAdminsInNewProjects === true;
+
+          const defaultMap = new Map<string, ProjectParticipant>();
+
+          for (const m of activeList) {
+            const isOwner = m.role === 'OWNER' || m.userId === activeWorkspace.ownerId;
+            const isCreator = Boolean(user?.id && m.userId === user.id);
+            const isWsAdmin = m.role === 'WORKSPACE_ADMIN';
+            const name = m.user.fullName || m.user.username;
+
+            if (isOwner) {
+              defaultMap.set(m.userId, {
+                userId: m.userId,
+                email: m.user.email,
+                name,
+                workspaceRole: 'OWNER',
+                projectRole: 'PROJECT_ADMIN',
+                isAutoIncluded: true,
+                isLocked: true,
+              });
+            } else if (isCreator) {
+              defaultMap.set(m.userId, {
+                userId: m.userId,
+                email: m.user.email,
+                name,
+                workspaceRole: m.role,
+                projectRole: 'PROJECT_ADMIN',
+                isAutoIncluded: true,
+                isLocked: true,
+              });
+            } else if (isWsAdmin && autoIncludeAdmins) {
+              defaultMap.set(m.userId, {
+                userId: m.userId,
+                email: m.user.email,
+                name,
+                workspaceRole: 'WORKSPACE_ADMIN',
+                projectRole: 'PROJECT_ADMIN',
+                isAutoIncluded: true,
+                isLocked: false,
+              });
+            }
+          }
+
+          setSelectedParticipants(defaultMap);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (mounted) setLoadingWsMembers(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [activeWorkspace?.id, activeWorkspace?.ownerId, activeWorkspace?.adminPermissions, user?.id]);
+
+  // Group and sort active workspace members:
+  // 1. Workspace Owner
+  // 2. Workspace Admins
+  // 3. Workspace Members
+  // Alphabetical within each group
+  const groupedWorkspaceMembers = useMemo(() => {
+    const owners: WorkspaceMemberItem[] = [];
+    const admins: WorkspaceMemberItem[] = [];
+    const members: WorkspaceMemberItem[] = [];
+
+    const query = memberSearchQuery.trim().toLowerCase();
+
+    for (const m of wsMembers) {
+      const name = (m.user.fullName || '').toLowerCase();
+      const username = (m.user.username || '').toLowerCase();
+      const email = (m.user.email || '').toLowerCase();
+
+      if (query && !name.includes(query) && !username.includes(query) && !email.includes(query)) {
+        continue;
+      }
+
+      if (m.role === 'OWNER' || m.userId === activeWorkspace?.ownerId) {
+        owners.push(m);
+      } else if (m.role === 'WORKSPACE_ADMIN') {
+        admins.push(m);
+      } else {
+        members.push(m);
+      }
     }
 
-    if (invitations.some((inv) => inv.email.toLowerCase() === inviteEmail.trim().toLowerCase())) {
-      setInviteInputError('This email has already been added to the invite list');
-      return;
-    }
+    const sortFn = (a: WorkspaceMemberItem, b: WorkspaceMemberItem) => {
+      const nameA = (a.user.fullName || a.user.username).toLowerCase();
+      const nameB = (b.user.fullName || b.user.username).toLowerCase();
+      return nameA.localeCompare(nameB);
+    };
 
-    setInvitations([
-      ...invitations,
-      {
-        email: inviteEmail.trim().toLowerCase(),
-        role: inviteRole,
-        message: inviteMessage.trim(),
-      },
-    ]);
+    owners.sort(sortFn);
+    admins.sort(sortFn);
+    members.sort(sortFn);
 
-    setInviteEmail('');
-    setInviteMessage('');
-    setInviteRole('PROJECT_MEMBER');
+    return [
+      { title: 'Workspace Owner', items: owners },
+      { title: 'Workspace Admins', items: admins },
+      { title: 'Workspace Members', items: members },
+    ].filter((g) => g.items.length > 0);
+  }, [wsMembers, activeWorkspace?.ownerId, memberSearchQuery]);
+
+  const toggleSelectParticipant = (wm: WorkspaceMemberItem) => {
+    const existing = selectedParticipants.get(wm.userId);
+    if (existing?.isLocked) return;
+
+    setSelectedParticipants((prev) => {
+      const next = new Map(prev);
+      if (next.has(wm.userId)) {
+        next.delete(wm.userId);
+      } else {
+        const isProjectAdmin = wm.role === 'WORKSPACE_ADMIN' || wm.role === 'PROJECT_ADMIN';
+        next.set(wm.userId, {
+          userId: wm.userId,
+          email: wm.user.email,
+          name: wm.user.fullName || wm.user.username,
+          workspaceRole: wm.role,
+          projectRole: isProjectAdmin ? 'PROJECT_ADMIN' : 'PROJECT_MEMBER',
+          isAutoIncluded: false,
+          isLocked: false,
+        });
+      }
+      return next;
+    });
   };
 
-  const handleRemoveInvitation = (index: number) => {
-    setInvitations(invitations.filter((_, i) => i !== index));
+  const handleUpdateParticipantRole = (userId: string, newRole: 'PROJECT_ADMIN' | 'PROJECT_MEMBER') => {
+    setSelectedParticipants((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(userId);
+      if (cur) {
+        next.set(userId, { ...cur, projectRole: newRole });
+      }
+      return next;
+    });
+  };
+
+  const handleUpdateParticipantNote = (userId: string, note: string) => {
+    setSelectedParticipants((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(userId);
+      if (cur) {
+        next.set(userId, { ...cur, message: note });
+      }
+      return next;
+    });
   };
 
   // Navigation between steps
@@ -344,11 +473,13 @@ export const CreateProjectPage: React.FC = () => {
         avatarUrl: avatarUrl || null,
         visibility: activeWorkspace?.isPersonal ? 'RESTRICTED' : visibility,
         workspaceId: activeWorkspace?.id,
-        invitations: invitations.map((inv) => ({
-          email: inv.email,
-          role: inv.role,
-          message: inv.message || null,
-        })),
+        invitations: Array.from(selectedParticipants.values())
+          .filter((p) => p.userId !== user?.id && p.userId !== activeWorkspace?.ownerId)
+          .map((p) => ({
+            email: p.email,
+            role: p.projectRole,
+            message: p.message || null,
+          })),
       }, activeWorkspace?.id);
 
       if (res.success && res.data?.project?.id) {
@@ -408,16 +539,18 @@ export const CreateProjectPage: React.FC = () => {
       {/* Header Card Container (Matching My Work UI/UX) */}
       <div className="cp-header-card">
         <div className="cp-header-left">
-          <div className="cp-title-row">
-            <span className="cp-title-icon-box">
-              <FolderPlusIcon size={24} />
-            </span>
-            <h1>Create Project</h1>
-            <span className="cp-date-badge">{todayFormatted}</span>
+          <div className="cp-title-icon-box">
+            <FolderPlusIcon size={26} />
           </div>
-          <p className="cp-subtitle">
-            Configure project details, collaborate with your team, and launch your workspace.
-          </p>
+          <div className="cp-banner-titles">
+            <div className="cp-title-row">
+              <h1>Create Project</h1>
+              <span className="cp-date-badge">{todayFormatted}</span>
+            </div>
+            <p className="cp-subtitle">
+              Configure project details, collaborate with your team, and launch your workspace.
+            </p>
+          </div>
         </div>
 
         {/* Center / Atmosphere artwork matching My Work */}
@@ -930,181 +1063,263 @@ export const CreateProjectPage: React.FC = () => {
                 <div className="cp-team-header-titles">
                   <h3 className="cp-team-header-title">Team & Workspace Access</h3>
                   <p className="cp-team-header-subtitle">
-                    Invite collaborators and assign their roles. You can also invite more members anytime in Project Settings.
+                    Select eligible members from {activeWorkspace?.name || 'this workspace'}. Project Admins manage the project; Project Members work on tasks.
                   </p>
                 </div>
               </div>
 
-              {/* Invite team members composer card */}
-              <div className="cp-invite-composer-card">
-                <div className="cp-icc-header">
-                  <div className="cp-icc-mail-icon-box">
-                    <MailIcon size={18} />
-                  </div>
-                  <div className="cp-icc-titles">
-                    <h4 className="cp-icc-title">Invite team members</h4>
-                    <p className="cp-icc-subtitle">
-                      Add team members by email and assign a role. Note: Invited users must already be active members of {activeWorkspace?.name || 'this workspace'}.
-                    </p>
-                  </div>
+              {/* Search & Selection Summary Bar */}
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: '240px', position: 'relative' }}>
+                  <SearchIcon
+                    size={16}
+                    style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search workspace members by name or email..."
+                    value={memberSearchQuery}
+                    onChange={(e) => setMemberSearchQuery(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem 0.85rem 0.65rem 2.25rem',
+                      borderRadius: '10px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '0.875rem',
+                      backgroundColor: '#FFFFFF',
+                    }}
+                  />
                 </div>
 
-                <div className="cp-icc-inputs-row">
-                  {/* Email Input */}
-                  <div className="cp-icc-field">
-                    <label className="cp-icc-label">Email Address</label>
-                    <div className="cp-icc-input-wrap">
-                      <span className="cp-icc-inner-icon">✉</span>
-                      <input
-                        type="email"
-                        className={`cp-icc-text-input ${inviteInputError ? 'error' : ''}`}
-                        placeholder="colleague@company.com"
-                        value={inviteEmail}
-                        onChange={(e) => {
-                          setInviteEmail(e.target.value);
-                          if (inviteInputError) setInviteInputError('');
-                        }}
-                      />
-                    </div>
-                    {inviteInputError && <span className="cp-field-error">{inviteInputError}</span>}
-                  </div>
-
-                  {/* Role Dropdown with Custom Icons */}
-                  <div className="cp-icc-field">
-                    <label className="cp-icc-label">Project Role</label>
-                    <div className="cp-custom-dropdown-wrap">
-                      <button
-                        type="button"
-                        className="cp-custom-dropdown-trigger"
-                        onClick={() => setIsRoleDropdownOpen(!isRoleDropdownOpen)}
-                      >
-                        <span className="cp-cdd-left">
-                          <span className="cp-cdd-icon">
-                            {ROLE_OPTIONS.find((r) => r.value === inviteRole)?.icon || '👤'}
-                          </span>
-                          <span className="cp-cdd-label">
-                            {ROLE_OPTIONS.find((r) => r.value === inviteRole)?.label || 'Member'}
-                          </span>
-                        </span>
-                        <span className="cp-cdd-arrow">{isRoleDropdownOpen ? '▴' : '▾'}</span>
-                      </button>
-
-                      {isRoleDropdownOpen && (
-                        <div className="cp-custom-dropdown-menu">
-                          {ROLE_OPTIONS.map((opt) => (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              className={`cp-cdd-item ${opt.value === inviteRole ? 'selected' : ''}`}
-                              onClick={() => {
-                                setInviteRole(opt.value as any);
-                                setIsRoleDropdownOpen(false);
-                              }}
-                            >
-                              <span className="cp-cdd-item-icon">{opt.icon}</span>
-                              <div className="cp-cdd-item-text">
-                                <span className="cp-cdd-item-title">{opt.label}</span>
-                                <span className="cp-cdd-item-desc">{opt.desc}</span>
-                              </div>
-                              {opt.value === inviteRole && <span className="cp-cdd-check">✓</span>}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Note Input */}
-                  <div className="cp-icc-field">
-                    <label className="cp-icc-label">Add a note (optional)</label>
-                    <div className="cp-icc-input-wrap">
-                      <span className="cp-icc-inner-icon">💬</span>
-                      <input
-                        type="text"
-                        className="cp-icc-text-input"
-                        placeholder="Welcome to the project..."
-                        value={inviteMessage}
-                        onChange={(e) => setInviteMessage(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleAddInvitation();
-                          }
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Add to invitation list button */}
-                <div className="cp-icc-footer-row">
-                  <button
-                    type="button"
-                    className="cp-add-invite-btn"
-                    onClick={handleAddInvitation}
-                  >
-                    <PlusIcon size={14} />
-                    <span>Add to Invitation List</span>
-                  </button>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.6rem',
+                    backgroundColor: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '10px',
+                    padding: '0.5rem 0.85rem',
+                    fontSize: '0.8125rem',
+                  }}
+                >
+                  <span style={{ fontWeight: 600, color: '#0F172A' }}>
+                    {selectedParticipants.size} Selected
+                  </span>
+                  <span style={{ color: '#94A3B8' }}>•</span>
+                  <span style={{ color: '#2563EB', fontWeight: 600 }}>
+                    {Array.from(selectedParticipants.values()).filter((p) => p.projectRole === 'PROJECT_ADMIN').length} Admins
+                  </span>
+                  <span style={{ color: '#94A3B8' }}>•</span>
+                  <span style={{ color: '#16A34A', fontWeight: 600 }}>
+                    {Array.from(selectedParticipants.values()).filter((p) => p.projectRole === 'PROJECT_MEMBER').length} Members
+                  </span>
                 </div>
               </div>
 
-              {/* Pending Invitations Section (Only displayed when invitations are added) */}
-              {invitations.length > 0 && (
-                <div className="cp-pending-invitations-wrap">
-                  <div className="cp-pending-header-row">
-                    <div className="cp-pending-title-group">
-                      <span className="cp-pending-clock-icon">🕒</span>
-                      <h4 className="cp-pending-title">
-                        Pending Invitations ({invitations.length})
-                      </h4>
-                    </div>
-                    <button
-                      type="button"
-                      className="cp-clear-all-btn"
-                      onClick={() => setInvitations([])}
-                    >
-                      Clear all
-                    </button>
+              {/* Grouped Workspace Member Selector List */}
+              <div
+                style={{
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '12px',
+                  backgroundColor: '#FFFFFF',
+                  maxHeight: '420px',
+                  overflowY: 'auto',
+                }}
+              >
+                {loadingWsMembers ? (
+                  <div style={{ padding: '3rem', textAlign: 'center', color: '#64748B' }}>
+                    <div className="btn-spinner" style={{ margin: '0 auto 0.5rem' }} />
+                    <p style={{ margin: 0, fontSize: '0.875rem' }}>Loading workspace members...</p>
                   </div>
+                ) : groupedWorkspaceMembers.length === 0 ? (
+                  <div style={{ padding: '3rem', textAlign: 'center', color: '#64748B' }}>
+                    <UsersIcon size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
+                    <p style={{ margin: 0, fontSize: '0.875rem' }}>No workspace members found matching your search.</p>
+                  </div>
+                ) : (
+                  groupedWorkspaceMembers.map((group) => (
+                    <div key={group.title}>
+                      <div
+                        style={{
+                          padding: '0.5rem 1rem',
+                          backgroundColor: '#F8FAFC',
+                          fontSize: '0.725rem',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          color: '#64748B',
+                          letterSpacing: '0.05em',
+                          borderBottom: '1px solid #F1F5F9',
+                        }}
+                      >
+                        {group.title} ({group.items.length})
+                      </div>
 
-                  <div className="cp-pending-list">
-                    {invitations.map((inv, idx) => {
-                      const initial = inv.email ? inv.email[0].toLowerCase() : 'u';
-                      const avatarColorClass = idx % 2 === 0 ? 'purple-bg' : 'blue-bg';
-                      return (
-                        <div key={idx} className="cp-pending-row-item">
-                          <div className="cp-pending-left-col">
-                            <div className={`cp-pending-avatar-circle ${avatarColorClass}`}>
-                              <span>{initial}</span>
+                      {group.items.map((wm) => {
+                        const participant = selectedParticipants.get(wm.userId);
+                        const isSelected = Boolean(participant);
+                        const isLocked = participant?.isLocked ?? false;
+                        const isAuto = participant?.isAutoIncluded ?? false;
+                        const name = wm.user.fullName || wm.user.username;
+
+                        return (
+                          <div
+                            key={wm.id}
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              padding: '0.75rem 1rem',
+                              borderBottom: '1px solid #F1F5F9',
+                              backgroundColor: isSelected ? '#F8FAFC' : '#FFFFFF',
+                              transition: 'background 0.15s ease',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+                              <div
+                                style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: isLocked ? 'default' : 'pointer' }}
+                                onClick={() => !isLocked && toggleSelectParticipant(wm)}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  disabled={isLocked}
+                                  onChange={() => !isLocked && toggleSelectParticipant(wm)}
+                                  style={{ cursor: isLocked ? 'not-allowed' : 'pointer' }}
+                                />
+                                <div
+                                  style={{
+                                    width: '34px',
+                                    height: '34px',
+                                    borderRadius: '50%',
+                                    backgroundColor: isSelected ? '#DCFCE7' : '#E2E8F0',
+                                    color: isSelected ? '#16A34A' : '#475569',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontWeight: 700,
+                                    fontSize: '0.8125rem',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {name.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                    <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#0F172A' }}>{name}</span>
+                                    <span style={{ fontSize: '0.75rem', color: '#64748B' }}>@{wm.user.username}</span>
+                                    {wm.userId === user?.id && (
+                                      <span style={{ fontSize: '0.7rem', color: '#2563EB', fontWeight: 600 }}>(You)</span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: '0.78125rem', color: '#64748B' }}>{wm.user.email}</div>
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                                {/* Workspace Role Badge */}
+                                <span
+                                  style={{
+                                    fontSize: '0.7rem',
+                                    fontWeight: 600,
+                                    padding: '0.2rem 0.55rem',
+                                    borderRadius: '6px',
+                                    backgroundColor:
+                                      wm.role === 'OWNER'
+                                        ? '#FEF3C7'
+                                        : wm.role === 'WORKSPACE_ADMIN'
+                                        ? '#EFF6FF'
+                                        : wm.role === 'PROJECT_ADMIN'
+                                        ? '#EEF2FF'
+                                        : '#F1F5F9',
+                                    color:
+                                      wm.role === 'OWNER'
+                                        ? '#B45309'
+                                        : wm.role === 'WORKSPACE_ADMIN'
+                                        ? '#1D4ED8'
+                                        : wm.role === 'PROJECT_ADMIN'
+                                        ? '#4F46E5'
+                                        : '#475569',
+                                  }}
+                                  title={`Workspace role: ${wm.role}`}
+                                >
+                                  {wm.role === 'OWNER'
+                                    ? 'Workspace Owner'
+                                    : wm.role === 'WORKSPACE_ADMIN'
+                                    ? 'Workspace Admin'
+                                    : wm.role === 'PROJECT_ADMIN'
+                                    ? 'Project Admin'
+                                    : 'Workspace Member'}
+                                </span>
+
+                                {/* Auto-included tag */}
+                                {isAuto && (
+                                  <span
+                                    style={{
+                                      fontSize: '0.6875rem',
+                                      fontWeight: 600,
+                                      padding: '0.15rem 0.45rem',
+                                      borderRadius: '6px',
+                                      backgroundColor: '#F1F5F9',
+                                      color: '#475569',
+                                    }}
+                                  >
+                                    Auto-included
+                                  </span>
+                                )}
+
+                                {/* Project Role Selector if selected */}
+                                {isSelected && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                    <span style={{ fontSize: '0.7rem', color: '#64748B', fontWeight: 600 }}>Project:</span>
+                                    <select
+                                      value={participant?.projectRole || 'PROJECT_MEMBER'}
+                                      disabled={isLocked && wm.role === 'OWNER'}
+                                      onChange={(e) => handleUpdateParticipantRole(wm.userId, e.target.value as any)}
+                                      style={{
+                                        padding: '0.35rem 0.65rem',
+                                        borderRadius: '8px',
+                                        border: '1px solid #CBD5E1',
+                                        backgroundColor: participant?.projectRole === 'PROJECT_ADMIN' ? '#EFF6FF' : '#FFFFFF',
+                                        color: participant?.projectRole === 'PROJECT_ADMIN' ? '#1D4ED8' : '#0F172A',
+                                        fontWeight: 600,
+                                        fontSize: '0.78125rem',
+                                        cursor: isLocked && wm.role === 'OWNER' ? 'not-allowed' : 'pointer',
+                                      }}
+                                    >
+                                      <option value="PROJECT_MEMBER">Project Member</option>
+                                      <option value="PROJECT_ADMIN">Project Admin</option>
+                                    </select>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <span className="cp-pending-email">{inv.email}</span>
-                            <span className={`cp-pending-role-pill ${inv.role === 'PROJECT_ADMIN' ? 'admin' : 'member'}`}>
-                              {inv.role === 'PROJECT_ADMIN' ? 'Admin' : 'Member'}
-                            </span>
-                            {inv.message && (
-                              <span className="cp-pending-note-text">{inv.message}</span>
+
+                            {/* Optional note when participant is explicitly selected and not owner */}
+                            {isSelected && !isLocked && (
+                              <div style={{ marginTop: '0.5rem', paddingLeft: '2.5rem' }}>
+                                <input
+                                  type="text"
+                                  placeholder="Add an invitation note (optional)..."
+                                  value={participant?.message || ''}
+                                  onChange={(e) => handleUpdateParticipantNote(wm.userId, e.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.35rem 0.65rem',
+                                    borderRadius: '6px',
+                                    border: '1px solid #E2E8F0',
+                                    fontSize: '0.75rem',
+                                    backgroundColor: '#FFFFFF',
+                                  }}
+                                />
+                              </div>
                             )}
                           </div>
-                          <div className="cp-pending-right-col">
-                            <span className="cp-pending-time-text">
-                              {inv.invitedAt || 'Invited just now'}
-                            </span>
-                            <button
-                              type="button"
-                              className="cp-pending-trash-btn"
-                              onClick={() => handleRemoveInvitation(idx)}
-                              title="Remove invitation"
-                            >
-                              <TrashIcon size={15} />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                        );
+                      })}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
 
@@ -1284,36 +1499,33 @@ export const CreateProjectPage: React.FC = () => {
 
                   <div className="cp-review-card-body">
                     <div className="cp-review-members-list">
-                      {/* Workspace Owner (Current User) */}
-                      <div className="cp-review-member-item">
-                        <div className="cp-review-user-avatar">
-                          {user?.fullName?.[0]?.toLowerCase() || user?.username?.[0]?.toLowerCase() || 'a'}
-                        </div>
-                        <div className="cp-review-user-info">
-                          <div className="cp-review-user-name-line">
-                            <span className="cp-review-user-name">
-                              {user?.fullName || user?.username || 'alwin'} <span className="cp-review-you-tag">(You)</span>
-                            </span>
-                          </div>
-                          <span className="cp-review-user-sub">Workspace Owner</span>
-                        </div>
-                        <span className="cp-review-owner-pill">Owner</span>
-                      </div>
-
-                      {/* Invited Team Members (if any) */}
-                      {invitations.map((inv, idx) => (
-                        <div key={idx} className="cp-review-member-item">
-                          <div className="cp-review-user-avatar invited">
-                            {inv.email[0].toLowerCase()}
+                      {Array.from(selectedParticipants.values()).map((p) => (
+                        <div key={p.userId} className="cp-review-member-item">
+                          <div className={`cp-review-user-avatar ${p.isAutoIncluded ? '' : 'invited'}`}>
+                            {p.name.charAt(0).toLowerCase()}
                           </div>
                           <div className="cp-review-user-info">
-                            <span className="cp-review-user-name">{inv.email}</span>
+                            <div className="cp-review-user-name-line">
+                              <span className="cp-review-user-name">
+                                {p.name} {p.userId === user?.id && <span className="cp-review-you-tag">(You)</span>}
+                              </span>
+                            </div>
                             <span className="cp-review-user-sub">
-                              {inv.role === 'PROJECT_ADMIN' ? 'Project Admin' : 'Project Member'}
+                              {p.workspaceRole === 'OWNER'
+                                ? 'Workspace Owner'
+                                : p.workspaceRole === 'WORKSPACE_ADMIN'
+                                ? 'Workspace Admin'
+                                : p.workspaceRole === 'PROJECT_ADMIN'
+                                ? 'Project Admin'
+                                : 'Workspace Member'}
                             </span>
                           </div>
-                          <span className={`cp-review-role-pill ${inv.role === 'PROJECT_ADMIN' ? 'admin' : 'member'}`}>
-                            {inv.role === 'PROJECT_ADMIN' ? 'Admin' : 'Member'}
+                          <span
+                            className={`cp-review-role-pill ${
+                              p.projectRole === 'PROJECT_ADMIN' ? 'admin' : 'member'
+                            }`}
+                          >
+                            {p.projectRole === 'PROJECT_ADMIN' ? 'Project Admin' : 'Project Member'}
                           </span>
                         </div>
                       ))}
@@ -1322,8 +1534,8 @@ export const CreateProjectPage: React.FC = () => {
                     <div className="cp-review-card-divider" />
 
                     <div className="cp-review-members-footer">
-                      <span className="cp-review-total-label">Total Members</span>
-                      <span className="cp-review-total-count">{1 + invitations.length}</span>
+                      <span className="cp-review-total-label">Total Participants</span>
+                      <span className="cp-review-total-count">{selectedParticipants.size}</span>
                     </div>
                   </div>
                 </div>
@@ -1451,7 +1663,7 @@ export const CreateProjectPage: React.FC = () => {
                   </div>
                 </div>
                 <span className="cp-prev-members-text">
-                  {invitations.length > 0 ? `${invitations.length} members` : '2 members'}
+                  {selectedParticipants.size > 0 ? `${selectedParticipants.size} members` : '2 members'}
                 </span>
               </div>
 

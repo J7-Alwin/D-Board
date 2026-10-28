@@ -275,7 +275,7 @@ export const ProjectWorkspaceHeader: React.FC<ProjectWorkspaceHeaderProps> = ({
             onClick={onOpenCreateWorkModal}
           >
             <PlusIcon size={15} />
-            <span>Create Work Item</span>
+            <span>Create Task</span>
           </button>
         </div>
       </div>

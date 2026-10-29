@@ -20,6 +20,7 @@ router.delete('/:workItemId', workController.deleteWorkItem);
 
 // Workflow stage action routes
 router.post('/:workItemId/start', workController.startTask);
+router.post('/:workItemId/pause-timer', workController.pauseTimer);
 router.post('/:workItemId/check-in', workController.checkInTimer);
 router.post('/:workItemId/resume-timer', workController.resumeTimer);
 router.post('/:workItemId/complete-work', workController.completeWork);

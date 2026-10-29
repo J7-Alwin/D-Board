@@ -142,10 +142,30 @@ export class WorkController {
       }
       const projectId = String(req.params.projectId);
       const workItemId = String(req.params.workItemId);
-      const workItem = await workService.startTask(projectId, workItemId, req.user.userId);
+      const startPaused = Boolean(req.body?.startPaused);
+      const workItem = await workService.startTask(projectId, workItemId, req.user.userId, startPaused);
       res.status(200).json({
         success: true,
-        message: 'Task started successfully',
+        message: startPaused ? 'Task started in paused state' : 'Task started successfully',
+        data: { workItem },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async pauseTimer(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const projectId = String(req.params.projectId);
+      const workItemId = String(req.params.workItemId);
+      const pausedAt = req.body?.pausedAt ? new Date(req.body.pausedAt) : undefined;
+      const workItem = await workService.pauseTimer(projectId, workItemId, req.user.userId, pausedAt);
+      res.status(200).json({
+        success: true,
+        message: 'Timer paused successfully',
         data: { workItem },
       });
     } catch (error) {

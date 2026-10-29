@@ -3,6 +3,7 @@ import { Router, useRouter } from './router/Router';
 import { AuthProvider } from './context/AuthContext';
 import { WorkspaceProvider } from './context/WorkspaceContext';
 import { SocketProvider } from './context/SocketContext';
+import { ActiveTimerProvider } from './context/ActiveTimerContext';
 import { PublicLayout } from './components/layout/PublicLayout';
 import { HomePage } from './pages/HomePage';
 import { FeaturesPage } from './pages/FeaturesPage';
@@ -270,9 +271,11 @@ export function App() {
     <AuthProvider>
       <WorkspaceProvider>
         <SocketProvider>
-          <Router>
-            <AppRoutes />
-          </Router>
+          <ActiveTimerProvider>
+            <Router>
+              <AppRoutes />
+            </Router>
+          </ActiveTimerProvider>
         </SocketProvider>
       </WorkspaceProvider>
     </AuthProvider>

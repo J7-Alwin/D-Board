@@ -230,16 +230,34 @@ export const workApi = {
 
   async startTask(
     projectId: string,
-    workItemId: string
+    workItemId: string,
+    startPaused?: boolean
   ): Promise<{ success: boolean; message: string; data: { workItem: WorkItem } }> {
     const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
     const res = await fetch(`${base}/projects/${projectId}/work/${workItemId}/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
+      body: JSON.stringify({ startPaused: Boolean(startPaused) }),
     });
 
     return safeParseJson<{ success: boolean; message: string; data: { workItem: WorkItem } }>(res, 'Failed to start task');
+  },
+
+  async pauseTimer(
+    projectId: string,
+    workItemId: string,
+    pausedAt?: string
+  ): Promise<{ success: boolean; message: string; data: { workItem: WorkItem } }> {
+    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    const res = await fetch(`${base}/projects/${projectId}/work/${workItemId}/pause-timer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ pausedAt }),
+    });
+
+    return safeParseJson<{ success: boolean; message: string; data: { workItem: WorkItem } }>(res, 'Failed to pause timer');
   },
 
   async checkInTimer(

@@ -25,7 +25,8 @@ import { ProjectAvatar } from '../ui/ProjectAvatar';
 import { Logo } from '../ui/Logo';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { WorkspaceSwitcher } from '../workspace/WorkspaceSwitcher';
-import { ActiveTaskTimerBanner } from '../common/ActiveTaskTimerBanner';
+import { FloatingTimerModal } from '../common/FloatingTimerModal';
+import { TimerConflictModal } from '../common/TimerConflictModal';
 
 export interface AppLayoutProps {
   children: React.ReactNode;
@@ -126,7 +127,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           });
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     Promise.all([
       invitationsApi.getPendingCount().catch(() => ({ success: false, data: { count: 0 } })),
@@ -135,7 +136,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       const projCount = (projRes && projRes.success && (projRes.data as any)?.count) || 0;
       const wsCount = (wsRes && wsRes.success && (wsRes.data as any)?.invitations?.length) || 0;
       setPendingInviteCount(projCount + wsCount);
-    }).catch(() => {});
+    }).catch(() => { });
 
     notificationsApi
       .getUnreadCount(activeWorkspace?.id)
@@ -144,7 +145,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           setUnreadNotificationCount(res.data.count || 0);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   };
 
   // Initial fetch when authenticated user is loaded
@@ -809,8 +810,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           {children}
         </main>
 
-        {/* Global Floating Active Task Timer & Check-in Alert */}
-        <ActiveTaskTimerBanner />
+        {/* Global Floating Active Task Timer Modal & Single-Active Conflict Resolution */}
+        <FloatingTimerModal />
+        <TimerConflictModal />
       </div>
     </div>
   );

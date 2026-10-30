@@ -29689,10 +29689,10 @@ body.mywork-fullscreen-mode .project-board-page-modern {
 }
 
 .cal-grid-cell.cell-today {
-  border: 1.5px solid #10B981 !important;
+  border: 1.5px solid #000000 !important;
   border-radius: 12px;
   background-color: #FFFFFF;
-  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.15);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
   position: relative;
   z-index: 2;
 }

@@ -30,22 +30,24 @@ export const TimerConflictModal: React.FC = () => {
         position: 'fixed',
         inset: 0,
         zIndex: 100002,
-        backgroundColor: 'rgba(0, 0, 0, 0.72)',
-        backdropFilter: 'blur(6px)',
+        backgroundColor: 'rgba(15, 23, 42, 0.45)',
+        backdropFilter: 'blur(4px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         padding: '1rem',
       }}
       onClick={closeConflictModal}
+      role="dialog"
+      aria-modal="true"
     >
       <div
         style={{
-          backgroundColor: '#0F172A',
-          color: '#F8FAFC',
+          backgroundColor: '#FFFFFF',
+          color: '#0F172A',
           borderRadius: '16px',
-          border: '1px solid rgba(255, 255, 255, 0.15)',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+          border: '1px solid #E2E8F0',
+          boxShadow: '0 20px 40px -8px rgba(0, 0, 0, 0.16), 0 8px 16px -4px rgba(0, 0, 0, 0.08)',
           maxWidth: '520px',
           width: '100%',
           padding: '1.5rem',
@@ -61,11 +63,12 @@ export const TimerConflictModal: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div
               style={{
-                width: '40px',
-                height: '40px',
+                width: '42px',
+                height: '42px',
                 borderRadius: '10px',
-                backgroundColor: 'rgba(245, 158, 11, 0.15)',
-                color: '#F59E0B',
+                backgroundColor: '#FEF3C7',
+                color: '#D97706',
+                border: '1px solid #FDE68A',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -75,10 +78,10 @@ export const TimerConflictModal: React.FC = () => {
               <AlertCircleIcon size={22} />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#FFFFFF' }}>
+              <h3 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 700, color: '#0F172A' }}>
                 Active Task Timer in Progress
               </h3>
-              <p style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: '#94A3B8' }}>
+              <p style={{ margin: '2px 0 0 0', fontSize: '0.8125rem', color: '#64748B' }}>
                 Only one task timer can run at a time
               </p>
             </div>
@@ -87,16 +90,18 @@ export const TimerConflictModal: React.FC = () => {
           <button
             type="button"
             onClick={closeConflictModal}
+            aria-label="Close modal"
             style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#64748B',
+              background: '#F8FAFC',
+              border: '1px solid #E2E8F0',
+              color: '#000000',
               cursor: 'pointer',
-              padding: '4px',
-              borderRadius: '6px',
+              padding: '6px',
+              borderRadius: '8px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              transition: 'all 0.15s ease',
             }}
           >
             <CloseIcon size={18} />
@@ -106,8 +111,8 @@ export const TimerConflictModal: React.FC = () => {
         {/* Current Active Task Card */}
         <div
           style={{
-            background: 'rgba(30, 41, 59, 0.7)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
+            background: '#F8FAFC',
+            border: '1px solid #E2E8F0',
             borderRadius: '12px',
             padding: '1rem',
             display: 'flex',
@@ -120,16 +125,17 @@ export const TimerConflictModal: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
               <span
                 style={{
-                  fontSize: '0.7rem',
+                  fontSize: '0.6875rem',
                   fontWeight: 700,
                   textTransform: 'uppercase',
-                  color: '#10B981',
-                  background: 'rgba(16, 185, 129, 0.15)',
+                  color: '#059669',
+                  background: '#ECFDF5',
+                  border: '1px solid #A7F3D0',
                   padding: '2px 8px',
                   borderRadius: '6px',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '4px',
+                  gap: '5px',
                 }}
               >
                 <span
@@ -138,7 +144,7 @@ export const TimerConflictModal: React.FC = () => {
                     height: '6px',
                     borderRadius: '50%',
                     backgroundColor: '#10B981',
-                    boxShadow: '0 0 8px #10B981',
+                    boxShadow: '0 0 6px #10B981',
                   }}
                 />
                 Currently Running
@@ -147,8 +153,8 @@ export const TimerConflictModal: React.FC = () => {
             <div
               style={{
                 fontSize: '0.95rem',
-                fontWeight: 600,
-                color: '#F8FAFC',
+                fontWeight: 700,
+                color: '#0F172A',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -164,25 +170,25 @@ export const TimerConflictModal: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background: 'rgba(15, 23, 42, 0.8)',
+              background: '#F1F5F9',
               padding: '6px 12px',
               borderRadius: '8px',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              color: '#38BDF8',
+              border: '1px solid #E2E8F0',
+              color: '#000000',
               fontFamily: 'monospace',
               fontWeight: 700,
               fontSize: '1rem',
               flexShrink: 0,
             }}
           >
-            <ClockIcon size={16} />
+            <ClockIcon size={16} style={{ color: '#000000' }} />
             <span>{timeFormatted}</span>
           </div>
         </div>
 
         {/* Question Prompt */}
-        <div style={{ fontSize: '0.875rem', color: '#CBD5E1', lineHeight: '1.45' }}>
-          You are starting/resuming <strong style={{ color: '#FFFFFF' }}>{targetTask.title}</strong>. How would you like to handle your timers?
+        <div style={{ fontSize: '0.875rem', color: '#475569', lineHeight: '1.5' }}>
+          You are starting/resuming <strong style={{ color: '#0F172A' }}>{targetTask.title}</strong>. How would you like to handle your timers?
         </div>
 
         {/* Action Choice Buttons */}
@@ -195,7 +201,7 @@ export const TimerConflictModal: React.FC = () => {
             style={{
               background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
               color: '#FFFFFF',
-              border: '1px solid rgba(59, 130, 246, 0.5)',
+              border: '1px solid #1D4ED8',
               borderRadius: '12px',
               padding: '0.9rem 1.1rem',
               textAlign: 'left',
@@ -205,7 +211,7 @@ export const TimerConflictModal: React.FC = () => {
               justifyContent: 'space-between',
               gap: '1rem',
               transition: 'all 0.15s ease',
-              boxShadow: '0 4px 12px rgba(37, 99, 235, 0.25)',
+              boxShadow: '0 4px 14px rgba(37, 99, 235, 0.28)',
             }}
           >
             <div>
@@ -213,11 +219,11 @@ export const TimerConflictModal: React.FC = () => {
                 <PlayIcon size={14} />
                 <span>Start Timer for {targetTask.title}</span>
               </div>
-              <div style={{ fontSize: '0.75rem', color: '#BFDBFE', marginTop: '2px' }}>
+              <div style={{ fontSize: '0.75rem', color: '#DBEAFE', marginTop: '2px' }}>
                 Pause {runningTask.title} without resetting time, and start timer for this task
               </div>
             </div>
-            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#93C5FD' }}>→</span>
+            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#BFDBFE' }}>→</span>
           </button>
 
           {/* Option B: Keep first one running */}
@@ -226,9 +232,9 @@ export const TimerConflictModal: React.FC = () => {
             onClick={() => onProceed('keep')}
             disabled={actionLoading !== null}
             style={{
-              background: '#1E293B',
-              color: '#F8FAFC',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
+              background: '#FFFFFF',
+              color: '#0F172A',
+              border: '1.5px solid #CBD5E1',
               borderRadius: '12px',
               padding: '0.9rem 1.1rem',
               textAlign: 'left',
@@ -238,24 +244,24 @@ export const TimerConflictModal: React.FC = () => {
               justifyContent: 'space-between',
               gap: '1rem',
               transition: 'all 0.15s ease',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
             }}
           >
             <div>
               <div style={{ fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <PauseIcon size={14} />
+                <PauseIcon size={14} style={{ color: '#64748B' }} />
                 <span>Keep {runningTask.title} Running</span>
               </div>
-              <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginTop: '2px' }}>
+              <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '2px' }}>
                 {targetAction === 'start'
                   ? `Accept ${targetTask.title}, but keep its timer in Paused state`
                   : `Leave ${targetTask.title} in Paused state`}
               </div>
             </div>
-            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94A3B8' }}>→</span>
+            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#94A3B8' }}>→</span>
           </button>
         </div>
       </div>
     </div>
   );
 };
-

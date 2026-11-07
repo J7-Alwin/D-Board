@@ -5,13 +5,15 @@ import { LoginPage } from '../pages/auth/LoginPage';
 const mockLogin = vi.fn();
 const mockNavigate = vi.fn();
 
+let mockAuthState = {
+  login: mockLogin,
+  user: null as any,
+  isAuthenticated: false,
+  isLoading: false,
+};
+
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({
-    login: mockLogin,
-    user: null,
-    isAuthenticated: false,
-    isLoading: false,
-  }),
+  useAuth: () => mockAuthState,
 }));
 
 vi.mock('../router/Router', () => ({
@@ -29,6 +31,13 @@ vi.mock('../router/Router', () => ({
 describe('LoginPage Component Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    mockAuthState = {
+      login: mockLogin,
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+    };
   });
 
   it('should render login form with email/username and password inputs', () => {
@@ -69,6 +78,61 @@ describe('LoginPage Component Tests', () => {
         password: 'Password123!',
         rememberMe: false,
       });
+    });
+  });
+
+  it('should remember identifier and set remember_me flag in localStorage when Keep me logged in is checked', async () => {
+    mockLogin.mockResolvedValueOnce(undefined);
+    render(<LoginPage />);
+
+    const identifierInput = screen.getByPlaceholderText(/enter your email or username/i);
+    const passwordInput = screen.getByPlaceholderText(/enter your password/i);
+    const rememberMeCheckbox = screen.getByLabelText(/keep me logged in/i);
+    const submitBtn = screen.getByRole('button', { name: /log in/i });
+
+    fireEvent.change(identifierInput, { target: { value: 'remembered_user' } });
+    fireEvent.change(passwordInput, { target: { value: 'Password123!' } });
+    fireEvent.click(rememberMeCheckbox);
+
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(mockLogin).toHaveBeenCalledWith({
+        identifier: 'remembered_user',
+        password: 'Password123!',
+        rememberMe: true,
+      });
+      expect(localStorage.getItem('dboard_remember_me')).toBe('true');
+      expect(localStorage.getItem('dboard_remembered_identifier')).toBe('remembered_user');
+      expect(mockNavigate).toHaveBeenCalledWith('/app/dashboard');
+    });
+  });
+
+  it('should prefill remembered identifier and check the checkbox if previously remembered', () => {
+    localStorage.setItem('dboard_remember_me', 'true');
+    localStorage.setItem('dboard_remembered_identifier', 'saved_user@example.com');
+
+    render(<LoginPage />);
+
+    const identifierInput = screen.getByPlaceholderText(/enter your email or username/i) as HTMLInputElement;
+    const rememberMeCheckbox = screen.getByLabelText(/keep me logged in/i) as HTMLInputElement;
+
+    expect(identifierInput.value).toBe('saved_user@example.com');
+    expect(rememberMeCheckbox.checked).toBe(true);
+  });
+
+  it('should automatically redirect to /app/dashboard if user is already authenticated', async () => {
+    mockAuthState = {
+      login: mockLogin,
+      user: { id: 'u1', username: 'testuser' } as any,
+      isAuthenticated: true,
+      isLoading: false,
+    };
+
+    render(<LoginPage />);
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/app/dashboard');
     });
   });
 

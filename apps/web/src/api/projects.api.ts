@@ -163,7 +163,8 @@ export const projectsApi = {
   async completeProject(
     projectId: string,
     reason?: string,
-    workspaceId?: string
+    workspaceId?: string,
+    autoResolveOpenTasks?: boolean
   ): Promise<{
     success: boolean;
     message: string;
@@ -174,7 +175,7 @@ export const projectsApi = {
     return apiClient(`/projects/${projectId}/complete`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason, autoResolveOpenTasks }),
     });
   },
 

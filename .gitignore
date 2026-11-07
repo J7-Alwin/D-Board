@@ -106,6 +106,7 @@ playwright/.cache/
 .claude/
 .gemini/
 .gemini_scratch*
+scratch/
 inspect_logo.ps1
 
 # ==========================================

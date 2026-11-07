@@ -15,6 +15,9 @@ import {
   projectTransferApi,
   type ProjectTransfer,
 } from '../../api/projectTransfer.api';
+import { projectsApi } from '../../api/projects.api';
+import { ProjectTransferAcceptModal } from '../../components/workspace/ProjectTransferAcceptModal';
+import { ProjectTransferDeclineModal } from '../../components/workspace/ProjectTransferDeclineModal';
 import {
   UsersIcon,
   MailIcon,
@@ -23,6 +26,7 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   CheckCircleIcon,
+  ClockIcon,
   AlertCircleIcon,
   SearchIcon,
   PlusIcon,
@@ -110,6 +114,11 @@ export const WorkspaceSettingsPage: React.FC = () => {
     }
     return 'general';
   });
+
+  const otherWorkspaces = useMemo(() => {
+    const all = [...(workspaces?.owned || []), ...(workspaces?.joined || [])];
+    return all.filter((w) => w.id !== activeWorkspace?.id && !w.isPersonal);
+  }, [workspaces, activeWorkspace?.id]);
 
   // Global Page Feedback Alerts
   const [pageError, setPageError] = useState<string | null>(null);
@@ -733,15 +742,24 @@ export const WorkspaceSettingsPage: React.FC = () => {
   // ----------------------------------------------------
   // 4. Project Transfers Tab State (Phase 4)
   // ----------------------------------------------------
+  const [transferSubTab, setTransferSubTab] = useState<'transfer' | 'incoming' | 'history'>('transfer');
   const [incomingTransfers, setIncomingTransfers] = useState<ProjectTransfer[]>([]);
   const [outgoingTransfers, setOutgoingTransfers] = useState<ProjectTransfer[]>([]);
   const [transfersLoading, setTransfersLoading] = useState(false);
   const [transfersError, setTransfersError] = useState<string | null>(null);
-  const [transferToApprove, setTransferToApprove] = useState<ProjectTransfer | null>(null);
-  const [transferToReject, setTransferToReject] = useState<ProjectTransfer | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
+  const [selectedTransferForAccept, setSelectedTransferForAccept] = useState<ProjectTransfer | null>(null);
+  const [selectedTransferForDecline, setSelectedTransferForDecline] = useState<ProjectTransfer | null>(null);
   const [isProcessingTransfer, setIsProcessingTransfer] = useState(false);
   const [transferFeedback, setTransferFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Transfer Project Form State (matching ProjectTransferModal)
+  const [workspaceProjects, setWorkspaceProjects] = useState<Array<{ id: string; name: string; key?: string | null }>>([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [destinationWorkspaceName, setDestinationWorkspaceName] = useState('');
+  const [confirmationName, setConfirmationName] = useState('');
+  const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
 
   const loadTransfers = useCallback(async () => {
     if (!activeWorkspace || activeWorkspace.isPersonal) return;
@@ -760,37 +778,87 @@ export const WorkspaceSettingsPage: React.FC = () => {
     }
   }, [activeWorkspace]);
 
-  const confirmApproveTransfer = async () => {
-    if (!activeWorkspace || !transferToApprove) return;
+  // Load Workspace Projects for Transfer
+  const loadWorkspaceProjects = useCallback(async () => {
+    if (!activeWorkspace || activeWorkspace.isPersonal) return;
     try {
-      setIsProcessingTransfer(true);
-      const res = await projectTransferApi.approveTransfer(transferToApprove.id);
-      if (res.success) {
-        setTransferToApprove(null);
-        setTransferFeedback({ type: 'success', message: 'Project transfer approved successfully!' });
-        await loadTransfers();
-        await refreshWorkspaces();
+      setLoadingProjects(true);
+      const res = await projectsApi.getUserProjects(activeWorkspace.id);
+      if (res.success && res.data) {
+        const projs = (res.data.all || []).map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          key: p.key,
+        }));
+        setWorkspaceProjects(projs);
+        if (projs.length > 0) {
+          setSelectedProjectId((prev) => (prev && projs.some((pr: any) => pr.id === prev) ? prev : projs[0].id));
+        }
       }
     } catch (err: any) {
-      setTransferFeedback({ type: 'error', message: err.message || 'Failed to approve transfer' });
+      console.warn('Failed to load workspace projects', err);
     } finally {
-      setIsProcessingTransfer(false);
+      setLoadingProjects(false);
+    }
+  }, [activeWorkspace?.id, activeWorkspace?.isPersonal]);
+
+  const selectedProject = workspaceProjects.find((p) => p.id === selectedProjectId);
+  const isConfirmed = selectedProject ? confirmationName.trim() === selectedProject.name.trim() : false;
+  const canSubmitTransfer =
+    Boolean(selectedProject) &&
+    recipientEmail.trim().length > 0 &&
+    destinationWorkspaceName.trim().length > 0 &&
+    isConfirmed &&
+    !isSubmittingTransfer;
+
+  const handleTransferSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmitTransfer || !selectedProject) return;
+
+    try {
+      setIsSubmittingTransfer(true);
+      setTransferFeedback(null);
+
+      const res = await projectTransferApi.requestTransfer(selectedProject.id, {
+        destinationUserEmail: recipientEmail.trim(),
+        destinationWorkspaceName: destinationWorkspaceName.trim(),
+      });
+
+      if (res.success) {
+        setTransferFeedback({
+          type: 'success',
+          message:
+            res.data?.message ||
+            `Transfer request sent to ${recipientEmail}. The recipient has received an email and notification card.`,
+        });
+        setConfirmationName('');
+        setRecipientEmail('');
+        setDestinationWorkspaceName('');
+        await loadTransfers();
+        setTransferSubTab('history');
+      }
+    } catch (err: any) {
+      setTransferFeedback({
+        type: 'error',
+        message: err.message || 'Failed to initiate project transfer',
+      });
+    } finally {
+      setIsSubmittingTransfer(false);
     }
   };
 
-  const confirmRejectTransfer = async () => {
-    if (!activeWorkspace || !transferToReject) return;
+  const handleCancelOutgoingTransfer = async (transferId: string) => {
+    if (!activeWorkspace) return;
     try {
       setIsProcessingTransfer(true);
-      const res = await projectTransferApi.rejectTransfer(transferToReject.id, rejectReason.trim() || undefined);
+      setTransferFeedback(null);
+      const res = await projectTransferApi.cancelTransfer(transferId);
       if (res.success) {
-        setTransferToReject(null);
-        setRejectReason('');
-        setTransferFeedback({ type: 'success', message: 'Project transfer rejected.' });
+        setTransferFeedback({ type: 'success', message: 'Transfer request cancelled.' });
         await loadTransfers();
       }
     } catch (err: any) {
-      setTransferFeedback({ type: 'error', message: err.message || 'Failed to reject transfer' });
+      setTransferFeedback({ type: 'error', message: err.message || 'Failed to cancel transfer request' });
     } finally {
       setIsProcessingTransfer(false);
     }
@@ -807,10 +875,15 @@ export const WorkspaceSettingsPage: React.FC = () => {
   const [targetRecipientUserId, setTargetRecipientUserId] = useState<string>('');
   const [targetRecipientEmail, setTargetRecipientEmail] = useState<string>('');
   const [resultingRole, setResultingRole] = useState<'WORKSPACE_ADMIN' | 'WORKSPACE_MEMBER'>('WORKSPACE_ADMIN');
+  const [confirmationWorkspaceName, setConfirmationWorkspaceName] = useState<string>('');
   const [isInitiatingTransfer, setIsInitiatingTransfer] = useState(false);
   const [isCancellingTransfer, setIsCancellingTransfer] = useState(false);
   const [isAcceptingTransfer, setIsAcceptingTransfer] = useState(false);
   const [isRejectingTransfer, setIsRejectingTransfer] = useState(false);
+  const [showCancelTransferModal, setShowCancelTransferModal] = useState(false);
+  const [showAcceptTransferModal, setShowAcceptTransferModal] = useState(false);
+  const [showDeclineTransferModal, setShowDeclineTransferModal] = useState(false);
+  const [ownershipDeclineReason, setOwnershipDeclineReason] = useState('');
 
   const loadPendingOwnershipTransfer = useCallback(async () => {
     if (!activeWorkspace || activeWorkspace.isPersonal) return;
@@ -832,7 +905,18 @@ export const WorkspaceSettingsPage: React.FC = () => {
     e.preventDefault();
     if (!activeWorkspace || !isOwner) return;
 
-    const payload: any = { resultingRole };
+    if (confirmationWorkspaceName.trim().toLowerCase() !== activeWorkspace.name.trim().toLowerCase()) {
+      setOwnershipFeedback({
+        type: 'error',
+        message: `Please type "${activeWorkspace.name}" exactly to confirm transfer.`,
+      });
+      return;
+    }
+
+    const payload: any = {
+      resultingRole,
+      confirmationName: confirmationWorkspaceName.trim(),
+    };
     if (targetRecipientMode === 'member') {
       if (!targetRecipientUserId) {
         setOwnershipFeedback({ type: 'error', message: 'Please select a workspace member' });
@@ -854,6 +938,7 @@ export const WorkspaceSettingsPage: React.FC = () => {
       const res = await workspacesApi.initiateOwnershipTransfer(activeWorkspace.id, payload);
       if (res.success && res.data) {
         setPendingOwnershipTransfer(res.data.transfer);
+        setConfirmationWorkspaceName('');
         setOwnershipFeedback({
           type: 'success',
           message: `Ownership transfer initiated. Verification email sent to ${res.data.transfer.targetEmail || 'recipient'}.`,
@@ -874,6 +959,7 @@ export const WorkspaceSettingsPage: React.FC = () => {
       const res = await workspacesApi.cancelOwnershipTransfer(activeWorkspace.id);
       if (res.success) {
         setPendingOwnershipTransfer(null);
+        setShowCancelTransferModal(false);
         setOwnershipFeedback({ type: 'success', message: 'Ownership transfer cancelled.' });
       }
     } catch (err: any) {
@@ -891,6 +977,7 @@ export const WorkspaceSettingsPage: React.FC = () => {
       const res = await workspacesApi.acceptOwnershipTransfer(activeWorkspace.id);
       if (res.success) {
         setPendingOwnershipTransfer(null);
+        setShowAcceptTransferModal(false);
         setOwnershipFeedback({ type: 'success', message: 'Congratulations! You are now the workspace Owner.' });
         await refreshWorkspaces();
       }
@@ -906,10 +993,12 @@ export const WorkspaceSettingsPage: React.FC = () => {
     try {
       setIsRejectingTransfer(true);
       setOwnershipFeedback(null);
-      const res = await workspacesApi.rejectOwnershipTransfer(activeWorkspace.id);
+      const res = await workspacesApi.rejectOwnershipTransfer(activeWorkspace.id, undefined, ownershipDeclineReason.trim() || undefined);
       if (res.success) {
         setPendingOwnershipTransfer(null);
-        setOwnershipFeedback({ type: 'success', message: 'Ownership transfer request rejected.' });
+        setShowDeclineTransferModal(false);
+        setOwnershipDeclineReason('');
+        setOwnershipFeedback({ type: 'success', message: 'Ownership transfer request declined.' });
       }
     } catch (err: any) {
       setOwnershipFeedback({ type: 'error', message: err.message || 'Failed to reject ownership transfer' });
@@ -1103,8 +1192,10 @@ export const WorkspaceSettingsPage: React.FC = () => {
       }
     } else if (activeTab === 'transfers') {
       loadTransfers();
+      loadWorkspaceProjects();
     } else if (activeTab === 'ownership') {
       loadPendingOwnershipTransfer();
+      loadMembers();
     } else if (activeTab === 'audit') {
       loadAuditLogs(1, auditActionFilter);
     }
@@ -1115,6 +1206,7 @@ export const WorkspaceSettingsPage: React.FC = () => {
     loadInvitations,
     loadPermissions,
     loadTransfers,
+    loadWorkspaceProjects,
     loadPendingOwnershipTransfer,
     loadAuditLogs,
     auditActionFilter,
@@ -1152,9 +1244,8 @@ export const WorkspaceSettingsPage: React.FC = () => {
       {/* Toast Notification Alert (matching Project Creation style) */}
       {toastMessage && (
         <div
-          className={`project-created-toast-banner ${
-            toastMessage.type === 'error' ? 'toast-error' : 'toast-success'
-          } animate-slide-down`}
+          className={`project-created-toast-banner ${toastMessage.type === 'error' ? 'toast-error' : 'toast-success'
+            } animate-slide-down`}
           role="status"
           aria-live="polite"
         >
@@ -1411,9 +1502,8 @@ export const WorkspaceSettingsPage: React.FC = () => {
 
               {generalFeedback && (
                 <div
-                  className={`ws-alert ${
-                    generalFeedback.type === 'success' ? 'ws-alert-success' : 'ws-alert-error'
-                  }`}
+                  className={`ws-alert ${generalFeedback.type === 'success' ? 'ws-alert-success' : 'ws-alert-error'
+                    }`}
                   style={{ marginBottom: '1.5rem' }}
                 >
                   {generalFeedback.type === 'success' ? <CheckCircleIcon size={16} /> : <AlertCircleIcon size={16} />}
@@ -1982,8 +2072,8 @@ export const WorkspaceSettingsPage: React.FC = () => {
                               {inv.role === 'WORKSPACE_ADMIN'
                                 ? 'Workspace Admin'
                                 : inv.role === 'PROJECT_ADMIN'
-                                ? 'Project Admin'
-                                : 'Workspace Member'}
+                                  ? 'Project Admin'
+                                  : 'Workspace Member'}
                             </span>
                           </td>
                           <td>
@@ -2048,9 +2138,8 @@ export const WorkspaceSettingsPage: React.FC = () => {
 
               {permissionsFeedback && (
                 <div
-                  className={`ws-alert ${
-                    permissionsFeedback.type === 'success' ? 'ws-alert-success' : 'ws-alert-error'
-                  }`}
+                  className={`ws-alert ${permissionsFeedback.type === 'success' ? 'ws-alert-success' : 'ws-alert-error'
+                    }`}
                   style={{ marginBottom: '1.25rem' }}
                 >
                   {permissionsFeedback.type === 'success' ? <CheckCircleIcon size={16} /> : <AlertCircleIcon size={16} />}
@@ -2345,9 +2434,8 @@ export const WorkspaceSettingsPage: React.FC = () => {
 
                       {limitFeedback && (
                         <div
-                          className={`ws-alert ${
-                            limitFeedback.type === 'success' ? 'ws-alert-success' : 'ws-alert-error'
-                          }`}
+                          className={`ws-alert ${limitFeedback.type === 'success' ? 'ws-alert-success' : 'ws-alert-error'
+                            }`}
                           style={{ marginBottom: '1.25rem' }}
                         >
                           {limitFeedback.type === 'success' ? <CheckCircleIcon size={16} /> : <AlertCircleIcon size={16} />}
@@ -2390,8 +2478,11 @@ export const WorkspaceSettingsPage: React.FC = () => {
                   variant="outline"
                   size="sm"
                   leftIcon={<RefreshCwIcon size={14} />}
-                  onClick={loadTransfers}
-                  isLoading={transfersLoading}
+                  onClick={() => {
+                    loadTransfers();
+                    loadWorkspaceProjects();
+                  }}
+                  isLoading={transfersLoading || loadingProjects}
                 >
                   Refresh
                 </Button>
@@ -2406,9 +2497,8 @@ export const WorkspaceSettingsPage: React.FC = () => {
 
               {transferFeedback && (
                 <div
-                  className={`ws-alert ${
-                    transferFeedback.type === 'success' ? 'ws-alert-success' : 'ws-alert-error'
-                  }`}
+                  className={`ws-alert ${transferFeedback.type === 'success' ? 'ws-alert-success' : 'ws-alert-error'
+                    }`}
                   style={{ marginBottom: '1.25rem' }}
                 >
                   {transferFeedback.type === 'success' ? <CheckCircleIcon size={16} /> : <AlertCircleIcon size={16} />}
@@ -2416,1196 +2506,1602 @@ export const WorkspaceSettingsPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Incoming Transfers */}
-              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0F172A', margin: '0 0 0.75rem 0' }}>
-                Incoming Transfers Awaiting Approval ({incomingTransfers.length})
-              </h3>
+              {/* Sub-tab Navigation */}
+              <div className="ws-transfers-subnav">
+                <button
+                  type="button"
+                  className={`ws-subtab-btn ${transferSubTab === 'transfer' ? 'active' : ''}`}
+                  onClick={() => setTransferSubTab('transfer')}
+                >
+                  <ArrowRightIcon size={14} />
+                  <span>Transfer Project</span>
+                </button>
+                <button
+                  type="button"
+                  className={`ws-subtab-btn ${transferSubTab === 'incoming' ? 'active' : ''}`}
+                  onClick={() => setTransferSubTab('incoming')}
+                >
+                  <span>Incoming Requests</span>
+                  {incomingTransfers.length > 0 && (
+                    <span className="ws-subtab-badge badge-amber">{incomingTransfers.length}</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className={`ws-subtab-btn ${transferSubTab === 'history' ? 'active' : ''}`}
+                  onClick={() => {
+                    setTransferSubTab('history');
+                    loadTransfers();
+                  }}
+                >
+                  <span>Transfer History ({outgoingTransfers.length})</span>
+                </button>
+              </div>
 
+              {/* Subtab Content 1: Transfer Project Form */}
+              {transferSubTab === 'transfer' && (
+                <form onSubmit={handleTransferSubmit} className="ws-transfer-form-card">
+                  {loadingProjects ? (
+                    <div className="ws-loading-state">
+                      <div className="btn-spinner" />
+                      <span>Loading workspace projects...</span>
+                    </div>
+                  ) : workspaceProjects.length === 0 ? (
+                    <div className="ws-empty-state" style={{ padding: '2.5rem 1rem' }}>
+                      <p style={{ margin: 0, fontSize: '0.875rem' }}>No projects available in this workspace to transfer.</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Direction Preview (full width) */}
+                      <div className="ws-direction-card">
+                        <div className="ws-direction-col">
+                          <span className="ws-direction-label">Source Workspace</span>
+                          <span className="ws-ws-pill">{activeWorkspace.name}</span>
+                        </div>
+                        <ArrowRightIcon size={18} className="ws-direction-arrow" />
+                        <div className="ws-direction-col">
+                          <span className="ws-direction-label">Destination Workspace</span>
+                          <span className="ws-ws-pill">
+                            {destinationWorkspaceName.trim() || 'Specified Below'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 2-Column Responsive Form Fields */}
+                      <div className="ws-project-transfer-grid">
+                        {/* Left Column: Source Project & Destination Workspace */}
+                        <div className="ws-project-transfer-col">
+                          <div className="ws-field-group">
+                            <label className="ws-label" style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#334155', marginBottom: '0.35rem', display: 'block' }}>
+                              Select Project to Transfer
+                            </label>
+                            <select
+                              className="ws-input"
+                              value={selectedProjectId}
+                              onChange={(e) => {
+                                setSelectedProjectId(e.target.value);
+                                setConfirmationName('');
+                              }}
+                              disabled={isSubmittingTransfer}
+                            >
+                              {workspaceProjects.map((proj) => (
+                                <option key={proj.id} value={proj.id}>
+                                  {proj.name} {proj.key ? `(${proj.key})` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="ws-field-group">
+                            <label className="ws-label" style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#334155', marginBottom: '0.35rem', display: 'block' }}>
+                              Destination Workspace Name
+                            </label>
+                            <input
+                              type="text"
+                              className="ws-input"
+                              placeholder="e.g. Mobile Engineering or Client Portal"
+                              value={destinationWorkspaceName}
+                              onChange={(e) => setDestinationWorkspaceName(e.target.value)}
+                              disabled={isSubmittingTransfer}
+                              required
+                            />
+                            {otherWorkspaces.length > 0 && (
+                              <div className="ws-suggestions-box">
+                                <span className="ws-suggestions-title">Your other workspaces:</span>
+                                <div className="ws-suggestions-list">
+                                  {otherWorkspaces.map((ws) => (
+                                    <button
+                                      key={ws.id}
+                                      type="button"
+                                      className="ws-suggestion-pill"
+                                      onClick={() => setDestinationWorkspaceName(ws.name)}
+                                      disabled={isSubmittingTransfer}
+                                    >
+                                      {ws.name}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Right Column: Recipient User Email & Name Confirmation Guard */}
+                        <div className="ws-project-transfer-col">
+                          <div className="ws-field-group">
+                            <label className="ws-label" style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#334155', marginBottom: '0.35rem', display: 'block' }}>
+                              Recipient User Email
+                            </label>
+                            <input
+                              type="email"
+                              className="ws-input"
+                              placeholder="owner-or-admin@example.com"
+                              value={recipientEmail}
+                              onChange={(e) => setRecipientEmail(e.target.value)}
+                              disabled={isSubmittingTransfer}
+                              required
+                            />
+                            <span style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.25rem', display: 'block' }}>
+                              Must be an Owner or Admin of the destination workspace.
+                            </span>
+                          </div>
+
+                          {selectedProject && (
+                            <div className="ws-field-group">
+                              <label className="ws-label" style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#334155', marginBottom: '0.35rem', display: 'block' }}>
+                                Type <strong>{selectedProject.name}</strong> to confirm transfer:
+                              </label>
+                              <input
+                                type="text"
+                                className="ws-input"
+                                placeholder={selectedProject.name}
+                                value={confirmationName}
+                                onChange={(e) => setConfirmationName(e.target.value)}
+                                disabled={isSubmittingTransfer}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Informational Box (full width) */}
+                      <div className="ws-info-box">
+                        <h4 className="ws-info-box-title">Transfer Workflow</h4>
+                        <ul className="ws-info-box-list">
+                          <li>The recipient will receive an email and a transfer card on their dashboard.</li>
+                          <li>Upon review, the recipient chooses whether to invite existing project members or exclude them.</li>
+                          <li>All tasks, comments, notes, and files transfer intact.</li>
+                        </ul>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                        <Button
+                          type="submit"
+                          variant="primary"
+                          size="sm"
+                          isLoading={isSubmittingTransfer}
+                          disabled={!canSubmitTransfer}
+                        >
+                          Send Transfer Request
+                        </Button>
+                      </div>
+                    </>
+              )}
+            </form>
+          )}
+
+          {/* Subtab Content 2: Incoming Requests */}
+          {transferSubTab === 'incoming' && (
+            <div>
               {transfersLoading ? (
                 <div className="ws-loading-state">
                   <div className="btn-spinner" />
-                  <span>Loading transfers...</span>
+                  <span>Loading incoming requests...</span>
                 </div>
               ) : incomingTransfers.length === 0 ? (
-                <div className="ws-empty-state" style={{ marginBottom: '2rem' }}>
-                  <p>No incoming project transfers.</p>
+                <div className="ws-empty-state" style={{ padding: '2.5rem 1rem' }}>
+                  <p style={{ margin: 0, fontSize: '0.875rem' }}>No incoming project transfer requests for this workspace.</p>
                 </div>
               ) : (
-                <div className="ws-table-container" style={{ marginBottom: '2rem' }}>
-                  <table className="ws-table">
-                    <thead>
-                      <tr>
-                        <th>Project</th>
-                        <th>Source Workspace</th>
-                        <th>Initiated By</th>
-                        <th>Date</th>
-                        <th style={{ textAlign: 'right' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {incomingTransfers.map((t) => (
-                        <tr key={t.id}>
-                          <td>
-                            <strong>{t.project?.name || t.projectName}</strong>
-                          </td>
-                          <td>{t.sourceWorkspace?.name}</td>
-                          <td>{t.initiator?.fullName || t.initiator?.username}</td>
-                          <td>{new Date(t.createdAt).toLocaleDateString()}</td>
-                          <td style={{ textAlign: 'right' }}>
-                            <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
-                              <Button
-                                type="button"
-                                variant="primary"
-                                size="sm"
-                                style={{ backgroundColor: '#10B981', borderColor: '#059669' }}
-                                onClick={() => setTransferToApprove(t)}
-                              >
-                                Approve
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                style={{ color: '#DC2626', borderColor: '#FECACA' }}
-                                onClick={() => setTransferToReject(t)}
-                              >
-                                Reject
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* Outgoing Transfers */}
-              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0F172A', margin: '1.5rem 0 0.75rem 0' }}>
-                Outgoing Transfers ({outgoingTransfers.length})
-              </h3>
-              {outgoingTransfers.length === 0 ? (
-                <div className="ws-empty-state">
-                  <p>No outgoing project transfers.</p>
-                </div>
-              ) : (
-                <div className="ws-table-container">
-                  <table className="ws-table">
-                    <thead>
-                      <tr>
-                        <th>Project</th>
-                        <th>Target Workspace</th>
-                        <th>Status</th>
-                        <th>Initiated Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {outgoingTransfers.map((t) => (
-                        <tr key={t.id}>
-                          <td>
-                            <strong>{t.project?.name || t.projectName}</strong>
-                          </td>
-                          <td>{t.targetWorkspace?.name}</td>
-                          <td>
-                            <span
-                              style={{
-                                fontSize: '0.75rem',
-                                fontWeight: 700,
-                                padding: '2px 8px',
-                                borderRadius: '4px',
-                                backgroundColor:
-                                  t.status === 'PENDING'
-                                    ? '#FEF3C7'
-                                    : t.status === 'ACCEPTED'
-                                    ? '#D1FAE5'
-                                    : '#FEE2E2',
-                                color:
-                                  t.status === 'PENDING'
-                                    ? '#B45309'
-                                    : t.status === 'ACCEPTED'
-                                    ? '#065F46'
-                                    : '#991B1B',
-                              }}
-                            >
-                              {t.status}
+                <div className="ws-transfers-list">
+                  {incomingTransfers.map((item) => (
+                    <div key={item.id} className="ws-transfer-card">
+                      <div className="ws-transfer-card-info">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                          <span className="ws-transfer-project-name">
+                            {item.project?.name || item.projectName || 'Project'}
+                          </span>
+                          {item.project?.key && (
+                            <span className="ws-project-key-tag">
+                              {item.project.key}
                             </span>
-                          </td>
-                          <td>{new Date(t.createdAt).toLocaleDateString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ---------------------------------------------------- */}
-          {/* TAB 5: OWNERSHIP TRANSFER (Phase 5A) */}
-          {/* ---------------------------------------------------- */}
-          {activeTab === 'ownership' && isOwner && !activeWorkspace.isPersonal && (
-            <div>
-              <div className="ws-card-header">
-                <div className="ws-card-header-left">
-                  <h2>Workspace Ownership Transfer</h2>
-                  <p>Transfer primary ownership of this workspace to another team member or administrative email.</p>
-                </div>
-              </div>
-
-              {ownershipLoading && (
-                <div className="ws-loading-state" style={{ marginBottom: '1.5rem' }}>
-                  <div className="btn-spinner" />
-                  <span>Loading ownership details...</span>
-                </div>
-              )}
-
-              {ownershipError && (
-                <div className="ws-alert ws-alert-error" style={{ marginBottom: '1rem' }}>
-                  <AlertCircleIcon size={16} />
-                  <span>{ownershipError}</span>
-                </div>
-              )}
-
-              {ownershipFeedback && (
-                <div
-                  className={`ws-alert ${
-                    ownershipFeedback.type === 'success' ? 'ws-alert-success' : 'ws-alert-error'
-                  }`}
-                  style={{ marginBottom: '1.25rem' }}
-                >
-                  {ownershipFeedback.type === 'success' ? <CheckCircleIcon size={16} /> : <AlertCircleIcon size={16} />}
-                  <span>{ownershipFeedback.message}</span>
-                </div>
-              )}
-
-              {/* Pending Ownership Transfer in Flight */}
-              {pendingOwnershipTransfer ? (
-                <div
-                  style={{
-                    backgroundColor: '#FEF3C7',
-                    border: '1px solid #FDE68A',
-                    borderRadius: '16px',
-                    padding: '1.5rem',
-                    marginBottom: '2rem',
-                  }}
-                >
-                  <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#92400E', margin: '0 0 0.5rem 0' }}>
-                    Ownership Transfer in Progress
-                  </h3>
-                  <p style={{ fontSize: '0.875rem', color: '#78350F', margin: '0 0 1rem 0', lineHeight: 1.5 }}>
-                    An ownership transfer request was sent to{' '}
-                    <strong>{pendingOwnershipTransfer.targetEmail || 'designated member'}</strong>. It will expire on{' '}
-                    {new Date(pendingOwnershipTransfer.expiresAt).toLocaleDateString()}.
-                  </p>
-
-                  <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      style={{ color: '#DC2626', borderColor: '#FECACA', backgroundColor: '#FFFFFF' }}
-                      isLoading={isCancellingTransfer}
-                      onClick={handleCancelOwnershipTransfer}
-                    >
-                      Cancel Transfer Request
-                    </Button>
-
-                    {/* If current user is the target recipient */}
-                    {pendingOwnershipTransfer.targetUserId === user?.id && (
-                      <>
+                          )}
+                        </div>
+                        <div className="ws-transfer-meta">
+                          <span>From: <strong>{item.sourceWorkspace?.name}</strong></span>
+                          <span>•</span>
+                          <span>By: {item.initiatedBy?.fullName || item.initiatedBy?.username || item.initiator?.fullName || item.initiator?.username}</span>
+                          <span>•</span>
+                          <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          style={{ color: '#DC2626', borderColor: '#FECACA' }}
+                          onClick={() => setSelectedTransferForDecline(item)}
+                          disabled={isProcessingTransfer}
+                        >
+                          Decline
+                        </Button>
                         <Button
                           type="button"
                           variant="primary"
                           size="sm"
                           style={{ backgroundColor: '#10B981', borderColor: '#059669' }}
-                          isLoading={isAcceptingTransfer}
-                          onClick={handleAcceptOwnershipTransfer}
+                          onClick={() => setSelectedTransferForAccept(item)}
+                          disabled={isProcessingTransfer}
                         >
-                          Accept Ownership
+                          <CheckCircleIcon size={14} />
+                          <span style={{ marginLeft: '0.35rem' }}>Review & Accept</span>
                         </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          isLoading={isRejectingTransfer}
-                          onClick={handleRejectOwnershipTransfer}
-                        >
-                          Reject Ownership
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                /* Initiate Ownership Transfer Form */
-                <form onSubmit={handleInitiateOwnershipTransfer} style={{ maxWidth: '600px' }}>
-                  <div
-                    style={{
-                      padding: '1.25rem',
-                      borderRadius: '12px',
-                      backgroundColor: '#EFF6FF',
-                      border: '1px solid #BFDBFE',
-                      marginBottom: '1.5rem',
-                      fontSize: '0.85rem',
-                      color: '#1E40AF',
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    <strong>Important:</strong> When you transfer ownership, the new owner receives full control over the workspace, including member management, deletion, and policies. Your role will be converted to the role selected below.
-                  </div>
-
-                  <div style={{ marginBottom: '1.25rem' }}>
-                    <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#0F172A', marginBottom: '0.5rem' }}>
-                      Transfer Recipient
-                    </label>
-                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.875rem', cursor: 'pointer' }}>
-                        <input
-                          type="radio"
-                          name="recipientMode"
-                          checked={targetRecipientMode === 'member'}
-                          onChange={() => setTargetRecipientMode('member')}
-                        />
-                        <span>Existing Workspace Member</span>
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.875rem', cursor: 'pointer' }}>
-                        <input
-                          type="radio"
-                          name="recipientMode"
-                          checked={targetRecipientMode === 'email'}
-                          onChange={() => setTargetRecipientMode('email')}
-                        />
-                        <span>Enter Email Address</span>
-                      </label>
+                      </div>
                     </div>
-
-                    {targetRecipientMode === 'member' ? (
-                      <select
-                        className="ws-input"
-                        value={targetRecipientUserId}
-                        onChange={(e) => setTargetRecipientUserId(e.target.value)}
-                        required
-                      >
-                        <option value="">Select a member...</option>
-                        {members
-                          .filter((m) => m.userId !== user?.id)
-                          .map((m) => (
-                            <option key={m.userId} value={m.userId}>
-                              {m.user.fullName || m.user.username} (@{m.user.username}) - {m.user.email}
-                            </option>
-                          ))}
-                      </select>
-                    ) : (
-                      <input
-                        type="email"
-                        className="ws-input"
-                        placeholder="newowner@example.com"
-                        value={targetRecipientEmail}
-                        onChange={(e) => setTargetRecipientEmail(e.target.value)}
-                        required
-                      />
-                    )}
-                  </div>
-
-                  <div style={{ marginBottom: '1.75rem' }}>
-                    <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#0F172A', marginBottom: '0.5rem' }}>
-                      Your Resulting Role After Transfer
-                    </label>
-                    <select
-                      className="ws-input"
-                      value={resultingRole}
-                      onChange={(e) => setResultingRole(e.target.value as any)}
-                    >
-                      <option value="WORKSPACE_ADMIN">Workspace Admin</option>
-                      <option value="WORKSPACE_MEMBER">Workspace Member</option>
-                    </select>
-                  </div>
-
-                  <Button type="submit" variant="primary" size="md" isLoading={isInitiatingTransfer}>
-                    Initiate Ownership Transfer
-                  </Button>
-                </form>
+                  ))}
+                </div>
               )}
             </div>
           )}
 
-          {/* ---------------------------------------------------- */}
-          {/* TAB 6: AUDIT TRAIL (Phase 5C) */}
-          {/* ---------------------------------------------------- */}
-          {activeTab === 'audit' && (isOwner || activeRole === 'WORKSPACE_ADMIN') && (
+          {/* Subtab Content 3: Transfer History & Outgoing Requests */}
+          {transferSubTab === 'history' && (
             <div>
-              <div className="ws-card-header">
-                <div className="ws-card-header-left">
-                  <h2>Workspace Audit Trail</h2>
-                  <p>Immutable log of administrative events, membership modifications, and security actions.</p>
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <select
-                    className="ws-filter-select"
-                    value={auditActionFilter}
-                    onChange={(e) => {
-                      setAuditActionFilter(e.target.value);
-                      loadAuditLogs(1, e.target.value);
-                    }}
-                    aria-label="Filter audit action"
-                  >
-                    <option value="ALL">All Actions</option>
-                    <option value="MEMBER_INVITED">Member Invited</option>
-                    <option value="MEMBER_REMOVED">Member Removed</option>
-                    <option value="ROLE_CHANGED">Role Changed</option>
-                    <option value="PERMISSIONS_UPDATED">Permissions Updated</option>
-                    <option value="OWNERSHIP_TRANSFERRED">Ownership Transferred</option>
-                    <option value="PROJECT_TRANSFERRED">Project Transferred</option>
-                    <option value="MEMBER_LIMIT_CHANGED">Member Limit Changed</option>
-                  </select>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    leftIcon={<RefreshCwIcon size={14} />}
-                    onClick={() => loadAuditLogs(auditPage, auditActionFilter)}
-                    isLoading={auditLogsLoading}
-                  >
-                    Refresh
-                  </Button>
-                </div>
-              </div>
-
-              {auditLogsError && (
-                <div className="ws-alert ws-alert-error" style={{ marginBottom: '1rem' }}>
-                  <AlertCircleIcon size={16} />
-                  <span>{auditLogsError}</span>
-                </div>
-              )}
-
-              {auditLogsLoading ? (
+              {transfersLoading ? (
                 <div className="ws-loading-state">
                   <div className="btn-spinner" />
-                  <span>Loading audit trail...</span>
+                  <span>Loading transfer history...</span>
                 </div>
-              ) : auditLogs.length === 0 ? (
-                <div className="ws-empty-state">
-                  <ActivityPulseIcon size={32} style={{ marginBottom: '0.75rem', opacity: 0.5 }} />
-                  <p>No audit trail logs recorded yet.</p>
+              ) : outgoingTransfers.length === 0 ? (
+                <div className="ws-empty-state" style={{ padding: '2.5rem 1rem' }}>
+                  <p style={{ margin: 0, fontSize: '0.875rem' }}>No outgoing transfer history records.</p>
                 </div>
               ) : (
-                <>
-                  <div className="ws-table-container">
-                    <table className="ws-table">
-                      <thead>
-                        <tr>
-                          <th>Action</th>
-                          <th>Actor</th>
-                          <th>Target</th>
-                          <th>Timestamp</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {auditLogs.map((log) => (
-                          <tr key={log.id}>
-                            <td>
-                              <span
-                                style={{
-                                  fontSize: '0.75rem',
-                                  fontWeight: 700,
-                                  padding: '2px 8px',
-                                  borderRadius: '4px',
-                                  backgroundColor: '#EFF6FF',
-                                  color: '#1E40AF',
-                                }}
-                              >
-                                {log.action}
-                              </span>
-                            </td>
-                            <td>{log.actor?.fullName || log.actor?.username || 'System'}</td>
-                            <td>{log.targetUser?.fullName || log.targetUser?.username || log.targetEmail || '—'}</td>
-                            <td>{new Date(log.createdAt).toLocaleString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Pagination */}
-                  <div className="ws-pagination">
-                    <button
-                      type="button"
-                      className="ws-page-btn"
-                      disabled={auditPage <= 1}
-                      onClick={() => loadAuditLogs(auditPage - 1, auditActionFilter)}
-                    >
-                      Previous
-                    </button>
-                    <span className="ws-page-indicator">
-                      Page {auditPage} of {auditTotalPages} ({auditTotal} events)
-                    </span>
-                    <button
-                      type="button"
-                      className="ws-page-btn"
-                      disabled={auditPage >= auditTotalPages}
-                      onClick={() => loadAuditLogs(auditPage + 1, auditActionFilter)}
-                    >
-                      Next
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* ---------------------------------------------------- */}
-          {/* TAB 6B: DELETION REQUEST (Owner only, only if active request) */}
-          {/* ---------------------------------------------------- */}
-          {activeTab === 'deletion-request' && isOwner && deletionRequest && (
-            <div>
-              <div className="ws-card-header">
-                <div className="ws-card-header-left">
-                  <h2 style={{ color: '#DC2626' }}>Workspace Deletion Request</h2>
-                  <p>A workspace administrator has requested that this workspace be deleted.</p>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  border: '1px solid #FECACA',
-                  backgroundColor: '#FEF2F2',
-                  borderRadius: '12px',
-                  padding: '1.5rem',
-                  marginBottom: '1.5rem',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-                  <div
-                    style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '50%',
-                      backgroundColor: '#FEE2E2',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 700,
-                      color: '#DC2626',
-                    }}
-                  >
-                    {deletionRequest.requestedByName ? deletionRequest.requestedByName[0].toUpperCase() : 'A'}
-                  </div>
-                  <div>
-                    <h4 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: '#1E293B' }}>
-                      {deletionRequest.requestedByName}
-                    </h4>
-                    <span style={{ fontSize: '0.8125rem', color: '#64748B' }}>
-                      {deletionRequest.requestedByEmail} • Requested on {new Date(deletionRequest.requestedAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    backgroundColor: '#FFFFFF',
-                    borderRadius: '8px',
-                    border: '1px solid #FCA5A5',
-                    padding: '1rem',
-                    marginBottom: '1.25rem',
-                  }}
-                >
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#991B1B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Stated Reason
-                  </span>
-                  <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.875rem', color: '#334155', fontStyle: deletionRequest.reason ? 'normal' : 'italic' }}>
-                    {deletionRequest.reason || 'No specific reason was provided by the administrator.'}
-                  </p>
-                </div>
-
-                <p style={{ fontSize: '0.8125rem', color: '#7F1D1D', marginBottom: '1.5rem', lineHeight: 1.5 }}>
-                  As the workspace owner, you have ultimate authority over this workspace. Approving this request will soft-delete the workspace, giving a 30-day recovery grace period before permanent deletion.
-                </p>
-
-                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-                  <Button
-                    type="button"
-                    variant="primary"
-                    size="md"
-                    style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
-                    onClick={() => setDeleteModalOpen(true)}
-                    id="ws-approve-deletion-request-btn"
-                  >
-                    Approve & Delete Workspace
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="md"
-                    onClick={() => setDeclineModalOpen(true)}
-                    id="ws-decline-deletion-request-btn"
-                  >
-                    Decline Request
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ---------------------------------------------------- */}
-          {/* TAB 7: DANGER ZONE / CLEAR WORKSPACE DATA */}
-          {/* ---------------------------------------------------- */}
-          {activeTab === 'danger' && (
-            <div>
-              <div className="ws-card-header">
-                <div className="ws-card-header-left">
-                  <h2 style={{ color: '#DC2626' }}>
-                    {activeWorkspace.isDefault ? 'Clear Workspace Data' : 'Danger Zone'}
-                  </h2>
-                  <p>
-                    {activeWorkspace.isDefault
-                      ? 'Reset your default workspace by wiping all project and task data while preserving your personal workspace.'
-                      : 'Destructive, exit, and reset operations for this workspace.'}
-                  </p>
-                </div>
-              </div>
-
-              {/* 1. Default Personal Workspace Protection Notice */}
-              {activeWorkspace.isDefault && (
-                <div className="ws-danger-card" style={{ marginBottom: '1.5rem', borderColor: '#CBD5E1', backgroundColor: '#F8FAFC' }}>
-                  <div>
-                    <h3 className="ws-danger-title" style={{ color: '#334155' }}>Personal Workspace Protection</h3>
-                    <p className="ws-danger-desc">
-                      The default personal workspace is permanently protected and cannot be deleted to ensure you always have an active workspace. You can clear its data below instead.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* 2. Clear Workspace Data (Reset Sandbox) - Available to the Owner of any workspace */}
-              {isOwner && (
-                <div className="ws-danger-card" style={{ marginBottom: '1.5rem' }}>
-                  <div>
-                    <h3 className="ws-danger-title">Clear Workspace Data (Reset Sandbox)</h3>
-                    <p className="ws-danger-desc">
-                      Permanently wipes all projects, tasks, comments, notes, uploaded files, and calendar events from <strong>{activeWorkspace.name}</strong>. The workspace shell, settings, and memberships remain intact so you can start over with a clean slate.
-                    </p>
-                  </div>
-                  <div>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="md"
-                      style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
-                      onClick={() => {
-                        setClearModalOpen(true);
-                        setClearConfirmText('');
-                        setClearError(null);
-                      }}
-                      id="ws-clear-personal-btn"
-                    >
-                      Clear Workspace Data
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* 3. Non-Default Workspace - Owner Soft Delete */}
-              {isOwner && !activeWorkspace.isDefault && (
-                <div className="ws-danger-card" style={{ marginBottom: '1.5rem' }}>
-                  <div>
-                    <h3 className="ws-danger-title">Delete this workspace</h3>
-                    <p className="ws-danger-desc">
-                      Soft-deletes <strong>{activeWorkspace.name}</strong>. {activeWorkspace.isPersonal ? 'You will lose access to all projects, files, and resources in this workspace.' : 'Workspace members will immediately lose access to all projects, files, and resources in this workspace.'} You will have a 30-day recovery grace period from the workspace switcher before all resources are permanently deleted.
-                    </p>
-                  </div>
-                  <div>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="md"
-                      style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
-                      onClick={() => setDeleteModalOpen(true)}
-                      id="ws-delete-workspace-btn"
-                    >
-                      Delete Workspace
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* 3. Team Workspace - Administrator Deletion Request */}
-              {!activeWorkspace.isPersonal && !isOwner && activeRole === 'WORKSPACE_ADMIN' && (
-                <div className="ws-danger-card" style={{ marginBottom: '1.5rem' }}>
-                  <div>
-                    <h3 className="ws-danger-title">Request Workspace Deletion</h3>
-                    {deletionRequest && deletionRequest.status === 'PENDING' ? (
-                      <p className="ws-danger-desc">
-                        You submitted a deletion request on <strong>{new Date(deletionRequest.requestedAt).toLocaleDateString()}</strong>. Reason: <em>"{deletionRequest.reason || 'None provided'}"</em>. The workspace owner has been notified and can review and approve it.
-                      </p>
-                    ) : (
-                      <p className="ws-danger-desc">
-                        Only the workspace owner can delete this workspace. As a Workspace Administrator, you can submit a deletion request with an explanation for the Owner to review.
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    {deletionRequest && deletionRequest.status === 'PENDING' ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="md"
-                        isLoading={isCancellingDeletionRequest}
-                        onClick={handleCancelDeletionRequest}
-                        id="ws-cancel-deletion-request-btn"
-                      >
-                        Cancel Request
-                      </Button>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="md"
-                        style={{ color: '#DC2626', borderColor: '#FECACA' }}
-                        onClick={() => {
-                          setRequestDeletionModalOpen(true);
-                          setDeletionRequestReason('');
-                        }}
-                        id="ws-request-deletion-btn"
-                      >
-                        Request Deletion
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* 4. Team Workspace - Leave Workspace (for all non-owners) */}
-              {!activeWorkspace.isPersonal && !isOwner && (
-                <div className="ws-danger-card">
-                  <div>
-                    <h3 className="ws-danger-title">Leave this workspace</h3>
-                    <p className="ws-danger-desc">
-                      Voluntarily leave <strong>{activeWorkspace.name}</strong>. Your tasks, comments, notes, and uploaded files will remain preserved for team continuity. In-flight task assignments will be unassigned. You will lose access to all projects in this workspace, and can only rejoin if an Owner or Admin sends you an invitation.
-                    </p>
-                  </div>
-                  <div>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="md"
-                      style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
-                      onClick={() => setLeaveModalOpen(true)}
-                      id="ws-leave-workspace-btn"
-                    >
-                      Leave Workspace
-                    </Button>
-                  </div>
+                <div className="ws-transfers-list">
+                  {outgoingTransfers.map((item) => {
+                    const status = item.status?.toLowerCase() || 'pending';
+                    return (
+                      <div key={item.id} className="ws-history-card">
+                        <div className="ws-transfer-card-info">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.375rem' }}>
+                            <span className="ws-transfer-project-name">
+                              {item.project?.name || item.projectName || 'Project'}
+                            </span>
+                            <span className={`ws-status-pill status-${status}`}>
+                              {item.status}
+                            </span>
+                          </div>
+                          <div className="ws-history-route">
+                            <span>{item.sourceWorkspace?.name || activeWorkspace.name}</span>
+                            <ArrowRightIcon size={12} />
+                            <span>{item.destinationWorkspace?.name || item.destinationWorkspaceName || item.targetWorkspace?.name || 'Destination'}</span>
+                          </div>
+                          <div className="ws-transfer-meta" style={{ marginTop: '0.25rem' }}>
+                            <span>Sent to: {item.recipientEmail || 'Recipient'}</span>
+                            <span>•</span>
+                            <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                          </div>
+                          {item.rejectionReason && (
+                            <div className="ws-rejection-note">
+                              <strong>Reason:</strong> {item.rejectionReason}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          {item.status === 'PENDING' && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              style={{ color: '#DC2626', borderColor: '#FECACA' }}
+                              onClick={() => handleCancelOutgoingTransfer(item.id)}
+                              disabled={isProcessingTransfer}
+                            >
+                              Cancel Request
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
           )}
         </div>
-      </div>
+          )}
 
-      {/* ---------------------------------------------------- */}
-      {/* CONFIRMATION MODALS */}
-      {/* ---------------------------------------------------- */}
-
-      {/* Role Change Modal */}
-      <Modal
-        isOpen={!!targetMemberForRole}
-        onClose={() => setTargetMemberForRole(null)}
-        title="Change Member Role"
-        maxWidth="sm"
-      >
-        {targetMemberForRole && (
+        {/* ---------------------------------------------------- */}
+        {/* TAB 5: OWNERSHIP TRANSFER (Phase 5A) */}
+        {/* ---------------------------------------------------- */}
+        {activeTab === 'ownership' && isOwner && !activeWorkspace.isPersonal && (
           <div>
-            <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
-              Are you sure you want to change{' '}
-              <strong>
-                {targetMemberForRole.member.user.fullName || targetMemberForRole.member.user.username}
-              </strong>
-              's role to{' '}
-              <strong>
-                {targetMemberForRole.newRole === 'WORKSPACE_ADMIN'
-                  ? 'Workspace Admin'
-                  : targetMemberForRole.newRole === 'PROJECT_ADMIN'
-                  ? 'Project Admin'
-                  : 'Workspace Member'}
-              </strong>
-              ?
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setTargetMemberForRole(null)}
-                disabled={isUpdatingRole}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                isLoading={isUpdatingRole}
-                onClick={confirmRoleChange}
-              >
-                Update Role
-              </Button>
+            <div className="ws-card-header">
+              <div className="ws-card-header-left">
+                <h2>Workspace Ownership Transfer</h2>
+                <p>Transfer primary ownership of this workspace to another team member or administrative email.</p>
+              </div>
             </div>
-          </div>
-        )}
-      </Modal>
 
-      {/* Remove Member Modal */}
-      <Modal
-        isOpen={!!memberToRemove}
-        onClose={() => setMemberToRemove(null)}
-        title="Remove Member from Workspace"
-        maxWidth="sm"
-      >
-        {memberToRemove && (
-          <div>
-            <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
-              Are you sure you want to remove <strong>{memberToRemove.user.fullName || memberToRemove.user.username}</strong> from <strong>{activeWorkspace.name}</strong>?
-              <br /><br />
-              <span style={{ color: '#DC2626', fontWeight: 600 }}>
-                This will immediately revoke their workspace access and all project memberships in this workspace, and unassign any active tasks.
-              </span>
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setMemberToRemove(null)}
-                disabled={isRemoving}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
-                isLoading={isRemoving}
-                onClick={confirmRemoveMember}
-              >
-                Remove Member
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
+            {ownershipLoading && (
+              <div className="ws-loading-state" style={{ marginBottom: '1.5rem' }}>
+                <div className="btn-spinner" />
+                <span>Loading ownership details...</span>
+              </div>
+            )}
 
-      {/* Revoke Invitation Modal */}
-      <Modal
-        isOpen={!!invitationToRevoke}
-        onClose={() => setInvitationToRevoke(null)}
-        title="Revoke Invitation"
-        maxWidth="sm"
-      >
-        {invitationToRevoke && (
-          <div>
-            <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
-              Are you sure you want to revoke the invitation sent to{' '}
-              <strong>{invitationToRevoke.invitedEmail}</strong>? The recipient will no longer be able to use this invitation to join the workspace.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setInvitationToRevoke(null)}
-                disabled={isRevoking}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
-                isLoading={isRevoking}
-                onClick={confirmRevokeInvitation}
-              >
-                Revoke Invitation
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
+            {ownershipError && (
+              <div className="ws-alert ws-alert-error" style={{ marginBottom: '1rem' }}>
+                <AlertCircleIcon size={16} />
+                <span>{ownershipError}</span>
+              </div>
+            )}
 
-      {/* Approve Project Transfer Modal */}
-      <Modal
-        isOpen={!!transferToApprove}
-        onClose={() => setTransferToApprove(null)}
-        title="Approve Project Transfer"
-        maxWidth="sm"
-      >
-        {transferToApprove && (
-          <div>
-            <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
-              Accept project <strong>{transferToApprove.project?.name || transferToApprove.projectName}</strong> from{' '}
-              <strong>{transferToApprove.sourceWorkspace?.name}</strong> into this workspace?
-              <br /><br />
-              All tasks, comments, files, and notes will be transferred as one logical unit. Existing project members not in this workspace will lose project access, and their assigned tasks will be unassigned.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setTransferToApprove(null)}
-                disabled={isProcessingTransfer}
+            {ownershipFeedback && (
+              <div
+                className={`ws-alert ${ownershipFeedback.type === 'success' ? 'ws-alert-success' : 'ws-alert-error'
+                  }`}
+                style={{ marginBottom: '1.25rem' }}
               >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                style={{ backgroundColor: '#10B981', borderColor: '#059669' }}
-                isLoading={isProcessingTransfer}
-                onClick={confirmApproveTransfer}
-              >
-                Approve & Transfer
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
+                {ownershipFeedback.type === 'success' ? <CheckCircleIcon size={16} /> : <AlertCircleIcon size={16} />}
+                <span>{ownershipFeedback.message}</span>
+              </div>
+            )}
 
-      {/* Reject Project Transfer Modal */}
-      <Modal
-        isOpen={!!transferToReject}
-        onClose={() => setTransferToReject(null)}
-        title="Reject Project Transfer"
-        maxWidth="sm"
-      >
-        {transferToReject && (
-          <div>
-            <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1rem', lineHeight: 1.5 }}>
-              Decline the transfer request for <strong>{transferToReject.project?.name || transferToReject.projectName}</strong>.
-            </p>
-            <div style={{ marginBottom: '1.25rem' }}>
-              <label style={{ fontSize: '0.8125rem', color: '#64748B', display: 'block', marginBottom: '0.35rem' }}>
-                Rejection Reason (optional)
-              </label>
-              <textarea
-                className="ws-input"
-                rows={3}
-                placeholder="e.g. Incompatible workspace, redundant project..."
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                disabled={isProcessingTransfer}
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setTransferToReject(null)}
-                disabled={isProcessingTransfer}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
-                isLoading={isProcessingTransfer}
-                onClick={confirmRejectTransfer}
-              >
-                Reject Request
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
+            {/* Pending Ownership Transfer in Flight */}
+            {pendingOwnershipTransfer ? (
+              (() => {
+                const diffMs = new Date(pendingOwnershipTransfer.expiresAt).getTime() - Date.now();
+                const diffHours = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
+                const diffDays = Math.floor(diffHours / 24);
+                const hoursLeft = diffHours % 24;
+                const countdownText = diffMs <= 0 ? 'Expired' : `${diffDays}d ${hoursLeft}h remaining`;
 
-      {/* Delete Workspace Modal */}
-      <Modal
-        isOpen={deleteModalOpen}
-        onClose={() => {
-          setDeleteModalOpen(false);
-          setDeleteConfirmationName('');
-          setDeleteError(null);
-        }}
-        title="Delete Workspace"
-        maxWidth="sm"
-      >
-        <div>
-          <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
-            Are you sure you want to soft-delete <strong>{activeWorkspace.name}</strong>?
-            <br /><br />
-            {activeWorkspace.isPersonal
-              ? 'You will lose access to all projects, files, and resources in this workspace. You will have 30 days to recover this workspace from the workspace switcher before it is permanently expired.'
-              : 'All members will lose access immediately. You will have 30 days to recover this workspace from the workspace switcher before it is permanently expired.'}
-          </p>
-          <div style={{ marginBottom: '1.25rem' }}>
-            <label style={{ fontSize: '0.8125rem', color: '#64748B', display: 'block', marginBottom: '0.35rem' }}>
-              Please type <strong>{activeWorkspace.name}</strong> to confirm:
-            </label>
-            <input
-              type="text"
-              className="ws-input"
-              placeholder={activeWorkspace.name}
-              value={deleteConfirmationName}
-              onChange={(e) => {
-                setDeleteConfirmationName(e.target.value);
-                setDeleteError(null);
-              }}
-              disabled={isDeletingWorkspace}
-              id="ws-delete-confirm-input"
-            />
-            {deleteError && (
-              <span style={{ fontSize: '0.8125rem', color: '#DC2626', display: 'block', marginTop: '0.35rem' }}>
-                {deleteError}
-              </span>
+                return (
+                  <div className="ws-pending-card">
+                    <div className="ws-pending-top">
+                      <div>
+                        <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#92400E', margin: '0 0 0.25rem 0' }}>
+                          Ownership Transfer in Progress
+                        </h3>
+                        <p style={{ fontSize: '0.84rem', color: '#78350F', margin: 0 }}>
+                          An ownership transfer request was sent and is awaiting acceptance by the designated recipient.
+                        </p>
+                      </div>
+                      <span className="ws-countdown-badge">
+                        <ClockIcon size={13} />
+                        <span>{countdownText}</span>
+                      </span>
+                    </div>
+
+                    {/* Visual Flow Route */}
+                    <div className="ws-direction-flow-card" style={{ margin: 0, backgroundColor: '#FFFFFF' }}>
+                      <div className="ws-direction-party">
+                        <span className="ws-direction-badge ws-direction-current">Current Owner</span>
+                        <span className="ws-direction-name">
+                          {pendingOwnershipTransfer.sourceOwner?.fullName || pendingOwnershipTransfer.sourceOwner?.username || 'Current Owner'}
+                        </span>
+                        <span className="ws-direction-role">
+                          Becomes: {pendingOwnershipTransfer.targetRole === 'WORKSPACE_ADMIN' ? 'Workspace Admin' : 'Workspace Member'}
+                        </span>
+                      </div>
+                      <div className="ws-direction-arrow-icon">
+                        <ArrowRightIcon size={20} />
+                      </div>
+                      <div className="ws-direction-party">
+                        <span className="ws-direction-badge ws-direction-new">New Owner</span>
+                        <span className="ws-direction-name">
+                          {pendingOwnershipTransfer.targetUser?.fullName || pendingOwnershipTransfer.targetUser?.username || pendingOwnershipTransfer.targetEmail || 'Recipient'}
+                        </span>
+                        <span className="ws-direction-role">Becomes: Primary Workspace Owner</span>
+                      </div>
+                    </div>
+
+                    {/* Reassurance Banner */}
+                    <div className="ws-retention-notice" style={{ margin: 0, backgroundColor: '#F0FDF4' }}>
+                      <div className="ws-retention-icon">
+                        <ShieldIcon size={18} />
+                      </div>
+                      <div className="ws-retention-text">
+                        <div className="ws-retention-title" style={{ fontSize: '0.8125rem' }}>100% Team & Work Retention Guaranteed</div>
+                        <p className="ws-retention-desc" style={{ fontSize: '0.75rem' }}>
+                          All members, projects, tasks, comments, notes, documents, and settings remain completely intact. No member is removed during this transfer.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        style={{ color: '#DC2626', borderColor: '#FECACA', backgroundColor: '#FFFFFF' }}
+                        isLoading={isCancellingTransfer}
+                        onClick={() => setShowCancelTransferModal(true)}
+                      >
+                        Cancel Transfer Request
+                      </Button>
+
+                      {/* If current user is the target recipient */}
+                      {pendingOwnershipTransfer.targetUserId === user?.id && (
+                        <>
+                          <Button
+                            type="button"
+                            variant="primary"
+                            size="sm"
+                            style={{ backgroundColor: '#10B981', borderColor: '#059669' }}
+                            isLoading={isAcceptingTransfer}
+                            onClick={() => setShowAcceptTransferModal(true)}
+                          >
+                            Review & Accept Ownership
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            isLoading={isRejectingTransfer}
+                            onClick={() => setShowDeclineTransferModal(true)}
+                          >
+                            Decline Transfer
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()
+            ) : (
+              /* Initiate Ownership Transfer Form */
+              <form onSubmit={handleInitiateOwnershipTransfer} className="ws-ownership-form">
+                {/* Reassurance & Team Retention Banner (full width) */}
+                <div className="ws-retention-notice">
+                  <div className="ws-retention-icon">
+                    <ShieldIcon size={20} />
+                  </div>
+                  <div className="ws-retention-text">
+                    <h4 className="ws-retention-title">100% Team & Work Retention Guaranteed</h4>
+                    <p className="ws-retention-desc">
+                      When you transfer ownership, all workspace members, projects, tasks, comments, notes, files, and permissions will remain completely intact. No member will be removed from this workspace.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Visual Direction Preview Card (full width) */}
+                <div className="ws-direction-flow-card">
+                  <div className="ws-direction-party">
+                    <span className="ws-direction-badge ws-direction-current">Current Owner</span>
+                    <span className="ws-direction-name">{user?.fullName || user?.username || 'You'}</span>
+                    <span className="ws-direction-role">
+                      Will become: {resultingRole === 'WORKSPACE_ADMIN' ? 'Workspace Admin' : 'Workspace Member'}
+                    </span>
+                  </div>
+                  <div className="ws-direction-arrow-icon">
+                    <ArrowRightIcon size={20} />
+                  </div>
+                  <div className="ws-direction-party">
+                    <span className="ws-direction-badge ws-direction-new">New Owner</span>
+                    <span className="ws-direction-name">
+                      {targetRecipientMode === 'member'
+                        ? (members.find((m) => m.userId === targetRecipientUserId)?.user.fullName ||
+                           members.find((m) => m.userId === targetRecipientUserId)?.user.username ||
+                           'Select a Member')
+                        : (targetRecipientEmail.trim() || 'Enter Email')}
+                    </span>
+                    <span className="ws-direction-role">Will become: Primary Workspace Owner</span>
+                  </div>
+                </div>
+
+                {/* 2-Column Responsive Form Layout to maximize width and eliminate empty whitespace */}
+                <div className="ws-ownership-form-grid">
+                  {/* Left Column: Recipient Selection */}
+                  <div className="ws-ownership-form-col">
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#0F172A', marginBottom: '0.5rem' }}>
+                        Transfer Recipient
+                      </label>
+                      <div style={{ display: 'flex', gap: '1.25rem', marginBottom: '0.75rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.875rem', cursor: 'pointer', fontWeight: 500 }}>
+                          <input
+                            type="radio"
+                            name="recipientMode"
+                            checked={targetRecipientMode === 'member'}
+                            onChange={() => setTargetRecipientMode('member')}
+                          />
+                          <span>Existing Workspace Member</span>
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.875rem', cursor: 'pointer', fontWeight: 500 }}>
+                          <input
+                            type="radio"
+                            name="recipientMode"
+                            checked={targetRecipientMode === 'email'}
+                            onChange={() => setTargetRecipientMode('email')}
+                          />
+                          <span>Enter Email Address</span>
+                        </label>
+                      </div>
+
+                      {targetRecipientMode === 'member' ? (
+                        <>
+                          <select
+                            className="ws-input"
+                            value={targetRecipientUserId}
+                            onChange={(e) => setTargetRecipientUserId(e.target.value)}
+                            required
+                          >
+                            <option value="">Select a member...</option>
+                            {members
+                              .filter((m) => m.userId !== user?.id)
+                              .map((m) => (
+                                <option key={m.userId} value={m.userId}>
+                                  {m.user.fullName || m.user.username} (@{m.user.username}) - {m.user.email} [{m.role === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}]
+                                </option>
+                              ))}
+                          </select>
+
+                          {/* Selected member preview card */}
+                          {(() => {
+                            const selected = members.find((m) => m.userId === targetRecipientUserId);
+                            if (!selected) return null;
+                            const initials = (selected.user.fullName || selected.user.username || 'U')
+                              .slice(0, 2)
+                              .toUpperCase();
+                            return (
+                              <div className="ws-recipient-preview-card">
+                                <div className="ws-recipient-avatar">
+                                  {selected.user.avatarUrl ? (
+                                    <img src={selected.user.avatarUrl} alt={selected.user.username} />
+                                  ) : (
+                                    initials
+                                  )}
+                                </div>
+                                <div className="ws-recipient-meta">
+                                  <span className="ws-recipient-fullname">
+                                    {selected.user.fullName || selected.user.username}
+                                    <span style={{ fontWeight: 400, color: '#64748B', marginLeft: '0.35rem' }}>
+                                      @{selected.user.username}
+                                    </span>
+                                  </span>
+                                  <span className="ws-recipient-sub">{selected.user.email}</span>
+                                </div>
+                                <span className="ws-recipient-role-pill">
+                                  Current: {selected.role === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}
+                                </span>
+                              </div>
+                            );
+                          })()}
+                        </>
+                      ) : (
+                        <input
+                          type="email"
+                          className="ws-input"
+                          placeholder="newowner@example.com"
+                          value={targetRecipientEmail}
+                          onChange={(e) => setTargetRecipientEmail(e.target.value)}
+                          required
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Role, Guard Box & Submit Button */}
+                  <div className="ws-ownership-form-col">
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#0F172A', marginBottom: '0.5rem' }}>
+                        Your Resulting Role After Transfer
+                      </label>
+                      <select
+                        className="ws-input"
+                        value={resultingRole}
+                        onChange={(e) => setResultingRole(e.target.value as any)}
+                      >
+                        <option value="WORKSPACE_ADMIN">Workspace Admin</option>
+                        <option value="WORKSPACE_MEMBER">Workspace Member</option>
+                      </select>
+                      <span style={{ display: 'block', fontSize: '0.78rem', color: '#64748B', marginTop: '0.35rem' }}>
+                        You will step down from primary ownership and remain an active collaborator with this role.
+                      </span>
+                    </div>
+
+                    {/* Exact Workspace Name Confirmation Guard */}
+                    <div className="ws-guard-box">
+                      <label className="ws-guard-label">
+                        Type <strong>{activeWorkspace.name}</strong> to confirm transfer:
+                      </label>
+                      <input
+                        type="text"
+                        className="ws-input"
+                        placeholder={'Type "' + activeWorkspace.name + '" to confirm'}
+                        value={confirmationWorkspaceName}
+                        onChange={(e) => setConfirmationWorkspaceName(e.target.value)}
+                        disabled={isInitiatingTransfer}
+                      />
+                      <span className="ws-guard-hint">
+                        Exact name confirmation ensures ownership is only transferred with explicit verification.
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                      <Button
+                        type="submit"
+                        variant="primary"
+                        size="md"
+                        isLoading={isInitiatingTransfer}
+                        disabled={
+                          confirmationWorkspaceName.trim().toLowerCase() !== activeWorkspace.name.trim().toLowerCase() ||
+                          (targetRecipientMode === 'member' ? !targetRecipientUserId : !targetRecipientEmail.trim()) ||
+                          isInitiatingTransfer
+                        }
+                      >
+                        Initiate Ownership Transfer
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </form>
             )}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
+        )}
+                  {/* ---------------------------------------------------- */}
+                  {/* TAB 6: AUDIT TRAIL (Phase 5C) */}
+                  {/* ---------------------------------------------------- */}
+                  {activeTab === 'audit' && (isOwner || activeRole === 'WORKSPACE_ADMIN') && (
+                    <div>
+                      <div className="ws-card-header">
+                        <div className="ws-card-header-left">
+                          <h2>Workspace Audit Trail</h2>
+                          <p>Immutable log of administrative events, membership modifications, and security actions.</p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <select
+                            className="ws-filter-select"
+                            value={auditActionFilter}
+                            onChange={(e) => {
+                              setAuditActionFilter(e.target.value);
+                              loadAuditLogs(1, e.target.value);
+                            }}
+                            aria-label="Filter audit action"
+                          >
+                            <option value="ALL">All Actions</option>
+                            <option value="MEMBER_INVITED">Member Invited</option>
+                            <option value="MEMBER_REMOVED">Member Removed</option>
+                            <option value="ROLE_CHANGED">Role Changed</option>
+                            <option value="PERMISSIONS_UPDATED">Permissions Updated</option>
+                            <option value="OWNERSHIP_TRANSFERRED">Ownership Transferred</option>
+                            <option value="PROJECT_TRANSFERRED">Project Transferred</option>
+                            <option value="MEMBER_LIMIT_CHANGED">Member Limit Changed</option>
+                          </select>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            leftIcon={<RefreshCwIcon size={14} />}
+                            onClick={() => loadAuditLogs(auditPage, auditActionFilter)}
+                            isLoading={auditLogsLoading}
+                          >
+                            Refresh
+                          </Button>
+                        </div>
+                      </div>
+
+                      {auditLogsError && (
+                        <div className="ws-alert ws-alert-error" style={{ marginBottom: '1rem' }}>
+                          <AlertCircleIcon size={16} />
+                          <span>{auditLogsError}</span>
+                        </div>
+                      )}
+
+                      {auditLogsLoading ? (
+                        <div className="ws-loading-state">
+                          <div className="btn-spinner" />
+                          <span>Loading audit trail...</span>
+                        </div>
+                      ) : auditLogs.length === 0 ? (
+                        <div className="ws-empty-state">
+                          <ActivityPulseIcon size={32} style={{ marginBottom: '0.75rem', opacity: 0.5 }} />
+                          <p>No audit trail logs recorded yet.</p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="ws-table-container">
+                            <table className="ws-table">
+                              <thead>
+                                <tr>
+                                  <th>Action</th>
+                                  <th>Actor</th>
+                                  <th>Target</th>
+                                  <th>Timestamp</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {auditLogs.map((log) => (
+                                  <tr key={log.id}>
+                                    <td>
+                                      <span
+                                        style={{
+                                          fontSize: '0.75rem',
+                                          fontWeight: 700,
+                                          padding: '2px 8px',
+                                          borderRadius: '4px',
+                                          backgroundColor: '#EFF6FF',
+                                          color: '#1E40AF',
+                                        }}
+                                      >
+                                        {log.action}
+                                      </span>
+                                    </td>
+                                    <td>{log.actor?.fullName || log.actor?.username || 'System'}</td>
+                                    <td>{log.targetUser?.fullName || log.targetUser?.username || log.targetEmail || '—'}</td>
+                                    <td>{new Date(log.createdAt).toLocaleString()}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Pagination */}
+                          <div className="ws-pagination">
+                            <button
+                              type="button"
+                              className="ws-page-btn"
+                              disabled={auditPage <= 1}
+                              onClick={() => loadAuditLogs(auditPage - 1, auditActionFilter)}
+                            >
+                              Previous
+                            </button>
+                            <span className="ws-page-indicator">
+                              Page {auditPage} of {auditTotalPages} ({auditTotal} events)
+                            </span>
+                            <button
+                              type="button"
+                              className="ws-page-btn"
+                              disabled={auditPage >= auditTotalPages}
+                              onClick={() => loadAuditLogs(auditPage + 1, auditActionFilter)}
+                            >
+                              Next
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ---------------------------------------------------- */}
+                  {/* TAB 6B: DELETION REQUEST (Owner only, only if active request) */}
+                  {/* ---------------------------------------------------- */}
+                  {activeTab === 'deletion-request' && isOwner && deletionRequest && (
+                    <div>
+                      <div className="ws-card-header">
+                        <div className="ws-card-header-left">
+                          <h2 style={{ color: '#DC2626' }}>Workspace Deletion Request</h2>
+                          <p>A workspace administrator has requested that this workspace be deleted.</p>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          border: '1px solid #FECACA',
+                          backgroundColor: '#FEF2F2',
+                          borderRadius: '12px',
+                          padding: '1.5rem',
+                          marginBottom: '1.5rem',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+                          <div
+                            style={{
+                              width: '40px',
+                              height: '40px',
+                              borderRadius: '50%',
+                              backgroundColor: '#FEE2E2',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: 700,
+                              color: '#DC2626',
+                            }}
+                          >
+                            {deletionRequest.requestedByName ? deletionRequest.requestedByName[0].toUpperCase() : 'A'}
+                          </div>
+                          <div>
+                            <h4 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: '#1E293B' }}>
+                              {deletionRequest.requestedByName}
+                            </h4>
+                            <span style={{ fontSize: '0.8125rem', color: '#64748B' }}>
+                              {deletionRequest.requestedByEmail} • Requested on {new Date(deletionRequest.requestedAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            backgroundColor: '#FFFFFF',
+                            borderRadius: '8px',
+                            border: '1px solid #FCA5A5',
+                            padding: '1rem',
+                            marginBottom: '1.25rem',
+                          }}
+                        >
+                          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#991B1B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Stated Reason
+                          </span>
+                          <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.875rem', color: '#334155', fontStyle: deletionRequest.reason ? 'normal' : 'italic' }}>
+                            {deletionRequest.reason || 'No specific reason was provided by the administrator.'}
+                          </p>
+                        </div>
+
+                        <p style={{ fontSize: '0.8125rem', color: '#7F1D1D', marginBottom: '1.5rem', lineHeight: 1.5 }}>
+                          As the workspace owner, you have ultimate authority over this workspace. Approving this request will soft-delete the workspace, giving a 30-day recovery grace period before permanent deletion.
+                        </p>
+
+                        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                          <Button
+                            type="button"
+                            variant="primary"
+                            size="md"
+                            style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
+                            onClick={() => setDeleteModalOpen(true)}
+                            id="ws-approve-deletion-request-btn"
+                          >
+                            Approve & Delete Workspace
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="md"
+                            onClick={() => setDeclineModalOpen(true)}
+                            id="ws-decline-deletion-request-btn"
+                          >
+                            Decline Request
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ---------------------------------------------------- */}
+                  {/* TAB 7: DANGER ZONE / CLEAR WORKSPACE DATA */}
+                  {/* ---------------------------------------------------- */}
+                  {activeTab === 'danger' && (
+                    <div>
+                      <div className="ws-card-header">
+                        <div className="ws-card-header-left">
+                          <h2 style={{ color: '#DC2626' }}>
+                            {activeWorkspace.isDefault ? 'Clear Workspace Data' : 'Danger Zone'}
+                          </h2>
+                          <p>
+                            {activeWorkspace.isDefault
+                              ? 'Reset your default workspace by wiping all project and task data while preserving your personal workspace.'
+                              : 'Destructive, exit, and reset operations for this workspace.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 1. Default Personal Workspace Protection Notice */}
+                      {activeWorkspace.isDefault && (
+                        <div className="ws-danger-card" style={{ marginBottom: '1.5rem', borderColor: '#CBD5E1', backgroundColor: '#F8FAFC' }}>
+                          <div>
+                            <h3 className="ws-danger-title" style={{ color: '#334155' }}>Personal Workspace Protection</h3>
+                            <p className="ws-danger-desc">
+                              The default personal workspace is permanently protected and cannot be deleted to ensure you always have an active workspace. You can clear its data below instead.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 2. Clear Workspace Data (Reset Sandbox) - Available to the Owner of any workspace */}
+                      {isOwner && (
+                        <div className="ws-danger-card" style={{ marginBottom: '1.5rem' }}>
+                          <div>
+                            <h3 className="ws-danger-title">Clear Workspace Data (Reset Sandbox)</h3>
+                            <p className="ws-danger-desc">
+                              Permanently wipes all projects, tasks, comments, notes, uploaded files, and calendar events from <strong>{activeWorkspace.name}</strong>. The workspace shell, settings, and memberships remain intact so you can start over with a clean slate.
+                            </p>
+                          </div>
+                          <div>
+                            <Button
+                              type="button"
+                              variant="primary"
+                              size="md"
+                              style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
+                              onClick={() => {
+                                setClearModalOpen(true);
+                                setClearConfirmText('');
+                                setClearError(null);
+                              }}
+                              id="ws-clear-personal-btn"
+                            >
+                              Clear Workspace Data
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. Non-Default Workspace - Owner Soft Delete */}
+                      {isOwner && !activeWorkspace.isDefault && (
+                        <div className="ws-danger-card" style={{ marginBottom: '1.5rem' }}>
+                          <div>
+                            <h3 className="ws-danger-title">Delete this workspace</h3>
+                            <p className="ws-danger-desc">
+                              Soft-deletes <strong>{activeWorkspace.name}</strong>. {activeWorkspace.isPersonal ? 'You will lose access to all projects, files, and resources in this workspace.' : 'Workspace members will immediately lose access to all projects, files, and resources in this workspace.'} You will have a 30-day recovery grace period from the workspace switcher before all resources are permanently deleted.
+                            </p>
+                          </div>
+                          <div>
+                            <Button
+                              type="button"
+                              variant="primary"
+                              size="md"
+                              style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
+                              onClick={() => setDeleteModalOpen(true)}
+                              id="ws-delete-workspace-btn"
+                            >
+                              Delete Workspace
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. Team Workspace - Administrator Deletion Request */}
+                      {!activeWorkspace.isPersonal && !isOwner && activeRole === 'WORKSPACE_ADMIN' && (
+                        <div className="ws-danger-card" style={{ marginBottom: '1.5rem' }}>
+                          <div>
+                            <h3 className="ws-danger-title">Request Workspace Deletion</h3>
+                            {deletionRequest && deletionRequest.status === 'PENDING' ? (
+                              <p className="ws-danger-desc">
+                                You submitted a deletion request on <strong>{new Date(deletionRequest.requestedAt).toLocaleDateString()}</strong>. Reason: <em>"{deletionRequest.reason || 'None provided'}"</em>. The workspace owner has been notified and can review and approve it.
+                              </p>
+                            ) : (
+                              <p className="ws-danger-desc">
+                                Only the workspace owner can delete this workspace. As a Workspace Administrator, you can submit a deletion request with an explanation for the Owner to review.
+                              </p>
+                            )}
+                          </div>
+                          <div>
+                            {deletionRequest && deletionRequest.status === 'PENDING' ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="md"
+                                isLoading={isCancellingDeletionRequest}
+                                onClick={handleCancelDeletionRequest}
+                                id="ws-cancel-deletion-request-btn"
+                              >
+                                Cancel Request
+                              </Button>
+                            ) : (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="md"
+                                style={{ color: '#DC2626', borderColor: '#FECACA' }}
+                                onClick={() => {
+                                  setRequestDeletionModalOpen(true);
+                                  setDeletionRequestReason('');
+                                }}
+                                id="ws-request-deletion-btn"
+                              >
+                                Request Deletion
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 4. Team Workspace - Leave Workspace (for all non-owners) */}
+                      {!activeWorkspace.isPersonal && !isOwner && (
+                        <div className="ws-danger-card">
+                          <div>
+                            <h3 className="ws-danger-title">Leave this workspace</h3>
+                            <p className="ws-danger-desc">
+                              Voluntarily leave <strong>{activeWorkspace.name}</strong>. Your tasks, comments, notes, and uploaded files will remain preserved for team continuity. In-flight task assignments will be unassigned. You will lose access to all projects in this workspace, and can only rejoin if an Owner or Admin sends you an invitation.
+                            </p>
+                          </div>
+                          <div>
+                            <Button
+                              type="button"
+                              variant="primary"
+                              size="md"
+                              style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
+                              onClick={() => setLeaveModalOpen(true)}
+                              id="ws-leave-workspace-btn"
+                            >
+                              Leave Workspace
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+      {/* ---------------------------------------------------- */}
+            {/* CONFIRMATION MODALS */}
+            {/* ---------------------------------------------------- */}
+
+            {/* Role Change Modal */}
+            <Modal
+              isOpen={!!targetMemberForRole}
+              onClose={() => setTargetMemberForRole(null)}
+              title="Change Member Role"
+              maxWidth="sm"
+            >
+              {targetMemberForRole && (
+                <div>
+                  <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+                    Are you sure you want to change{' '}
+                    <strong>
+                      {targetMemberForRole.member.user.fullName || targetMemberForRole.member.user.username}
+                    </strong>
+                    's role to{' '}
+                    <strong>
+                      {targetMemberForRole.newRole === 'WORKSPACE_ADMIN'
+                        ? 'Workspace Admin'
+                        : targetMemberForRole.newRole === 'PROJECT_ADMIN'
+                          ? 'Project Admin'
+                          : 'Workspace Member'}
+                    </strong>
+                    ?
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTargetMemberForRole(null)}
+                      disabled={isUpdatingRole}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      isLoading={isUpdatingRole}
+                      onClick={confirmRoleChange}
+                    >
+                      Update Role
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Modal>
+
+            {/* Remove Member Modal */}
+            <Modal
+              isOpen={!!memberToRemove}
+              onClose={() => setMemberToRemove(null)}
+              title="Remove Member from Workspace"
+              maxWidth="sm"
+            >
+              {memberToRemove && (
+                <div>
+                  <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+                    Are you sure you want to remove <strong>{memberToRemove.user.fullName || memberToRemove.user.username}</strong> from <strong>{activeWorkspace.name}</strong>?
+                    <br /><br />
+                    <span style={{ color: '#DC2626', fontWeight: 600 }}>
+                      This will immediately revoke their workspace access and all project memberships in this workspace, and unassign any active tasks.
+                    </span>
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMemberToRemove(null)}
+                      disabled={isRemoving}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
+                      isLoading={isRemoving}
+                      onClick={confirmRemoveMember}
+                    >
+                      Remove Member
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Modal>
+
+            {/* Revoke Invitation Modal */}
+            <Modal
+              isOpen={!!invitationToRevoke}
+              onClose={() => setInvitationToRevoke(null)}
+              title="Revoke Invitation"
+              maxWidth="sm"
+            >
+              {invitationToRevoke && (
+                <div>
+                  <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+                    Are you sure you want to revoke the invitation sent to{' '}
+                    <strong>{invitationToRevoke.invitedEmail}</strong>? The recipient will no longer be able to use this invitation to join the workspace.
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setInvitationToRevoke(null)}
+                      disabled={isRevoking}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
+                      isLoading={isRevoking}
+                      onClick={confirmRevokeInvitation}
+                    >
+                      Revoke Invitation
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Modal>
+
+            {/* Accept Project Transfer Modal */}
+            <ProjectTransferAcceptModal
+              isOpen={Boolean(selectedTransferForAccept)}
+              transfer={selectedTransferForAccept}
+              onClose={() => setSelectedTransferForAccept(null)}
+              onSuccess={async () => {
+                setSelectedTransferForAccept(null);
+                setTransferFeedback({
+                  type: 'success',
+                  message: 'Project transfer accepted and completed successfully!',
+                });
+                await loadTransfers();
+                await refreshWorkspaces();
+              }}
+            />
+
+            {/* Decline Project Transfer Modal */}
+            <ProjectTransferDeclineModal
+              isOpen={Boolean(selectedTransferForDecline)}
+              transfer={selectedTransferForDecline}
+              onClose={() => setSelectedTransferForDecline(null)}
+              onSuccess={async () => {
+                setSelectedTransferForDecline(null);
+                setTransferFeedback({
+                  type: 'success',
+                  message: 'Project transfer request declined.',
+                });
+                await loadTransfers();
+              }}
+            />
+
+            {/* Delete Workspace Modal */}
+            <Modal
+              isOpen={deleteModalOpen}
+              onClose={() => {
                 setDeleteModalOpen(false);
                 setDeleteConfirmationName('');
                 setDeleteError(null);
               }}
-              disabled={isDeletingWorkspace}
+              title="Delete Workspace"
+              maxWidth="sm"
             >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
-              isLoading={isDeletingWorkspace}
-              disabled={deleteConfirmationName.trim() !== activeWorkspace.name.trim()}
-              onClick={handleConfirmDeleteWorkspace}
-              id="ws-confirm-delete-btn"
-            >
-              Delete Workspace
-            </Button>
-          </div>
-        </div>
-      </Modal>
+              <div>
+                <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+                  Are you sure you want to soft-delete <strong>{activeWorkspace.name}</strong>?
+                  <br /><br />
+                  {activeWorkspace.isPersonal
+                    ? 'You will lose access to all projects, files, and resources in this workspace. You will have 30 days to recover this workspace from the workspace switcher before it is permanently expired.'
+                    : 'All members will lose access immediately. You will have 30 days to recover this workspace from the workspace switcher before it is permanently expired.'}
+                </p>
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ fontSize: '0.8125rem', color: '#64748B', display: 'block', marginBottom: '0.35rem' }}>
+                    Please type <strong>{activeWorkspace.name}</strong> to confirm:
+                  </label>
+                  <input
+                    type="text"
+                    className="ws-input"
+                    placeholder={activeWorkspace.name}
+                    value={deleteConfirmationName}
+                    onChange={(e) => {
+                      setDeleteConfirmationName(e.target.value);
+                      setDeleteError(null);
+                    }}
+                    disabled={isDeletingWorkspace}
+                    id="ws-delete-confirm-input"
+                  />
+                  {deleteError && (
+                    <span style={{ fontSize: '0.8125rem', color: '#DC2626', display: 'block', marginTop: '0.35rem' }}>
+                      {deleteError}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDeleteModalOpen(false);
+                      setDeleteConfirmationName('');
+                      setDeleteError(null);
+                    }}
+                    disabled={isDeletingWorkspace}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
+                    isLoading={isDeletingWorkspace}
+                    disabled={deleteConfirmationName.trim() !== activeWorkspace.name.trim()}
+                    onClick={handleConfirmDeleteWorkspace}
+                    id="ws-confirm-delete-btn"
+                  >
+                    Delete Workspace
+                  </Button>
+                </div>
+              </div>
+            </Modal>
 
-      {/* Leave Workspace Confirmation Modal */}
-      <Modal
-        isOpen={leaveModalOpen}
-        onClose={() => setLeaveModalOpen(false)}
-        title="Leave Workspace"
-        maxWidth="sm"
-      >
-        <div>
-          <div style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
-            Are you sure you want to leave <strong>{activeWorkspace.name}</strong>?
-            <br /><br />
-            <strong>What happens when you leave:</strong>
-            <ul style={{ paddingLeft: '1.25rem', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
-              <li>Your created tasks, notes, comments, and files remain preserved for the team.</li>
-              <li>Active task assignments will be unassigned.</li>
-              <li>You will lose access to all projects in this workspace.</li>
-              <li>You can only rejoin if an Owner or Administrator re-invites you.</li>
-            </ul>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setLeaveModalOpen(false)}
-              disabled={isLeaving}
+            {/* Leave Workspace Confirmation Modal */}
+            <Modal
+              isOpen={leaveModalOpen}
+              onClose={() => setLeaveModalOpen(false)}
+              title="Leave Workspace"
+              maxWidth="sm"
             >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
-              isLoading={isLeaving}
-              onClick={handleLeaveWorkspace}
-              id="ws-confirm-leave-btn"
-            >
-              Leave Workspace
-            </Button>
-          </div>
-        </div>
-      </Modal>
+              <div>
+                <div style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+                  Are you sure you want to leave <strong>{activeWorkspace.name}</strong>?
+                  <br /><br />
+                  <strong>What happens when you leave:</strong>
+                  <ul style={{ paddingLeft: '1.25rem', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+                    <li>Your created tasks, notes, comments, and files remain preserved for the team.</li>
+                    <li>Active task assignments will be unassigned.</li>
+                    <li>You will lose access to all projects in this workspace.</li>
+                    <li>You can only rejoin if an Owner or Administrator re-invites you.</li>
+                  </ul>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setLeaveModalOpen(false)}
+                    disabled={isLeaving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
+                    isLoading={isLeaving}
+                    onClick={handleLeaveWorkspace}
+                    id="ws-confirm-leave-btn"
+                  >
+                    Leave Workspace
+                  </Button>
+                </div>
+              </div>
+            </Modal>
 
-      {/* Clear Personal Workspace Data Modal */}
-      <Modal
-        isOpen={clearModalOpen}
-        onClose={() => {
-          setClearModalOpen(false);
-          setClearConfirmText('');
-          setClearError(null);
-        }}
-        title="Clear Workspace Data"
-        maxWidth="sm"
-      >
-        <div>
-          <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
-            Are you sure you want to clear all data in <strong>{activeWorkspace.name}</strong>?
-            <br /><br />
-            <span style={{ color: '#DC2626', fontWeight: 600 }}>
-              This will permanently delete all projects, tasks, comments, notes, files, and calendar events from this workspace. The workspace structure and memberships will remain intact. This action cannot be undone.
-            </span>
-          </p>
-          <div style={{ marginBottom: '1.25rem' }}>
-            <label style={{ fontSize: '0.8125rem', color: '#64748B', display: 'block', marginBottom: '0.35rem' }}>
-              Please type <strong>CLEAR</strong> to confirm:
-            </label>
-            <input
-              type="text"
-              className="ws-input"
-              placeholder="CLEAR"
-              value={clearConfirmText}
-              onChange={(e) => {
-                setClearConfirmText(e.target.value);
-                setClearError(null);
-              }}
-              disabled={isClearing}
-              id="ws-clear-confirm-input"
-            />
-            {clearError && (
-              <span style={{ fontSize: '0.8125rem', color: '#DC2626', display: 'block', marginTop: '0.35rem' }}>
-                {clearError}
-              </span>
-            )}
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
+            {/* Clear Personal Workspace Data Modal */}
+            <Modal
+              isOpen={clearModalOpen}
+              onClose={() => {
                 setClearModalOpen(false);
                 setClearConfirmText('');
                 setClearError(null);
               }}
-              disabled={isClearing}
+              title="Clear Workspace Data"
+              maxWidth="sm"
             >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
-              isLoading={isClearing}
-              disabled={clearConfirmText.trim().toUpperCase() !== 'CLEAR'}
-              onClick={handleClearPersonalData}
-              id="ws-confirm-clear-btn"
-            >
-              Clear Workspace Data
-            </Button>
-          </div>
-        </div>
-      </Modal>
+              <div>
+                <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+                  Are you sure you want to clear all data in <strong>{activeWorkspace.name}</strong>?
+                  <br /><br />
+                  <span style={{ color: '#DC2626', fontWeight: 600 }}>
+                    This will permanently delete all projects, tasks, comments, notes, files, and calendar events from this workspace. The workspace structure and memberships will remain intact. This action cannot be undone.
+                  </span>
+                </p>
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ fontSize: '0.8125rem', color: '#64748B', display: 'block', marginBottom: '0.35rem' }}>
+                    Please type <strong>CLEAR</strong> to confirm:
+                  </label>
+                  <input
+                    type="text"
+                    className="ws-input"
+                    placeholder="CLEAR"
+                    value={clearConfirmText}
+                    onChange={(e) => {
+                      setClearConfirmText(e.target.value);
+                      setClearError(null);
+                    }}
+                    disabled={isClearing}
+                    id="ws-clear-confirm-input"
+                  />
+                  {clearError && (
+                    <span style={{ fontSize: '0.8125rem', color: '#DC2626', display: 'block', marginTop: '0.35rem' }}>
+                      {clearError}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setClearModalOpen(false);
+                      setClearConfirmText('');
+                      setClearError(null);
+                    }}
+                    disabled={isClearing}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
+                    isLoading={isClearing}
+                    disabled={clearConfirmText.trim().toUpperCase() !== 'CLEAR'}
+                    onClick={handleClearPersonalData}
+                    id="ws-confirm-clear-btn"
+                  >
+                    Clear Workspace Data
+                  </Button>
+                </div>
+              </div>
+            </Modal>
 
-      {/* Request Workspace Deletion Modal (for Admin) */}
-      <Modal
-        isOpen={requestDeletionModalOpen}
-        onClose={() => setRequestDeletionModalOpen(false)}
-        title="Request Workspace Deletion"
-        maxWidth="sm"
-      >
-        <form onSubmit={handleRequestDeletion}>
-          <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
-            Submit a deletion request for <strong>{activeWorkspace.name}</strong> to the workspace owner.
-          </p>
-          <div style={{ marginBottom: '1.25rem' }}>
-            <label style={{ fontSize: '0.8125rem', color: '#64748B', display: 'block', marginBottom: '0.35rem' }}>
-              Reason for deletion (optional):
-            </label>
-            <textarea
-              className="ws-input"
-              rows={3}
-              placeholder="e.g. Project completed, client engagement ended, or migrating to new workspace..."
-              value={deletionRequestReason}
-              onChange={(e) => setDeletionRequestReason(e.target.value)}
-              disabled={isSubmittingDeletionRequest}
-              id="ws-deletion-reason-input"
-            />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setRequestDeletionModalOpen(false)}
-              disabled={isSubmittingDeletionRequest}
+            {/* Request Workspace Deletion Modal (for Admin) */}
+            <Modal
+              isOpen={requestDeletionModalOpen}
+              onClose={() => setRequestDeletionModalOpen(false)}
+              title="Request Workspace Deletion"
+              maxWidth="sm"
             >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
-              isLoading={isSubmittingDeletionRequest}
-              id="ws-submit-deletion-request-btn"
-            >
-              Submit Request
-            </Button>
-          </div>
-        </form>
-      </Modal>
+              <form onSubmit={handleRequestDeletion}>
+                <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+                  Submit a deletion request for <strong>{activeWorkspace.name}</strong> to the workspace owner.
+                </p>
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ fontSize: '0.8125rem', color: '#64748B', display: 'block', marginBottom: '0.35rem' }}>
+                    Reason for deletion (optional):
+                  </label>
+                  <textarea
+                    className="ws-input"
+                    rows={3}
+                    placeholder="e.g. Project completed, client engagement ended, or migrating to new workspace..."
+                    value={deletionRequestReason}
+                    onChange={(e) => setDeletionRequestReason(e.target.value)}
+                    disabled={isSubmittingDeletionRequest}
+                    id="ws-deletion-reason-input"
+                  />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRequestDeletionModalOpen(false)}
+                    disabled={isSubmittingDeletionRequest}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    style={{ backgroundColor: '#DC2626', borderColor: '#B91C1C' }}
+                    isLoading={isSubmittingDeletionRequest}
+                    id="ws-submit-deletion-request-btn"
+                  >
+                    Submit Request
+                  </Button>
+                </div>
+              </form>
+            </Modal>
 
-      {/* Decline Deletion Request Modal (for Owner) */}
-      <Modal
-        isOpen={declineModalOpen}
-        onClose={() => setDeclineModalOpen(false)}
-        title="Decline Deletion Request"
-        maxWidth="sm"
-      >
-        <form onSubmit={handleDeclineDeletionRequest}>
-          <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
-            Decline the workspace deletion request submitted by{' '}
-            <strong>{deletionRequest?.requestedByName || 'Administrator'}</strong>.
-          </p>
-          <div style={{ marginBottom: '1.25rem' }}>
-            <label style={{ fontSize: '0.8125rem', color: '#64748B', display: 'block', marginBottom: '0.35rem' }}>
-              Reason for declining (optional):
-            </label>
-            <textarea
-              className="ws-input"
-              rows={3}
-              placeholder="e.g. Workspace is still actively used for ongoing maintenance..."
-              value={declineReason}
-              onChange={(e) => setDeclineReason(e.target.value)}
-              disabled={isDecliningDeletionRequest}
-              id="ws-decline-reason-input"
-            />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setDeclineModalOpen(false)}
-              disabled={isDecliningDeletionRequest}
+            {/* Decline Deletion Request Modal (for Owner) */}
+            <Modal
+              isOpen={declineModalOpen}
+              onClose={() => setDeclineModalOpen(false)}
+              title="Decline Deletion Request"
+              maxWidth="sm"
             >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              isLoading={isDecliningDeletionRequest}
-              id="ws-confirm-decline-btn"
+              <form onSubmit={handleDeclineDeletionRequest}>
+                <p style={{ fontSize: '0.875rem', color: '#475569', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+                  Decline the workspace deletion request submitted by{' '}
+                  <strong>{deletionRequest?.requestedByName || 'Administrator'}</strong>.
+                </p>
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ fontSize: '0.8125rem', color: '#64748B', display: 'block', marginBottom: '0.35rem' }}>
+                    Reason for declining (optional):
+                  </label>
+                  <textarea
+                    className="ws-input"
+                    rows={3}
+                    placeholder="e.g. Workspace is still actively used for ongoing maintenance..."
+                    value={declineReason}
+                    onChange={(e) => setDeclineReason(e.target.value)}
+                    disabled={isDecliningDeletionRequest}
+                    id="ws-decline-reason-input"
+                  />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setDeclineModalOpen(false)}
+                    disabled={isDecliningDeletionRequest}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    isLoading={isDecliningDeletionRequest}
+                    id="ws-confirm-decline-btn"
+                  >
+                    Decline Request
+                  </Button>
+                </div>
+              </form>
+            </Modal>
+            {/* Ownership Transfer Cancel Confirmation Modal */}
+            <Modal
+              isOpen={showCancelTransferModal}
+              onClose={() => setShowCancelTransferModal(false)}
+              title="Cancel Ownership Transfer Request"
+              maxWidth="sm"
             >
-              Decline Request
-            </Button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: '#475569', lineHeight: 1.5 }}>
+                  Are you sure you want to cancel the pending ownership transfer for <strong>{activeWorkspace.name}</strong>?
+                  The recipient will no longer be able to accept ownership.
+                </p>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowCancelTransferModal(false)}
+                    disabled={isCancellingTransfer}
+                  >
+                    Keep Request
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    style={{ backgroundColor: '#DC2626', borderColor: '#DC2626' }}
+                    isLoading={isCancellingTransfer}
+                    onClick={handleCancelOwnershipTransfer}
+                  >
+                    Cancel Transfer Request
+                  </Button>
+                </div>
+              </div>
+            </Modal>
+
+            {/* Ownership Transfer Accept Confirmation Modal */}
+            <Modal
+              isOpen={showAcceptTransferModal}
+              onClose={() => setShowAcceptTransferModal(false)}
+              title="Accept Workspace Ownership"
+              maxWidth="md"
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div className="ws-retention-notice" style={{ margin: 0 }}>
+                  <div className="ws-retention-icon">
+                    <ShieldIcon size={20} />
+                  </div>
+                  <div className="ws-retention-text">
+                    <h4 className="ws-retention-title">100% Team & Asset Retention</h4>
+                    <p className="ws-retention-desc">
+                      By accepting ownership, all workspace members, projects, tasks, and configurations remain completely intact. You will become the primary owner with full administrative authority.
+                    </p>
+                  </div>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: '#334155', lineHeight: 1.5 }}>
+                  You are accepting primary ownership of workspace <strong>{activeWorkspace.name}</strong> from{' '}
+                  <strong>{pendingOwnershipTransfer?.sourceOwner?.fullName || pendingOwnershipTransfer?.sourceOwner?.username || 'the previous owner'}</strong>.
+                </p>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAcceptTransferModal(false)}
+                    disabled={isAcceptingTransfer}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    style={{ backgroundColor: '#10B981', borderColor: '#059669' }}
+                    isLoading={isAcceptingTransfer}
+                    onClick={handleAcceptOwnershipTransfer}
+                  >
+                    I Accept Workspace Ownership
+                  </Button>
+                </div>
+              </div>
+            </Modal>
+
+            {/* Ownership Transfer Decline Modal */}
+            <Modal
+              isOpen={showDeclineTransferModal}
+              onClose={() => setShowDeclineTransferModal(false)}
+              title="Decline Workspace Ownership Transfer"
+              maxWidth="sm"
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: '#475569', lineHeight: 1.5 }}>
+                  Are you sure you want to decline primary ownership of workspace <strong>{activeWorkspace.name}</strong>?
+                  The current owner will remain the primary owner.
+                </p>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#334155', marginBottom: '0.35rem' }}>
+                    Reason for declining (optional):
+                  </label>
+                  <textarea
+                    className="ws-input"
+                    rows={3}
+                    placeholder="e.g. Please assign to another team lead..."
+                    value={ownershipDeclineReason}
+                    onChange={(e) => setOwnershipDeclineReason(e.target.value)}
+                    disabled={isRejectingTransfer}
+                  />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowDeclineTransferModal(false)}
+                    disabled={isRejectingTransfer}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    style={{ backgroundColor: '#DC2626', borderColor: '#DC2626' }}
+                    isLoading={isRejectingTransfer}
+                    onClick={handleRejectOwnershipTransfer}
+                  >
+                    Decline Transfer
+                  </Button>
+                </div>
+              </div>
+            </Modal>
+
           </div>
-        </form>
-      </Modal>
-    </div>
-  );
+        );
 };

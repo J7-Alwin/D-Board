@@ -4,6 +4,9 @@ import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { dashboardApi, type DashboardData } from '../../api/dashboard.api';
 import { invitationsApi, type ProjectInvitation } from '../../api/invitations.api';
+import { projectTransferApi, type ProjectTransfer } from '../../api/projectTransfer.api';
+import { ProjectTransferAcceptModal } from '../../components/workspace/ProjectTransferAcceptModal';
+import { ProjectTransferDeclineModal } from '../../components/workspace/ProjectTransferDeclineModal';
 import { activityApi, type ActivityItem } from '../../api/activity.api';
 import type { Project } from '../../api/projects.api';
 import { Button } from '../../components/ui/Button';
@@ -192,6 +195,9 @@ export const DashboardPage: React.FC = () => {
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [pendingInvitations, setPendingInvitations] = useState<ProjectInvitation[]>([]);
+  const [pendingTransfers, setPendingTransfers] = useState<ProjectTransfer[]>([]);
+  const [selectedTransferForAccept, setSelectedTransferForAccept] = useState<ProjectTransfer | null>(null);
+  const [selectedTransferForDecline, setSelectedTransferForDecline] = useState<ProjectTransfer | null>(null);
   const [recentActivities, setRecentActivities] = useState<ActivityItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -232,12 +238,14 @@ export const DashboardPage: React.FC = () => {
     setData(null);
     setRecentActivities([]);
     setPendingInvitations([]);
+    setPendingTransfers([]);
     setIsLoading(true);
     setError(null);
     try {
-      const [dashRes, invitesRes] = await Promise.all([
+      const [dashRes, invitesRes, transfersRes] = await Promise.all([
         dashboardApi.getDashboard(wsId),
         invitationsApi.getUserInvitations('PENDING', wsId).catch(() => ({ success: false, data: { invitations: [] } })),
+        projectTransferApi.getUserPendingTransfers().catch(() => ({ success: false, data: { incoming: [], outgoing: [] } })),
       ]);
 
       if (dashRes.success && dashRes.data) {
@@ -271,6 +279,9 @@ export const DashboardPage: React.FC = () => {
       if (invitesRes.success && invitesRes.data?.invitations) {
         setPendingInvitations(invitesRes.data.invitations);
       }
+      if (transfersRes.success && transfersRes.data?.incoming) {
+        setPendingTransfers(transfersRes.data.incoming);
+      }
     } catch (err: any) {
       setData(null);
       setRecentActivities([]);
@@ -290,12 +301,14 @@ export const DashboardPage: React.FC = () => {
       setData(null);
       setRecentActivities([]);
       setPendingInvitations([]);
+      setPendingTransfers([]);
       setIsLoading(true);
       setError(null);
       try {
-        const [dashRes, invitesRes] = await Promise.all([
+        const [dashRes, invitesRes, transfersRes] = await Promise.all([
           dashboardApi.getDashboard(currentWsId),
           invitationsApi.getUserInvitations('PENDING', currentWsId).catch(() => ({ success: false, data: { invitations: [] } })),
+          projectTransferApi.getUserPendingTransfers().catch(() => ({ success: false, data: { incoming: [], outgoing: [] } })),
         ]);
 
         if (isCancelled) return;
@@ -328,6 +341,9 @@ export const DashboardPage: React.FC = () => {
         }
         if (invitesRes.success && invitesRes.data?.invitations) {
           setPendingInvitations(invitesRes.data.invitations);
+        }
+        if (transfersRes.success && transfersRes.data?.incoming) {
+          setPendingTransfers(transfersRes.data.incoming);
         }
       } catch (err: any) {
         if (!isCancelled) {
@@ -650,10 +666,10 @@ export const DashboardPage: React.FC = () => {
               const inviterName = invite.invitedBy?.fullName || invite.invitedBy?.username || 'Team Admin';
               const formattedDate = invite.createdAt
                 ? new Date(invite.createdAt).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
-                  })
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                })
                 : 'Sep 29, 2026';
 
               return (
@@ -717,6 +733,99 @@ export const DashboardPage: React.FC = () => {
                       className="inv-btn-decline"
                       disabled={processingInviteId === invite.id}
                       onClick={() => handleDeclineInvite(invite.id)}
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Pending Project Transfers Banner */}
+      {pendingTransfers.length > 0 && !isLoading && (
+        <div className="dashboard-invitations-banner" style={{ marginTop: pendingInvitations.length > 0 ? '1rem' : 0 }}>
+          <div className="invitations-banner-header">
+            <div className="inv-header-icon-box">
+              <ArrowRightIcon size={16} />
+            </div>
+            <h3 className="inv-header-title">
+              Incoming Project Transfers ({pendingTransfers.length})
+            </h3>
+            <p className="inv-header-subtitle">
+              Authorize projects being transferred into your workspaces
+            </p>
+          </div>
+
+          <div className="invitations-banner-list">
+            {pendingTransfers.map((transfer) => {
+              const projectName = transfer.project?.name || transfer.projectName || 'Project';
+              const sourceWs = transfer.sourceWorkspace?.name || 'Previous Workspace';
+              const destWs = transfer.destinationWorkspace?.name || transfer.destinationWorkspaceName || 'Target Workspace';
+              const initiatorName = transfer.initiatedBy?.fullName || transfer.initiatedBy?.username || 'Team Admin';
+              const formattedDate = transfer.createdAt
+                ? new Date(transfer.createdAt).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                })
+                : '';
+
+              return (
+                <div key={transfer.id} className="invitation-banner-card">
+                  {/* Left: Project Avatar + Info */}
+                  <div className="inv-card-left">
+                    <div className="inv-card-avatar-box">
+                      <div className="inv-card-avatar-fallback" style={{ background: '#0F172A', color: '#FFF' }}>
+                        {projectName.slice(0, 2).toUpperCase()}
+                      </div>
+                    </div>
+
+                    <div className="inv-card-info">
+                      <h4 className="inv-card-project-name">
+                        {projectName} {transfer.project?.key ? `[${transfer.project.key}]` : ''}
+                      </h4>
+                      <p className="inv-card-invited-by">
+                        Transfer requested by <strong className="inv-card-inviter-name">{initiatorName}</strong>
+                      </p>
+
+                      <div className="inv-card-meta-row">
+                        <span className="inv-card-pill-tag">
+                          <ArrowRightIcon size={13} />
+                          <span>{sourceWs} &rarr; {destWs}</span>
+                        </span>
+                        {formattedDate && (
+                          <span className="inv-card-date-tag">
+                            <CalendarIcon size={13} />
+                            <span>Requested on {formattedDate}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Center: Envelope / Paper Airplane Graphic */}
+                  <div className="inv-card-illustration-wrap" aria-hidden="true">
+                    <DashboardInviteIllustration />
+                  </div>
+
+                  {/* Right: Actions */}
+                  <div className="inv-card-actions">
+                    <button
+                      type="button"
+                      className="inv-btn-accept"
+                      onClick={() => setSelectedTransferForAccept(transfer)}
+                    >
+                      <span>Review &amp; Accept</span>
+                      <ArrowRightIcon size={15} />
+                    </button>
+
+                    <button
+                      type="button"
+                      className="inv-btn-decline"
+                      onClick={() => setSelectedTransferForDecline(transfer)}
                     >
                       Decline
                     </button>
@@ -889,8 +998,17 @@ export const DashboardPage: React.FC = () => {
                         }
                       }}
                     >
+                      {/* Top Header Row: Avatar + Title on Left, Role Badge + More Button on Right */}
                       <div className="proj-card-top">
-                        <ProjectAvatar project={project} size="md" />
+                        <div className="proj-card-header-left">
+                          <ProjectAvatar project={project} size="md" />
+                          <div className="proj-card-title-group">
+                            <h3 className="proj-card-title proj-card-title-text" title={project.name}>
+                              {project.name}
+                            </h3>
+                          </div>
+                        </div>
+
                         <div className="proj-card-top-right">
                           <span className={`proj-role-badge ${isOwner ? 'role-admin' : 'role-member'}`}>
                             {isOwner ? 'ADMIN' : 'MEMBER'}
@@ -909,308 +1027,336 @@ export const DashboardPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <h3 className="proj-card-title" title={project.name}>{project.name}</h3>
-                      <p className="proj-card-desc" title={project.description || undefined}>
-                        {truncateDescription(project.description, 100)}
-                      </p>
-
-                      {/* Tech stack chips or category badge */}
-                      <div className="proj-tech-stack-row">
-                        {project.technologyStack && project.technologyStack.length > 0 ? (
-                          <>
-                            {project.technologyStack.slice(0, 3).map((tech, idx) => {
-                              const techLower = tech.toLowerCase().replace(/[^a-z0-9]/g, '');
-                              return (
-                                <span key={idx} className={`tech-chip tech-chip-${techLower}`}>
-                                  {tech}
-                                </span>
-                              );
+                        {/* Category Badge Row right below the header (matching Projects Page cards) */}
+                        <div className="proj-card-category-row">
+                          {project.technologyStack && project.technologyStack.length > 0 ? (
+                              <div className="proj-tech-stack-row">
+                                {project.technologyStack.slice(0, 3).map((tech, idx) => {
+                                  const techLower = tech.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                  return (
+                                      <span key={idx} className={`tech-chip tech-chip-${techLower} proj-card-category-pill`}>
+                                        {tech}
+                                      </span>
+                                      );
                             })}
-                            {project.technologyStack.length > 3 && (
-                              <span className="tech-chip-more">+{project.technologyStack.length - 3}</span>
-                            )}
-                          </>
-                        ) : (
-                          <span className="tech-chip tech-chip-category">
-                            {formatCategory(project.category)}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="proj-card-foot">
-                        <div className="proj-meta-item">
-                          <UsersIcon size={14} />
-                          <span>{memberCount} {memberCount === 1 ? 'member' : 'members'}</span>
-                        </div>
-                        <div className="proj-view-link">
-                          <span>Open workspace</span>
-                          <ArrowRightIcon size={14} />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              /* Projects List View */
-              <div className="workspace-list-view">
-                {filteredProjects.map((project) => {
-                  const isOwner = project.createdById === user?.id;
-                  const memberCount = project.memberCount || project.members?.length || 1;
-                  return (
-                    <div
-                      key={project.id}
-                      className="proj-list-item"
-                      onClick={() => navigate(`/app/projects/${project.id}`)}
-                      tabIndex={0}
-                      role="button"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          navigate(`/app/projects/${project.id}`);
-                        }
-                      }}
-                    >
-                      <div className="proj-list-left">
-                        <ProjectAvatar project={project} size="sm" />
-                        <div className="proj-list-info">
-                          <div className="proj-list-title-row">
-                            <span className="proj-list-name">{project.name}</span>
-                            <span className={`proj-role-badge ${isOwner ? 'role-admin' : 'role-member'}`}>
-                              {isOwner ? 'ADMIN' : 'MEMBER'}
-                            </span>
+                                      {project.technologyStack.length > 3 && (
+                                        <span className="tech-chip-more">+{project.technologyStack.length - 3}</span>
+                                      )}
                           </div>
-                          <p className="proj-list-desc" title={project.description || undefined}>
-                            {truncateDescription(project.description, 80)}
-                          </p>
+                              ) : (
+                                <span className="proj-card-category-pill tech-chip-category">
+                                  {formatCategory(project.category)}
+                                </span>
+                        )}
+                              </div>
+
+                              {/* Description clamped to 2 lines */}
+                              <p className="proj-card-desc" title={project.description || undefined}>
+                                {truncateDescription(project.description, 100)}
+                              </p>
+
+                              {/* Footer: Member count on left, Open workspace on right */}
+                              <div className="proj-card-foot">
+                                <div className="proj-meta-item">
+                                  <UsersIcon size={14} />
+                                  <span>{memberCount} {memberCount === 1 ? 'member' : 'members'}</span>
+                                </div>
+                                <div className="proj-view-link">
+                                  <span>Open workspace</span>
+                                  <ArrowRightIcon size={14} />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                })}
                         </div>
+                        ) : (
+                        /* Projects List View */
+                        <div className="workspace-list-view">
+                          {filteredProjects.map((project) => {
+                            const isOwner = project.createdById === user?.id;
+                            const memberCount = project.memberCount || project.members?.length || 1;
+                            return (
+                              <div
+                                key={project.id}
+                                className="proj-list-item"
+                                onClick={() => navigate(`/app/projects/${project.id}`)}
+                                tabIndex={0}
+                                role="button"
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    navigate(`/app/projects/${project.id}`);
+                                  }
+                                }}
+                              >
+                                <div className="proj-list-left">
+                                  <ProjectAvatar project={project} size="sm" />
+                                  <div className="proj-list-info">
+                                    <div className="proj-list-title-row">
+                                      <span className="proj-list-name">{project.name}</span>
+                                      <span className={`proj-role-badge ${isOwner ? 'role-admin' : 'role-member'}`}>
+                                        {isOwner ? 'ADMIN' : 'MEMBER'}
+                                      </span>
+                                    </div>
+                                    <p className="proj-list-desc" title={project.description || undefined}>
+                                      {truncateDescription(project.description, 80)}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="proj-list-right">
+                                  <div className="proj-meta-item">
+                                    <UsersIcon size={14} />
+                                    <span>{memberCount} {memberCount === 1 ? 'member' : 'members'}</span>
+                                  </div>
+                                  <ArrowRightIcon size={15} className="proj-list-arrow" />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+            )}
                       </div>
 
-                      <div className="proj-list-right">
-                        <div className="proj-meta-item">
-                          <UsersIcon size={14} />
-                          <span>{memberCount} {memberCount === 1 ? 'member' : 'members'}</span>
+                      {/* Right Column: Balanced Sidebar with Quick Actions + Activity Feed + Best Practice */}
+                      <div className="dashboard-sidebar-column">
+                        {/* Quick Actions Card */}
+                        <div className="dashboard-quick-actions-card">
+                          <div className="quick-actions-card-header">
+                            <div className="quick-actions-header-left">
+                              <div className="quick-actions-icon-badge">
+                                <ZapIcon size={16} />
+                              </div>
+                              <div>
+                                <h4 className="quick-actions-title">Quick Actions</h4>
+                                <p className="quick-actions-subtitle">Frequently used workspace tools</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="quick-actions-grid-2x2">
+                            <button
+                              type="button"
+                              className="quick-action-btn"
+                              onClick={() => navigate('/app/projects/create')}
+                            >
+                              <div className="qa-btn-icon icon-blue">
+                                <PlusIcon size={16} />
+                              </div>
+                              <div className="qa-btn-text">
+                                <span className="qa-btn-label">New Project</span>
+                                <span className="qa-btn-sub">Create a workspace</span>
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              className="quick-action-btn"
+                              onClick={() => navigate('/app/my-work')}
+                            >
+                              <div className="qa-btn-icon icon-green">
+                                <CheckSquareIcon size={16} />
+                              </div>
+                              <div className="qa-btn-text">
+                                <span className="qa-btn-label">My Tasks</span>
+                                <span className="qa-btn-sub">View assigned items</span>
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              className="quick-action-btn"
+                              onClick={() => navigate('/app/calendar')}
+                            >
+                              <div className="qa-btn-icon icon-orange">
+                                <CalendarIcon size={16} />
+                              </div>
+                              <div className="qa-btn-text">
+                                <span className="qa-btn-label">Calendar</span>
+                                <span className="qa-btn-sub">See upcoming work</span>
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              className="quick-action-btn"
+                              onClick={() => navigate('/app/activity')}
+                            >
+                              <div className="qa-btn-icon icon-purple">
+                                <ActivityIcon size={16} />
+                              </div>
+                              <div className="qa-btn-text">
+                                <span className="qa-btn-label">Activity</span>
+                                <span className="qa-btn-sub">Track recent changes</span>
+                              </div>
+                            </button>
+                          </div>
                         </div>
-                        <ArrowRightIcon size={15} className="proj-list-arrow" />
+
+                        {/* Recent Activity Card */}
+                        <div className="dashboard-activity-widget">
+                          <div className="activity-widget-header">
+                            <div className="activity-header-left">
+                              <div className="activity-icon-badge">
+                                <ActivityIcon size={16} />
+                              </div>
+                              <h4 className="activity-widget-title">Recent Activity</h4>
+                            </div>
+                            <button
+                              type="button"
+                              className="activity-view-all-btn"
+                              onClick={() => navigate('/app/activity')}
+                            >
+                              <span>View all</span>
+                              <ArrowRightIcon size={13} />
+                            </button>
+                          </div>
+
+                          <div className="activity-widget-list">
+                            {recentActivities.length === 0 ? (
+                              <div style={{ padding: '28px 16px', textAlign: 'center', color: '#94A3B8', fontSize: '13px' }}>
+                                No recent activity yet. Updates and project events will appear here.
+                              </div>
+                            ) : (
+                              recentActivities.slice(0, 5).map((act) => {
+                                const isProjectCreated = act.type === 'PROJECT_CREATED' || act.type.includes('CREATE_PROJECT');
+                                const isNote = act.type.includes('NOTE');
+                                const isComment = act.type.includes('COMMENT');
+                                const isFile = act.type.includes('FILE') || act.type.includes('UPLOAD');
+                                const relTime = formatRelativeTime(act.createdAt);
+
+                                let titleText = 'Project update';
+                                if (isProjectCreated) titleText = 'Project Created';
+                                else if (isFile) titleText = 'File Uploaded';
+                                else if (isComment) titleText = 'New comment';
+                                else if (isNote) titleText = 'New team note';
+                                else titleText = act.type.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+
+                                let subText = act.workItem?.title || act.metadata?.title || act.metadata?.preview || 'Project workspace update';
+
+                                return (
+                                  <div key={act.id} className="activity-widget-item">
+                                    <div className={`activity-item-icon-box ${isProjectCreated ? 'icon-purple' :
+                                      isFile ? 'icon-blue' :
+                                        isComment ? 'icon-red' :
+                                          isNote ? 'icon-indigo' : 'icon-work'
+                                      }`}>
+                                      {isProjectCreated ? (
+                                        <FileTextIcon size={15} />
+                                      ) : isFile ? (
+                                        <FolderIcon size={15} />
+                                      ) : isComment ? (
+                                        <MessageSquareIcon size={15} />
+                                      ) : isNote ? (
+                                        <UsersIcon size={15} />
+                                      ) : (
+                                        <CheckSquareIcon size={15} />
+                                      )}
+                                    </div>
+
+                                    <div className="activity-item-details">
+                                      <span className="activity-item-action">{titleText}</span>
+                                      <span className="activity-item-meta">{subText}</span>
+                                    </div>
+
+                                    <span className="activity-item-date">{relTime}</span>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+
+                          {/* View all activity bottom button */}
+                          <button
+                            type="button"
+                            className="activity-widget-view-all-bottom"
+                            onClick={() => navigate('/app/activity')}
+                          >
+                            <span>View all activity</span>
+                            <ArrowRightIcon size={13} />
+                          </button>
+                        </div>
+
+                        {/* Productivity Best Practice Card */}
+                        <div className="dashboard-tip-widget">
+                          <div className="tip-widget-content-left">
+                            <div className="tip-widget-top">
+                              <span className="tip-bulb-icon">💡</span>
+                              <span className="tip-badge">Pro Tip</span>
+                            </div>
+                            <p className="tip-widget-text">
+                              Break major features into bite-sized tasks to boost team delivery velocity.
+                            </p>
+                            <button
+                              type="button"
+                              className="tip-widget-link"
+                              onClick={() => setIsLearnMoreOpen(true)}
+                            >
+                              <span>Explore workflows</span>
+                              <ArrowRightIcon size={13} />
+                            </button>
+                          </div>
+
+                          {/* Plant seedling illustration matching Image 1 */}
+                          <div className="tip-widget-graphic" aria-hidden="true">
+                            <svg width="76" height="70" viewBox="0 0 76 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              {/* Sparkle 1 */}
+                              <path d="M18 16L19.5 20.5L24 22L19.5 23.5L18 28L16.5 23.5L12 22L16.5 20.5L18 16Z" fill="#F59E0B" />
+                              {/* Sparkle 2 */}
+                              <path d="M8 32L9 35L12 36L9 37L8 40L7 37L4 36L7 35L8 32Z" fill="#FBBF24" opacity="0.85" />
+                              {/* Stem */}
+                              <path d="M42 66C42 46 46 32 58 20" stroke="#047857" strokeWidth="3.5" strokeLinecap="round" />
+                              {/* Large leaf */}
+                              <path d="M58 20C58 20 70 20 72 32C74 44 60 50 50 44C46 40 44 34 58 20Z" fill="#10B981" />
+                              {/* Left leaf */}
+                              <path d="M48 26C48 26 34 24 30 12C26 0 40 -4 50 2C54 6 56 14 48 26Z" fill="#059669" />
+                            </svg>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                  )
+                }
 
-          {/* Right Column: Balanced Sidebar with Quick Actions + Activity Feed + Best Practice */}
-          <div className="dashboard-sidebar-column">
-            {/* Quick Actions Card */}
-            <div className="dashboard-quick-actions-card">
-              <div className="quick-actions-card-header">
-                <div className="quick-actions-header-left">
-                  <div className="quick-actions-icon-badge">
-                    <ZapIcon size={16} />
-                  </div>
-                  <div>
-                    <h4 className="quick-actions-title">Quick Actions</h4>
-                    <p className="quick-actions-subtitle">Frequently used workspace tools</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="quick-actions-grid-2x2">
-                <button
-                  type="button"
-                  className="quick-action-btn"
-                  onClick={() => navigate('/app/projects/create')}
-                >
-                  <div className="qa-btn-icon icon-blue">
-                    <PlusIcon size={16} />
-                  </div>
-                  <div className="qa-btn-text">
-                    <span className="qa-btn-label">New Project</span>
-                    <span className="qa-btn-sub">Create a workspace</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  className="quick-action-btn"
-                  onClick={() => navigate('/app/my-work')}
-                >
-                  <div className="qa-btn-icon icon-green">
-                    <CheckSquareIcon size={16} />
-                  </div>
-                  <div className="qa-btn-text">
-                    <span className="qa-btn-label">My Tasks</span>
-                    <span className="qa-btn-sub">View assigned items</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  className="quick-action-btn"
-                  onClick={() => navigate('/app/calendar')}
-                >
-                  <div className="qa-btn-icon icon-orange">
-                    <CalendarIcon size={16} />
-                  </div>
-                  <div className="qa-btn-text">
-                    <span className="qa-btn-label">Calendar</span>
-                    <span className="qa-btn-sub">See upcoming work</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  className="quick-action-btn"
-                  onClick={() => navigate('/app/activity')}
-                >
-                  <div className="qa-btn-icon icon-purple">
-                    <ActivityIcon size={16} />
-                  </div>
-                  <div className="qa-btn-text">
-                    <span className="qa-btn-label">Activity</span>
-                    <span className="qa-btn-sub">Track recent changes</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            {/* Recent Activity Card */}
-            <div className="dashboard-activity-widget">
-              <div className="activity-widget-header">
-                <div className="activity-header-left">
-                  <div className="activity-icon-badge">
-                    <ActivityIcon size={16} />
-                  </div>
-                  <h4 className="activity-widget-title">Recent Activity</h4>
-                </div>
-                <button
-                  type="button"
-                  className="activity-view-all-btn"
-                  onClick={() => navigate('/app/activity')}
-                >
-                  <span>View all</span>
-                  <ArrowRightIcon size={13} />
-                </button>
-              </div>
-
-              <div className="activity-widget-list">
-                {recentActivities.length === 0 ? (
-                  <div style={{ padding: '28px 16px', textAlign: 'center', color: '#94A3B8', fontSize: '13px' }}>
-                    No recent activity yet. Updates and project events will appear here.
-                  </div>
-                ) : (
-                  recentActivities.slice(0, 5).map((act) => {
-                    const isProjectCreated = act.type === 'PROJECT_CREATED' || act.type.includes('CREATE_PROJECT');
-                    const isNote = act.type.includes('NOTE');
-                    const isComment = act.type.includes('COMMENT');
-                    const isFile = act.type.includes('FILE') || act.type.includes('UPLOAD');
-                    const relTime = formatRelativeTime(act.createdAt);
-
-                    let titleText = 'Project update';
-                    if (isProjectCreated) titleText = 'Project Created';
-                    else if (isFile) titleText = 'File Uploaded';
-                    else if (isComment) titleText = 'New comment';
-                    else if (isNote) titleText = 'New team note';
-                    else titleText = act.type.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
-
-                    let subText = act.workItem?.title || act.metadata?.title || act.metadata?.preview || 'Project workspace update';
-
-                    return (
-                      <div key={act.id} className="activity-widget-item">
-                        <div className={`activity-item-icon-box ${
-                          isProjectCreated ? 'icon-purple' :
-                          isFile ? 'icon-blue' :
-                          isComment ? 'icon-red' :
-                          isNote ? 'icon-indigo' : 'icon-work'
-                        }`}>
-                          {isProjectCreated ? (
-                            <FileTextIcon size={15} />
-                          ) : isFile ? (
-                            <FolderIcon size={15} />
-                          ) : isComment ? (
-                            <MessageSquareIcon size={15} />
-                          ) : isNote ? (
-                            <UsersIcon size={15} />
-                          ) : (
-                            <CheckSquareIcon size={15} />
-                          )}
-                        </div>
-
-                        <div className="activity-item-details">
-                          <span className="activity-item-action">{titleText}</span>
-                          <span className="activity-item-meta">{subText}</span>
-                        </div>
-
-                        <span className="activity-item-date">{relTime}</span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* View all activity bottom button */}
-              <button
-                type="button"
-                className="activity-widget-view-all-bottom"
-                onClick={() => navigate('/app/activity')}
-              >
-                <span>View all activity</span>
-                <ArrowRightIcon size={13} />
-              </button>
-            </div>
-
-            {/* Productivity Best Practice Card */}
-            <div className="dashboard-tip-widget">
-              <div className="tip-widget-content-left">
-                <div className="tip-widget-top">
-                  <span className="tip-bulb-icon">💡</span>
-                  <span className="tip-badge">Pro Tip</span>
-                </div>
-                <p className="tip-widget-text">
-                  Break major features into bite-sized tasks to boost team delivery velocity.
-                </p>
-                <button
-                  type="button"
-                  className="tip-widget-link"
-                  onClick={() => setIsLearnMoreOpen(true)}
-                >
-                  <span>Explore workflows</span>
-                  <ArrowRightIcon size={13} />
-                </button>
-              </div>
-
-              {/* Plant seedling illustration matching Image 1 */}
-              <div className="tip-widget-graphic" aria-hidden="true">
-                <svg width="76" height="70" viewBox="0 0 76 70" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  {/* Sparkle 1 */}
-                  <path d="M18 16L19.5 20.5L24 22L19.5 23.5L18 28L16.5 23.5L12 22L16.5 20.5L18 16Z" fill="#F59E0B" />
-                  {/* Sparkle 2 */}
-                  <path d="M8 32L9 35L12 36L9 37L8 40L7 37L4 36L7 35L8 32Z" fill="#FBBF24" opacity="0.85" />
-                  {/* Stem */}
-                  <path d="M42 66C42 46 46 32 58 20" stroke="#047857" strokeWidth="3.5" strokeLinecap="round" />
-                  {/* Large leaf */}
-                  <path d="M58 20C58 20 70 20 72 32C74 44 60 50 50 44C46 40 44 34 58 20Z" fill="#10B981" />
-                  {/* Left leaf */}
-                  <path d="M48 26C48 26 34 24 30 12C26 0 40 -4 50 2C54 6 56 14 48 26Z" fill="#059669" />
-                </svg>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Learn More Interactive Modal */}
-      <LearnMoreModal
-        isOpen={isLearnMoreOpen}
-        onClose={() => setIsLearnMoreOpen(false)}
+      {/* Learn More Interactive Modal */ }
+                  < LearnMoreModal
+        isOpen = { isLearnMoreOpen }
+        onClose = {() => setIsLearnMoreOpen(false)}
       />
 
-      {/* First-Login Choose Username Modal */}
-      <ChooseUsernameModal
-        isOpen={isUsernameModalOpen}
-        onClose={() => setIsUsernameModalOpen(false)}
-        currentUsername={user?.username}
-      />
-    </div>
-  );
+                {/* First-Login Choose Username Modal */}
+                <ChooseUsernameModal
+                  isOpen={isUsernameModalOpen}
+                  onClose={() => setIsUsernameModalOpen(false)}
+                  currentUsername={user?.username}
+                />
+
+                {/* Accept Project Transfer Modal */}
+                <ProjectTransferAcceptModal
+                  isOpen={Boolean(selectedTransferForAccept)}
+                  transfer={selectedTransferForAccept}
+                  onClose={() => setSelectedTransferForAccept(null)}
+                  onSuccess={(newProjectId) => {
+                    setSelectedTransferForAccept(null);
+                    setActionMessage('Project transfer accepted and completed successfully!');
+                    fetchDashboardData();
+                    if (newProjectId) {
+                      navigate(`/app/projects/${newProjectId}`);
+                    }
+                  }}
+                />
+
+                {/* Decline Project Transfer Modal */}
+                <ProjectTransferDeclineModal
+                  isOpen={Boolean(selectedTransferForDecline)}
+                  transfer={selectedTransferForDecline}
+                  onClose={() => setSelectedTransferForDecline(null)}
+                  onSuccess={() => {
+                    setSelectedTransferForDecline(null);
+                    setActionMessage('Project transfer request declined.');
+                    fetchDashboardData();
+                  }}
+                />
+              </div>
+            );
 };

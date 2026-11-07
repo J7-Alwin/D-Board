@@ -398,7 +398,10 @@ export class NoteService {
    * Create a new note with automatic mention parsing and transactional visibility setting.
    */
   async createNote(projectId: string, userId: string, data: CreateNoteInput) {
-    await this.getMembershipAndProject(projectId, userId);
+    const { project } = await this.getMembershipAndProject(projectId, userId);
+    if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+      throw new AppError(`Cannot create notes in a ${project.status.toLowerCase()} project`, 400);
+    }
 
     const { visibility, mentionedUserIds } = await this.resolveMentions(projectId, data.content);
 
@@ -551,7 +554,10 @@ export class NoteService {
    * Update an existing note, recalculating mentions atomically if content changed.
    */
   async updateNote(projectId: string, noteId: string, userId: string, data: UpdateNoteInput) {
-    const { isAdmin } = await this.getMembershipAndProject(projectId, userId);
+    const { isAdmin, project } = await this.getMembershipAndProject(projectId, userId);
+    if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+      throw new AppError(`Cannot modify notes in a ${project.status.toLowerCase()} project`, 400);
+    }
 
     const existing = await prisma.note.findFirst({
       where: { id: noteId, projectId },
@@ -737,7 +743,10 @@ export class NoteService {
    * Delete a note.
    */
   async deleteNote(projectId: string, noteId: string, userId: string) {
-    const { isAdmin } = await this.getMembershipAndProject(projectId, userId);
+    const { isAdmin, project } = await this.getMembershipAndProject(projectId, userId);
+    if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+      throw new AppError(`Cannot delete notes in a ${project.status.toLowerCase()} project`, 400);
+    }
 
     const existing = await prisma.note.findFirst({
       where: { id: noteId, projectId },

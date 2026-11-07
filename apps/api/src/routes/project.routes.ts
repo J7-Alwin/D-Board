@@ -93,7 +93,7 @@ router.post('/:projectId/reactivate', (req, res, next) => projectController.reac
 router.get('/:projectId/completion-status', (req, res, next) => projectController.getCompletionStatus(req, res, next));
 router.post('/:projectId/transfer-ownership', projectController.transferOwnership);
 
-// Project Transfer between workspaces (Phase 4)
+// Project Transfer between workspaces
 router.get('/:projectId/transfer-eligibility', (req, res, next) =>
   projectTransferController.getTransferEligibility(req as any, res, next)
 );
@@ -103,9 +103,13 @@ router.post('/:projectId/transfer', (req, res, next) =>
 router.get('/:projectId/transfers', (req, res, next) =>
   projectTransferController.getProjectTransfers(req as any, res, next)
 );
+router.get('/:projectId/transfers/deferred-members', (req, res, next) =>
+  projectTransferController.getDeferredMembers(req as any, res, next)
+);
+router.post('/:projectId/transfers/deferred-members/resolve', (req, res, next) =>
+  projectTransferController.resolveDeferredMembers(req as any, res, next)
+);
 
 router.delete('/:projectId', projectController.deleteProject);
 
 export const projectRoutes = router;
-
-

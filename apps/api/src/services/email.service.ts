@@ -415,6 +415,482 @@ export async function sendPasswordResetOtpEmail(options: SendPasswordResetOtpOpt
   );
 }
 
+export interface SendRegistrationOtpOptions {
+  toEmail: string;
+  otp: string;
+}
+
+/**
+ * Send 6-digit verification OTP before account creation
+ */
+export async function sendRegistrationOtpEmail(options: SendRegistrationOtpOptions): Promise<boolean> {
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
+      <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #1F1F1F;">Verify your email address</h2>
+      <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 20px;">
+        Welcome to D-Board! Please enter the 6-digit verification code below to verify your email address and continue creating your account:
+      </p>
+      <div style="background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 8px; padding: 18px; text-align: center; margin-bottom: 24px;">
+        <span style="font-family: 'SF Mono', Monaco, monospace; font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #1F1F1F;">${options.otp}</span>
+      </div>
+      <p style="font-size: 13px; color: #737373; line-height: 1.5; margin-bottom: 0;">
+        This verification code will expire in <strong>15 minutes</strong>. If you did not request this verification code, please disregard this email.
+      </p>
+    </div>
+  `;
+
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: `${options.otp} is your D-Board email verification code`,
+      text: `Your D-Board email verification code is: ${options.otp}\n\nThis code expires in 15 minutes.\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD REGISTRATION OTP SIMULATOR (Local Dev)]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Subject: ${options.otp} is your D-Board email verification code`);
+      console.log(`OTP Code: ${options.otp} (Expires in 15 mins)`);
+      console.log('====================================================');
+    }
+  );
+}
+
+export interface SendProjectTransferRequestOptions {
+  toEmail: string;
+  recipientName?: string;
+  projectName: string;
+  sourceWorkspaceName: string;
+  destinationWorkspaceName: string;
+  initiatorName: string;
+  expiresAt: Date;
+}
+
+export async function sendProjectTransferRequestEmail(options: SendProjectTransferRequestOptions): Promise<boolean> {
+  const appUrl = getAppUrl();
+  const reviewUrl = `${appUrl}/app/invitations`;
+  const expiryFormatted = options.expiresAt.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
+      <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #0F172A;">Project Transfer Request</h2>
+      <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 16px;">
+        Hello${options.recipientName ? ` <strong>${options.recipientName}</strong>` : ''},<br/>
+        <strong>${options.initiatorName}</strong> from workspace <strong>${options.sourceWorkspaceName}</strong> has requested to transfer the project <strong>${options.projectName}</strong> into your workspace <strong>${options.destinationWorkspaceName}</strong>.
+      </p>
+      <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px;">
+        <div style="font-size: 15px; font-weight: 700; color: #0F172A; margin-bottom: 4px;">Project: ${options.projectName}</div>
+        <div style="font-size: 13px; color: #64748B;">From: ${options.sourceWorkspaceName} &rarr; To: ${options.destinationWorkspaceName}</div>
+      </div>
+      <div style="margin-bottom: 28px;">
+        <a href="${reviewUrl}" style="display: inline-block; background-color: #0F172A; color: #FFFFFF; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 9999px; text-decoration: none;">
+          Review Transfer Request &rarr;
+        </a>
+      </div>
+      <p style="font-size: 13px; color: #8E8E8E; line-height: 1.5; border-top: 1px solid #ECECE6; padding-top: 16px;">
+        This transfer request will expire on ${expiryFormatted}. You can accept or decline this request on your dashboard or invitations page.<br/>
+        — The D-Board Team
+      </p>
+    </div>
+  `;
+
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: `Project Transfer Request: "${options.projectName}" into "${options.destinationWorkspaceName}"`,
+      text: `Hello,\n\n${options.initiatorName} requested to transfer project "${options.projectName}" into your workspace "${options.destinationWorkspaceName}".\n\nReview the request here: ${reviewUrl}\n\nThis request expires on ${expiryFormatted}.\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD PROJECT TRANSFER REQUEST EMAIL]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Project: ${options.projectName}`);
+      console.log(`Target: ${options.destinationWorkspaceName}`);
+      console.log('====================================================');
+    }
+  );
+}
+
+export interface SendProjectTransferAcceptedOptions {
+  toEmail: string;
+  recipientName?: string;
+  projectName: string;
+  sourceWorkspaceName: string;
+  destinationWorkspaceName: string;
+  acceptedByName: string;
+  isInitiator: boolean;
+}
+
+export async function sendProjectTransferAcceptedEmail(options: SendProjectTransferAcceptedOptions): Promise<boolean> {
+  const appUrl = getAppUrl();
+  const dashboardUrl = `${appUrl}/app/workspaces`;
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
+      <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #16A34A;">Project Transfer Completed ✅</h2>
+      <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 16px;">
+        Hello${options.recipientName ? ` <strong>${options.recipientName}</strong>` : ''},<br/>
+        ${options.isInitiator
+      ? `Your request to transfer project <strong>${options.projectName}</strong> has been accepted by <strong>${options.acceptedByName}</strong>. The project has been successfully moved to <strong>${options.destinationWorkspaceName}</strong>.`
+      : `Project <strong>${options.projectName}</strong> from workspace <strong>${options.sourceWorkspaceName}</strong> has been successfully transferred into your workspace <strong>${options.destinationWorkspaceName}</strong>.`
+    }
+      </p>
+      <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px;">
+        <div style="font-size: 15px; font-weight: 700; color: #0F172A; margin-bottom: 4px;">Project: ${options.projectName}</div>
+        <div style="font-size: 13px; color: #64748B;">Now in: ${options.destinationWorkspaceName}</div>
+      </div>
+      <div style="margin-bottom: 28px;">
+        <a href="${dashboardUrl}" style="display: inline-block; background-color: #16A34A; color: #FFFFFF; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 9999px; text-decoration: none;">
+          Go to Workspace &rarr;
+        </a>
+      </div>
+      <p style="font-size: 13px; color: #8E8E8E; line-height: 1.5; border-top: 1px solid #ECECE6; padding-top: 16px;">
+        All project tasks, documents, and historical activities have been preserved.<br/>
+        — The D-Board Team
+      </p>
+    </div>
+  `;
+
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: `Project Transfer Completed: "${options.projectName}" is now in "${options.destinationWorkspaceName}"`,
+      text: `Hello,\n\nProject "${options.projectName}" has been successfully transferred into "${options.destinationWorkspaceName}".\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD PROJECT TRANSFER ACCEPTED EMAIL]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Project: ${options.projectName}`);
+      console.log('====================================================');
+    }
+  );
+}
+
+export interface SendProjectTransferRejectedOptions {
+  toEmail: string;
+  recipientName?: string;
+  projectName: string;
+  sourceWorkspaceName: string;
+  destinationWorkspaceName: string;
+  rejectedByName: string;
+  reason?: string | null;
+  isInitiator: boolean;
+}
+
+export async function sendProjectTransferRejectedEmail(options: SendProjectTransferRejectedOptions): Promise<boolean> {
+  const appUrl = getAppUrl();
+  const dashboardUrl = `${appUrl}/app/workspaces`;
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
+      <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #DC2626;">Project Transfer Request Declined</h2>
+      <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 16px;">
+        Hello${options.recipientName ? ` <strong>${options.recipientName}</strong>` : ''},<br/>
+        ${options.isInitiator
+      ? `The transfer request for project <strong>${options.projectName}</strong> into <strong>${options.destinationWorkspaceName}</strong> was declined by <strong>${options.rejectedByName}</strong>.`
+      : `You declined the transfer request for project <strong>${options.projectName}</strong> from <strong>${options.sourceWorkspaceName}</strong>.`
+    }
+      </p>
+      ${options.reason
+      ? `<div style="background-color: #FFFFFF; border-left: 3px solid #DC2626; padding: 12px 16px; margin-bottom: 20px; font-size: 14px; color: #475569;">
+               <strong>Reason:</strong> ${options.reason}
+             </div>`
+      : ''
+    }
+      <div style="margin-bottom: 28px;">
+        <a href="${dashboardUrl}" style="display: inline-block; background-color: #0F172A; color: #FFFFFF; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 9999px; text-decoration: none;">
+          Go to Dashboard &rarr;
+        </a>
+      </div>
+      <p style="font-size: 13px; color: #8E8E8E; line-height: 1.5; border-top: 1px solid #ECECE6; padding-top: 16px;">
+        The project remains in its original workspace (${options.sourceWorkspaceName}) with no modifications.<br/>
+        — The D-Board Team
+      </p>
+    </div>
+  `;
+
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: `Project Transfer Request Declined: "${options.projectName}"`,
+      text: `Hello,\n\nThe transfer request for "${options.projectName}" into "${options.destinationWorkspaceName}" was declined.${options.reason ? ` Reason: ${options.reason}` : ''}\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD PROJECT TRANSFER REJECTED EMAIL]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Project: ${options.projectName}`);
+      console.log('====================================================');
+    }
+  );
+}
+
+export interface SendProjectTransferMemberNoticeOptions {
+  toEmail: string;
+  memberName: string;
+  projectName: string;
+  sourceWorkspaceName: string;
+  destinationWorkspaceName: string;
+}
+
+export async function sendProjectTransferMemberNoticeEmail(options: SendProjectTransferMemberNoticeOptions): Promise<boolean> {
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
+      <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #0F172A;">Project Transfer Notice</h2>
+      <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 16px;">
+        Hello <strong>${options.memberName}</strong>,<br/>
+        This is an informational notice that project <strong>${options.projectName}</strong> has been transferred from <strong>${options.sourceWorkspaceName}</strong> to <strong>${options.destinationWorkspaceName}</strong>.
+      </p>
+      <p style="font-size: 14px; line-height: 1.6; color: #575757; margin-bottom: 20px;">
+        As part of this workspace transition, active project access has been updated. All of your historical work, task contributions, and comments have been preserved.
+      </p>
+      <p style="font-size: 13px; color: #8E8E8E; line-height: 1.5; border-top: 1px solid #ECECE6; padding-top: 16px;">
+        If you have questions regarding this transition, please contact your workspace administrator.<br/>
+        — The D-Board Team
+      </p>
+    </div>
+  `;
+
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: `Project Transfer Notice: "${options.projectName}" has transitioned to a new workspace`,
+      text: `Hello ${options.memberName},\n\nProject "${options.projectName}" has been transferred from "${options.sourceWorkspaceName}" to "${options.destinationWorkspaceName}". Your historical work and attributions remain preserved.\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD PROJECT TRANSFER MEMBER NOTICE EMAIL]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Member: ${options.memberName}`);
+      console.log(`Project: ${options.projectName}`);
+      console.log('====================================================');
+    }
+  );
+}
+
+export interface SendWorkspaceOwnershipTransferRequestOptions {
+  toEmail: string;
+  recipientName: string;
+  workspaceName: string;
+  currentOwnerName: string;
+  resultingRole: string;
+  expiresAt: Date;
+  transferId?: string;
+}
+
+/**
+ * Send Workspace Ownership Transfer Request Email
+ */
+export async function sendWorkspaceOwnershipTransferRequestEmail(
+  options: SendWorkspaceOwnershipTransferRequestOptions
+): Promise<boolean> {
+  const appUrl = getAppUrl();
+  const reviewUrl = `${appUrl}/app/workspace/settings?tab=ownership`;
+  const expiryFormatted = options.expiresAt.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const roleLabel = options.resultingRole === 'WORKSPACE_MEMBER' ? 'Workspace Member' : 'Workspace Admin';
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
+      <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #0F172A;">Workspace Ownership Transfer Request 🛡️</h2>
+      <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 16px;">
+        Hello <strong>${options.recipientName}</strong>,<br/>
+        <strong>${options.currentOwnerName}</strong> has requested to transfer primary ownership of workspace <strong>${options.workspaceName}</strong> to you.
+      </p>
+      <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px;">
+        <div style="font-size: 14px; font-weight: 600; color: #0F172A; margin-bottom: 4px;">Transfer Details:</div>
+        <div style="font-size: 13px; color: #475569; margin-bottom: 4px;">• Target Workspace: <strong>${options.workspaceName}</strong></div>
+        <div style="font-size: 13px; color: #475569; margin-bottom: 4px;">• Current Owner: <strong>${options.currentOwnerName}</strong></div>
+        <div style="font-size: 13px; color: #475569; margin-bottom: 4px;">• Owner's New Role: <strong>${roleLabel}</strong></div>
+        <div style="font-size: 13px; color: #16A34A; margin-top: 8px; font-weight: 500;">✓ All workspace members, projects, tasks, and data remain 100% retained.</div>
+      </div>
+      <div style="margin-bottom: 24px;">
+        <a href="${reviewUrl}" style="display: inline-block; background-color: #2563EB; color: #FFFFFF; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 8px; text-decoration: none;">
+          Review & Accept Ownership &rarr;
+        </a>
+      </div>
+      <p style="font-size: 13px; color: #8E8E8E; line-height: 1.5; border-top: 1px solid #ECECE6; padding-top: 16px;">
+        This transfer request will expire on <strong>${expiryFormatted}</strong> (7 days). If you do not recognize this request, you can decline it safely.<br/>
+        — The D-Board Team
+      </p>
+    </div>
+  `;
+
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: `Action Required: Workspace Ownership Transfer for "${options.workspaceName}"`,
+      text: `Hello ${options.recipientName},\n\n${options.currentOwnerName} has requested to transfer primary ownership of workspace "${options.workspaceName}" to you.\n\nAll existing workspace members and projects will remain completely intact.\n\nReview and accept the transfer here: ${reviewUrl}\n\nThis request expires on ${expiryFormatted}.\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD WORKSPACE OWNERSHIP TRANSFER REQUEST EMAIL]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Workspace: ${options.workspaceName}`);
+      console.log(`Initiator: ${options.currentOwnerName}`);
+      console.log('====================================================');
+    }
+  );
+}
+
+export interface SendWorkspaceOwnershipTransferAcceptedOptions {
+  toEmail: string;
+  recipientName: string;
+  workspaceName: string;
+  isNewOwner: boolean;
+  otherPartyName: string;
+  formerOwnerRole: string;
+}
+
+/**
+ * Send Workspace Ownership Transfer Accepted Confirmation Email
+ */
+export async function sendWorkspaceOwnershipTransferAcceptedEmail(
+  options: SendWorkspaceOwnershipTransferAcceptedOptions
+): Promise<boolean> {
+  const appUrl = getAppUrl();
+  const workspaceUrl = `${appUrl}/app/workspace/settings`;
+  const roleLabel = options.formerOwnerRole === 'WORKSPACE_MEMBER' ? 'Workspace Member' : 'Workspace Admin';
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
+      <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #16A34A;">Workspace Ownership Transferred 🎉</h2>
+      <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 16px;">
+        Hello <strong>${options.recipientName}</strong>,<br/>
+        ${
+          options.isNewOwner
+            ? `You have successfully accepted primary ownership of workspace <strong>${options.workspaceName}</strong>. You now have full management privileges for all workspace members, projects, and settings.`
+            : `Primary ownership of workspace <strong>${options.workspaceName}</strong> has been successfully transferred to <strong>${options.otherPartyName}</strong>. Your membership role has been converted to <strong>${roleLabel}</strong>.`
+        }
+      </p>
+      <div style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px;">
+        <div style="font-size: 13px; color: #166534; font-weight: 500;">
+          ✓ All team members, projects, tasks, comments, notes, documents, and settings have been 100% retained.
+        </div>
+      </div>
+      <div style="margin-bottom: 24px;">
+        <a href="${workspaceUrl}" style="display: inline-block; background-color: #1F1F1F; color: #FFFFFF; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 8px; text-decoration: none;">
+          Go to Workspace Settings &rarr;
+        </a>
+      </div>
+      <p style="font-size: 13px; color: #8E8E8E; line-height: 1.5; border-top: 1px solid #ECECE6; padding-top: 16px;">
+        If you did not authorize this change, please contact support immediately.<br/>
+        — The D-Board Team
+      </p>
+    </div>
+  `;
+
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: `Ownership Transferred: "${options.workspaceName}"`,
+      text: `Hello ${options.recipientName},\n\nOwnership transfer for workspace "${options.workspaceName}" has been successfully completed.\n\nAll existing workspace members and projects are 100% retained.\n\nAccess your workspace: ${workspaceUrl}\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log('📬 [D-BOARD WORKSPACE OWNERSHIP TRANSFER ACCEPTED EMAIL]');
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Workspace: ${options.workspaceName}`);
+      console.log(`Role: ${options.isNewOwner ? 'New Owner' : 'Former Owner'}`);
+      console.log('====================================================');
+    }
+  );
+}
+
+export interface SendWorkspaceOwnershipTransferNoticeOptions {
+  toEmail: string;
+  recipientName: string;
+  workspaceName: string;
+  action: 'cancelled' | 'declined';
+  actorName: string;
+  reason?: string;
+}
+
+/**
+ * Send Workspace Ownership Transfer Declined / Cancelled Notice Email
+ */
+export async function sendWorkspaceOwnershipTransferNoticeEmail(
+  options: SendWorkspaceOwnershipTransferNoticeOptions
+): Promise<boolean> {
+  const isDeclined = options.action === 'declined';
+  const title = isDeclined ? 'Ownership Transfer Request Declined' : 'Ownership Transfer Request Cancelled';
+  const color = isDeclined ? '#DC2626' : '#64748B';
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #1F1F1F; background-color: #FBFBFA; border: 1px solid #ECECE6; border-radius: 12px;">
+      <div style="margin-bottom: 24px; font-size: 22px; font-weight: 800; color: #1F1F1F; letter-spacing: -0.5px;">D-Board</div>
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px; color: ${color};">${title}</h2>
+      <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 16px;">
+        Hello <strong>${options.recipientName}</strong>,<br/>
+        ${
+          isDeclined
+            ? `The ownership transfer request for workspace <strong>${options.workspaceName}</strong> was declined by <strong>${options.actorName}</strong>.`
+            : `The ownership transfer request for workspace <strong>${options.workspaceName}</strong> was cancelled by <strong>${options.actorName}</strong>.`
+        }
+      </p>
+      ${
+        options.reason
+          ? `<div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 14px; color: #475569;">
+              <strong>Reason provided:</strong> ${options.reason}
+            </div>`
+          : ''
+      }
+      <p style="font-size: 14px; color: #575757; margin-bottom: 20px;">
+        Current ownership and workspace member access have not been altered.
+      </p>
+      <p style="font-size: 13px; color: #8E8E8E; line-height: 1.5; border-top: 1px solid #ECECE6; padding-top: 16px;">
+        — The D-Board Team
+      </p>
+    </div>
+  `;
+
+  return deliverEmail(
+    {
+      from: getEmailFrom(),
+      to: options.toEmail,
+      subject: `${title}: "${options.workspaceName}"`,
+      text: `Hello ${options.recipientName},\n\nThe ownership transfer request for "${options.workspaceName}" was ${options.action} by ${options.actorName}.${options.reason ? ` Reason: ${options.reason}` : ''}\n\n— The D-Board Team`,
+      html,
+    },
+    () => {
+      console.log('====================================================');
+      console.log(`📬 [D-BOARD WORKSPACE OWNERSHIP TRANSFER ${options.action.toUpperCase()} EMAIL]`);
+      console.log(`To: ${options.toEmail}`);
+      console.log(`Workspace: ${options.workspaceName}`);
+      console.log('====================================================');
+    }
+  );
+}
+
 export interface SendEmailVerificationOptions {
   toEmail: string;
   username: string;
@@ -490,11 +966,10 @@ export async function sendInvitationEmail(options: SendInvitationOptions): Promi
       <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 16px;">
         <strong>${options.inviterName}</strong> has invited you to collaborate on <strong>${options.projectName}</strong>${options.projectKey ? ` [${options.projectKey}]` : ''} as a <strong>${roleLabel}</strong>.
       </p>
-      ${
-        options.message
-          ? `<div style="background-color: #FFFFFF; border-left: 3px solid #1F1F1F; padding: 12px 16px; margin-bottom: 20px; font-style: italic; color: #333333; font-size: 14px;">"${options.message}"</div>`
-          : ''
-      }
+      ${options.message
+      ? `<div style="background-color: #FFFFFF; border-left: 3px solid #1F1F1F; padding: 12px 16px; margin-bottom: 20px; font-style: italic; color: #333333; font-size: 14px;">"${options.message}"</div>`
+      : ''
+    }
       <div style="margin-bottom: 28px;">
         <a href="${invitationsUrl}" style="display: inline-block; background-color: #1F1F1F; color: #FFFFFF; font-weight: 600; font-size: 15px; padding: 12px 24px; border-radius: 9999px; text-decoration: none;">
           View & Accept Invitation &rarr;
@@ -549,11 +1024,10 @@ export async function sendWorkspaceInvitationEmail(options: SendWorkspaceInvitat
       <p style="font-size: 15px; line-height: 1.6; color: #575757; margin-bottom: 16px;">
         <strong>${options.inviterName}</strong> has invited you to join the workspace <strong>${options.workspaceName}</strong> as a <strong>${roleLabel}</strong>.
       </p>
-      ${
-        options.message
-          ? `<div style="background-color: #FFFFFF; border-left: 3px solid #1F1F1F; padding: 12px 16px; margin-bottom: 20px; font-style: italic; color: #333333; font-size: 14px;">"${options.message}"</div>`
-          : ''
-      }
+      ${options.message
+      ? `<div style="background-color: #FFFFFF; border-left: 3px solid #1F1F1F; padding: 12px 16px; margin-bottom: 20px; font-style: italic; color: #333333; font-size: 14px;">"${options.message}"</div>`
+      : ''
+    }
       <div style="margin-bottom: 28px;">
         <a href="${acceptUrl}" style="display: inline-block; background-color: #1F1F1F; color: #FFFFFF; font-weight: 600; font-size: 15px; padding: 12px 24px; border-radius: 9999px; text-decoration: none;">
           View & Accept Invitation &rarr;
@@ -668,11 +1142,10 @@ export async function sendPasswordChangedAlertEmail(options: SendPasswordChanged
         Hello <strong>${options.username}</strong>,<br/>
         The password for your D-Board account was recently changed on <strong>${timeFormatted}</strong>.
       </p>
-      ${
-        options.ipAddress
-          ? `<p style="font-size: 13px; color: #666666; margin-bottom: 16px;"><strong>Originating IP:</strong> ${options.ipAddress}</p>`
-          : ''
-      }
+      ${options.ipAddress
+      ? `<p style="font-size: 13px; color: #666666; margin-bottom: 16px;"><strong>Originating IP:</strong> ${options.ipAddress}</p>`
+      : ''
+    }
       <p style="font-size: 14px; line-height: 1.6; color: #575757; margin-bottom: 20px;">
         If you made this change, no further action is required. If you did <strong>not</strong> make this change, please reset your password immediately and contact security support.
       </p>

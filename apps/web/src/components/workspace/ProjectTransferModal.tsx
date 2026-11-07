@@ -37,8 +37,9 @@ export const ProjectTransferModal: React.FC<ProjectTransferModalProps> = ({
   const [eligibility, setEligibility] = useState<ProjectTransferEligibility | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [selectedDestinationId, setSelectedDestinationId] = useState<string>('');
-  const [confirmationName, setConfirmationName] = useState<string>('');
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [destinationWorkspaceName, setDestinationWorkspaceName] = useState('');
+  const [confirmationName, setConfirmationName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitFeedback, setSubmitFeedback] = useState<{
     type: 'success' | 'error';
@@ -59,9 +60,6 @@ export const ProjectTransferModal: React.FC<ProjectTransferModalProps> = ({
       const res = await projectTransferApi.getEligibility(project.id);
       if (res.success && res.data) {
         setEligibility(res.data);
-        if (res.data.eligibleDestinations.length > 0) {
-          setSelectedDestinationId(res.data.eligibleDestinations[0].id);
-        }
       }
     } catch (err: any) {
       setLoadError(err.message || 'Failed to verify transfer eligibility');
@@ -96,6 +94,8 @@ export const ProjectTransferModal: React.FC<ProjectTransferModalProps> = ({
       window.addEventListener('keydown', handleKeyDown);
       loadEligibility();
       loadHistory();
+      setRecipientEmail('');
+      setDestinationWorkspaceName('');
       setConfirmationName('');
       setSubmitFeedback(null);
     }
@@ -107,37 +107,37 @@ export const ProjectTransferModal: React.FC<ProjectTransferModalProps> = ({
 
   if (!isOpen) return null;
 
-  const selectedDestination = eligibility?.eligibleDestinations.find(
-    (d) => d.id === selectedDestinationId
-  );
-
-  const isSameOwner = Boolean(
-    selectedDestination &&
-    eligibility?.sourceWorkspace.isOwner &&
-    selectedDestination.isOwner
-  );
-
   const isConfirmed = confirmationName.trim() === project.name.trim();
+  const canSubmit =
+    recipientEmail.trim().length > 0 &&
+    destinationWorkspaceName.trim().length > 0 &&
+    isConfirmed &&
+    !isSubmitting;
 
   const handleTransferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedDestinationId || !isConfirmed || isSubmitting) return;
+    if (!canSubmit) return;
 
     try {
       setIsSubmitting(true);
       setSubmitFeedback(null);
 
-      const res = await projectTransferApi.requestTransfer(project.id, selectedDestinationId);
+      const res = await projectTransferApi.requestTransfer(project.id, {
+        destinationUserEmail: recipientEmail.trim(),
+        destinationWorkspaceName: destinationWorkspaceName.trim(),
+      });
 
       if (res.success) {
         setSubmitFeedback({
           type: 'success',
-          message: res.data?.message || 'Transfer completed successfully',
+          message:
+            res.data?.message ||
+            `Transfer request sent to ${recipientEmail}. The recipient has received an email and notification card.`,
         });
 
         if (res.data?.executedImmediately) {
           setTimeout(() => {
-            onTransferred?.(selectedDestinationId);
+            onTransferred?.(destinationWorkspaceName);
             onClose();
           }, 1500);
         } else {
@@ -175,9 +175,9 @@ export const ProjectTransferModal: React.FC<ProjectTransferModalProps> = ({
         {/* Header */}
         <div className="ptm-header">
           <div className="ptm-header-title-box">
-            <h3 className="ptm-title">Transfer Project to Workspace</h3>
+            <h3 className="ptm-title">Transfer Project to Another Workspace</h3>
             <p className="ptm-subtitle">
-              Move &ldquo;{project.name}&rdquo; and all associated tasks, files, and resources.
+              Initiate transfer of &ldquo;{project.name}&rdquo; across workspaces.
             </p>
           </div>
           <button
@@ -229,14 +229,7 @@ export const ProjectTransferModal: React.FC<ProjectTransferModalProps> = ({
                 <AlertCircleIcon size={16} />
                 <span>
                   {eligibility?.reason ||
-                    'You must be a Workspace Owner or Workspace Admin to transfer this project.'}
-                </span>
-              </div>
-            ) : eligibility.eligibleDestinations.length === 0 ? (
-              <div className="ptm-alert ptm-alert-info">
-                <AlertCircleIcon size={16} />
-                <span>
-                  No eligible destination workspaces available. You must be an Owner or Admin of another non-personal team workspace to transfer this project.
+                    'Only Workspace Owners or Workspace Administrators can transfer projects.'}
                 </span>
               </div>
             ) : (
@@ -251,9 +244,9 @@ export const ProjectTransferModal: React.FC<ProjectTransferModalProps> = ({
                     <ArrowRightIcon size={18} />
                   </div>
                   <div className="ptm-ws-pill">
-                    <span className="ptm-ws-pill-label">Target Workspace</span>
+                    <span className="ptm-ws-pill-label">Destination Workspace</span>
                     <span className="ptm-ws-pill-name">
-                      {selectedDestination?.name || 'Select a destination'}
+                      {destinationWorkspaceName.trim() || 'Enter name below'}
                     </span>
                   </div>
                 </div>
@@ -270,186 +263,208 @@ export const ProjectTransferModal: React.FC<ProjectTransferModalProps> = ({
                   </div>
                 )}
 
-                {/* Destination Selector */}
-                <div className="ptm-field-group">
-                  <label htmlFor="ptm-dest-select" className="ptm-label">
-                    Select Destination Workspace
-                  </label>
-                  <select
-                    id="ptm-dest-select"
-                    className="ptm-select"
-                    value={selectedDestinationId}
-                    onChange={(e) => setSelectedDestinationId(e.target.value)}
-                    disabled={isSubmitting}
-                  >
-                    {eligibility.eligibleDestinations.map((dest) => (
-                      <option key={dest.id} value={dest.id}>
-                        {dest.name} ({dest.isOwner ? 'Owner' : 'Admin'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Transfer Mode Explanation */}
-                <div className={`ptm-alert ${isSameOwner ? 'ptm-alert-info' : 'ptm-alert-warning'}`}>
-                  <AlertCircleIcon size={16} />
-                  <div>
-                    <strong>
-                      {isSameOwner
-                        ? 'Immediate Execution'
-                        : 'Approval Required by Destination Owner'}
-                    </strong>
-                    <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem' }}>
-                      {isSameOwner
-                        ? 'You own both the source and target workspaces. This project and all its data will transfer immediately.'
-                        : 'Since this is a cross-owner transfer, a transfer request will be submitted to the destination workspace administrators for authorization.'}
-                    </p>
+                {/* Quick suggestions if user has candidate destination workspaces */}
+                {eligibility.eligibleDestinations && eligibility.eligibleDestinations.length > 0 && (
+                  <div className="ptm-suggestions-box" style={{ marginBottom: '1rem' }}>
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted, #64748b)', display: 'block', marginBottom: '0.375rem' }}>
+                      Or autofill with your other workspaces:
+                    </span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      {eligibility.eligibleDestinations.map((cand) => (
+                        <button
+                          key={cand.id}
+                          type="button"
+                          className="ptm-suggestion-pill"
+                          style={{
+                            fontSize: '0.75rem',
+                            padding: '4px 10px',
+                            borderRadius: '9999px',
+                            background: '#f1f5f9',
+                            border: '1px solid #cbd5e1',
+                            cursor: 'pointer',
+                            color: '#1e293b',
+                            fontWeight: 500,
+                          }}
+                          onClick={() => {
+                            setDestinationWorkspaceName(cand.name);
+                            // Auto-fill recipient email with current member's email if available
+                            if (cand.isOwner && eligibility.currentMembers.length > 0) {
+                              const found = eligibility.currentMembers.find((m) => m.role === 'PROJECT_ADMIN');
+                              if (found?.user?.email) {
+                                setRecipientEmail(found.user.email);
+                              }
+                            }
+                          }}
+                        >
+                          {cand.name}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
 
-                {/* Impact Analysis & Data Preservation Notice */}
-                <div className="ptm-impact-box">
-                  <h4 className="ptm-impact-title">Transfer Consequences & Data Preservation</h4>
-                  <ul className="ptm-impact-list">
-                    <li className="ptm-impact-item">
-                      <span className="ptm-impact-dot success" />
-                      <span>
-                        <strong>Preserved completely:</strong> All tasks, comments, subtasks, files, folders, notes, calendar events, and historical author attribution.
-                      </span>
-                    </li>
-                    <li className="ptm-impact-item">
-                      <span className="ptm-impact-dot warning" />
-                      <span>
-                        <strong>Workspace boundary enforcement:</strong> Project members who do not belong to the destination workspace will lose project access, and their assigned work items will be unassigned.
-                      </span>
-                    </li>
-                    <li className="ptm-impact-item">
-                      <span className="ptm-impact-dot success" />
-                      <span>
-                        Members present in both workspaces retain their eligible project roles automatically.
-                      </span>
-                    </li>
-                  </ul>
-                </div>
-
-                {/* Confirmation Input */}
+                {/* Recipient Email Input */}
                 <div className="ptm-field-group">
-                  <label htmlFor="ptm-confirm-input" className="ptm-label">
-                    Type <strong>{project.name}</strong> to confirm:
-                  </label>
-                  <input
-                    id="ptm-confirm-input"
-                    type="text"
-                    className="ptm-input"
-                    placeholder={project.name}
-                    value={confirmationName}
-                    onChange={(e) => setConfirmationName(e.target.value)}
-                    disabled={isSubmitting}
+                    <label htmlFor="ptm-recipient-email" className="ptm-label">
+                      Recipient Email <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0 0 0.375rem 0' }}>
+                      Must be the email address of the Workspace Owner or Workspace Admin in the destination workspace.
+                    </p>
+                    <input
+                      id="ptm-recipient-email"
+                      type="email"
+                      className="ptm-input"
+                      placeholder="e.g. admin@organization.com"
+                      value={recipientEmail}
+                      onChange={(e) => setRecipientEmail(e.target.value)}
+                      disabled={isSubmitting}
+                    required
                   />
                 </div>
-              </>
-            )}
 
-            {/* Footer Buttons */}
-            {eligibility?.isEligible && eligibility.eligibleDestinations.length > 0 && (
-              <div className="ptm-footer" style={{ margin: '1rem -1.5rem -1.5rem', padding: '1rem 1.5rem' }}>
-                <button
-                  type="button"
-                  className="ptm-btn-secondary"
-                  onClick={onClose}
-                  disabled={isSubmitting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="ptm-btn-primary"
-                  disabled={!isConfirmed || !selectedDestinationId || isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <div className="ptm-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-                      <span>Processing...</span>
-                    </>
-                  ) : (
-                    <span>{isSameOwner ? 'Transfer Project Now' : 'Request Transfer'}</span>
-                  )}
-                </button>
-              </div>
+                  {/* Destination Workspace Name Input */}
+                  <div className="ptm-field-group">
+                    <label htmlFor="ptm-dest-name" className="ptm-label">
+                      Destination Workspace Name <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0 0 0.375rem 0' }}>
+                      The exact name of the destination workspace under the recipient's account.
+                    </p>
+                    <input
+                      id="ptm-dest-name"
+                      type="text"
+                      className="ptm-input"
+                      placeholder="e.g. Engineering Team"
+                      value={destinationWorkspaceName}
+                      onChange={(e) => setDestinationWorkspaceName(e.target.value)}
+                      disabled={isSubmitting}
+                      required
+                    />
+                  </div>
+
+                  {/* Explanation */}
+                  <div className="ptm-alert ptm-alert-info">
+                    <AlertCircleIcon size={16} />
+                    <div>
+                        <strong>Approval Request Workflow</strong>
+                        <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8125rem' }}>
+                          The recipient will receive an email notice and an interactive transfer request card on their dashboard and invitations page to accept or decline. All project tasks, attachments, and historical work will be transferred.
+                        </p>
+                    </div>
+                  </div>
+
+                  {/* Confirmation Input */}
+                  <div className="ptm-field-group">
+                    <label htmlFor="ptm-confirm-input" className="ptm-label">
+                      Type <strong>{project.name}</strong> to confirm transfer request
+                    </label>
+                    <input
+                      id="ptm-confirm-input"
+                      type="text"
+                      className="ptm-input"
+                      placeholder={`Enter "${project.name}"`}
+                      value={confirmationName}
+                      onChange={(e) => setConfirmationName(e.target.value)}
+                      disabled={isSubmitting}
+                    />
+                  </div>
+
+                  {/* Actions */}
+                  <div className="ptm-actions">
+                    <button
+                      type="button"
+                      className="ptm-btn-secondary"
+                      onClick={onClose}
+                      disabled={isSubmitting}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="ptm-btn-primary"
+                      disabled={!canSubmit}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <div className="ptm-btn-spinner" />
+                          <span>Sending Request...</span>
+                        </>
+                      ) : (
+                        <span>Send Transfer Request</span>
+                      )}
+                    </button>
+                  </div>
+                </>
             )}
-          </form>
+              </form>
         )}
 
-        {/* Tab 2: History */}
-        {activeTab === 'history' && (
-          <div className="ptm-content">
-            {historyError && (
-              <div className="ptm-alert ptm-alert-error" style={{ marginBottom: '1rem' }}>
-                <AlertCircleIcon size={16} />
-                <span>{historyError}</span>
-              </div>
-            )}
-            {historyLoading ? (
-              <div className="ptm-state-box">
-                <div className="ptm-spinner" />
-                <span>Loading transfer history...</span>
-              </div>
-            ) : history.length === 0 ? (
-              <div className="ptm-state-box">
-                <span>No transfer history for this project.</span>
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table className="ptm-history-table">
-                  <thead>
-                    <tr>
-                      <th>Status</th>
-                      <th>Destination</th>
-                      <th>Initiated By</th>
-                      <th>Date</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.map((item) => (
-                      <tr key={item.id}>
-                        <td>
-                          <span
-                            className={`ptm-badge ptm-badge-${item.status.toLowerCase()}`}
-                          >
-                            {item.status}
-                          </span>
-                        </td>
-                        <td>{item.destinationWorkspace?.name || item.destinationWorkspaceId}</td>
-                        <td>{item.initiatedBy?.fullName || item.initiatedBy?.username || 'User'}</td>
-                        <td>{new Date(item.createdAt).toLocaleDateString()}</td>
-                        <td>
-                          {item.status === 'PENDING' && (
-                            <button
-                              type="button"
-                              className="ptm-btn-secondary"
-                              style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
-                              onClick={() => handleCancelTransfer(item.id)}
-                              disabled={cancellingId === item.id}
-                            >
-                              {cancellingId === item.id ? 'Cancelling...' : 'Cancel'}
-                            </button>
-                          )}
-                          {item.status === 'REJECTED' && item.rejectionReason && (
-                            <span style={{ fontSize: '0.75rem', color: '#991b1b' }}>
-                              Reason: {item.rejectionReason}
+            {/* Transfer History Tab */}
+            {activeTab === 'history' && (
+              <div className="ptm-content">
+                {historyLoading ? (
+                  <div className="ptm-state-box">
+                    <div className="ptm-spinner" />
+                    <span>Loading transfer history...</span>
+                  </div>
+                ) : historyError ? (
+                  <div className="ptm-alert ptm-alert-error">
+                    <AlertCircleIcon size={16} />
+                    <span>{historyError}</span>
+                  </div>
+                ) : history.length === 0 ? (
+                  <div className="ptm-state-box">
+                    <p>No transfer history recorded for this project.</p>
+                  </div>
+                ) : (
+                    <div className="ptm-history-list">
+                      {history.map((t) => (
+                        <div key={t.id} className="ptm-history-item">
+                          <div className="ptm-history-header">
+                            <div className="ptm-history-route">
+                              <span>{t.sourceWorkspace?.name || 'Source'}</span>
+                              <ArrowRightIcon size={14} />
+                              <span>{t.destinationWorkspace?.name || t.destinationWorkspaceName || 'Destination'}</span>
+                            </div>
+                            <span className={`ptm-status-badge ptm-status-${t.status.toLowerCase()}`}>
+                              {t.status}
                             </span>
+                          </div>
+
+                          <div className="ptm-history-meta">
+                            <span>Initiated by: {t.initiatedBy?.fullName || t.initiatedBy?.username || 'Admin'}</span>
+                            {t.recipientEmail && (
+                              <span>Recipient: {t.recipientEmail}</span>
+                            )}
+                            <span>Date: {new Date(t.createdAt).toLocaleDateString()}</span>
+                          </div>
+
+                          {t.rejectionReason && (
+                            <div className="ptm-history-reason">
+                              <strong>Declined reason:</strong> {t.rejectionReason}
+                            </div>
                           )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+
+                          {t.status === 'PENDING' && (
+                            <div className="ptm-history-actions">
+                              <button
+                                type="button"
+                                className="ptm-cancel-link"
+                                disabled={cancellingId === t.id}
+                                onClick={() => handleCancelTransfer(t.id)}
+                              >
+                                {cancellingId === t.id ? 'Cancelling...' : 'Cancel Request'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
             )}
-          </div>
-        )}
-      </div>
+                  </div>
+                )}
+              </div>
     </div>
-  );
+        );
 };

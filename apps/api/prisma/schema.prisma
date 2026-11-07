@@ -258,6 +258,7 @@ model Project {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   archivedAt      DateTime?
+  originalProjectId String?
 
   members         ProjectMember[]
   invitations     Invitation[]
@@ -741,6 +742,8 @@ model ProjectTransfer {
   reviewedById           String?
   reviewedBy             User?                 @relation("ReviewedProjectTransfers", fields: [reviewedById], references: [id], onDelete: SetNull)
   status                 ProjectTransferStatus @default(PENDING)
+  recipientEmail         String?
+  destinationWorkspaceName String?
   rejectionReason        String?
   memberSnapshot         Json?
   expiresAt              DateTime?

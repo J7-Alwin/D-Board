@@ -29,6 +29,7 @@ import { getRedisClient, closeRedis } from "./redis/redis.client.js";
 import { initWorkers, closeWorkers } from "./jobs/index.js";
 import healthRoutes from "./routes/health.routes.js";
 import docsRoutes from "./routes/docs.routes.js";
+import { startKeepaliveCron, stopKeepaliveCron } from "./services/keepalive.service.js";
 
 dotenv.config();
 
@@ -49,6 +50,7 @@ if (process.env.NODE_ENV !== "test") {
     console.log("[Worker] Embedded BullMQ workers disabled via ENABLE_EMBEDDED_WORKER=false");
   }
   initRealtime(httpServer);
+  startKeepaliveCron();
 }
 
 // Strict CORS Origins
@@ -166,7 +168,10 @@ async function gracefulShutdown(signal: string) {
     // 3. Close Redis connection
     await closeRedis();
 
-    // 4. Disconnect Prisma
+    // 4. Stop keepalive cron timer
+    stopKeepaliveCron();
+
+    // 5. Disconnect Prisma
     await prisma.$disconnect();
     console.log('[Shutdown] PostgreSQL disconnected');
 

@@ -27,6 +27,10 @@ export const registerSchema = z.object({
     .string()
     .optional()
     .nullable(),
+  verificationToken: z
+    .string()
+    .trim()
+    .optional(),
 });
 
 export const loginSchema = z.object({
@@ -106,3 +110,26 @@ export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
 export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
 export type UpdateUsernameInput = z.infer<typeof updateUsernameSchema>;
+
+export const sendRegistrationOtpSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .email('Invalid email address')
+    .max(100, 'Email must not exceed 100 characters'),
+});
+
+export const verifyRegistrationOtpSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .email('Invalid email address'),
+  otp: z
+    .string()
+    .trim()
+    .min(6, 'Verification code must be 6 digits')
+    .max(6, 'Verification code must be 6 digits'),
+});
+
+export type SendRegistrationOtpInput = z.infer<typeof sendRegistrationOtpSchema>;
+export type VerifyRegistrationOtpInput = z.infer<typeof verifyRegistrationOtpSchema>;

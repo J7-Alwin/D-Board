@@ -1,9 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import '@testing-library/jest-dom/vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { ProjectTransferModal } from '../components/workspace/ProjectTransferModal';
 import { projectTransferApi } from '../api/projectTransfer.api';
 
 describe('ProjectTransferModal Component Tests', () => {
+  afterEach(() => {
+    cleanup();
+  });
   const mockProject = {
     id: 'proj-123',
     name: 'Alpha Project',
@@ -37,30 +41,36 @@ describe('ProjectTransferModal Component Tests', () => {
     currentMembers: [
       {
         id: 'pm-1',
-        userId: 'u-1',
+        userId: 'usr-1',
         role: 'PROJECT_ADMIN',
-        user: { id: 'u-1', fullName: 'Alice Admin', username: 'alice', email: 'alice@example.com' },
+        user: {
+          id: 'usr-1',
+          fullName: 'Alice Admin',
+          username: 'alice',
+          email: 'alice@example.com',
+        },
       },
     ],
   };
 
   const mockTransfers = [
     {
-      id: 'pt-1',
+      id: 'trans-1',
       projectId: 'proj-123',
       sourceWorkspaceId: 'ws-src-1',
       destinationWorkspaceId: 'ws-dest-1',
+      status: 'PENDING',
+      sourceWorkspace: { id: 'ws-src-1', name: 'Source Studio' },
       destinationWorkspace: { id: 'ws-dest-1', name: 'Target Team Workspace' },
-      initiatedById: 'u-1',
-      initiatedBy: { id: 'u-1', fullName: 'Alice Admin', username: 'alice' },
-      status: 'PENDING' as const,
+      initiatedById: 'usr-1',
+      initiatedBy: { id: 'usr-1', fullName: 'Alice Admin', username: 'alice', email: 'alice@example.com' },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     },
   ];
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
     vi.spyOn(projectTransferApi, 'getEligibility').mockResolvedValue({
       success: true,
       data: mockEligibility as any,
@@ -89,9 +99,10 @@ describe('ProjectTransferModal Component Tests', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Transfer Project to Workspace/i)).toBeInTheDocument();
+      expect(screen.getByText(/Transfer Project to Another Workspace/i)).toBeInTheDocument();
       expect(screen.getByText('Source Studio')).toBeInTheDocument();
-      expect(screen.getByText('Target Team Workspace (Owner)')).toBeInTheDocument();
+      expect(screen.getByLabelText(/Recipient Email/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Destination Workspace Name/i)).toBeInTheDocument();
     });
   });
 
@@ -105,10 +116,15 @@ describe('ProjectTransferModal Component Tests', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Transfer Project Now/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Send Transfer Request/i })).toBeInTheDocument();
     });
 
-    const transferBtn = screen.getByRole('button', { name: /Transfer Project Now/i });
+    const transferBtn = screen.getByRole('button', { name: /Send Transfer Request/i });
+    expect(transferBtn).toBeDisabled();
+
+    // Fill email and destination workspace name
+    fireEvent.change(screen.getByLabelText(/Recipient Email/i), { target: { value: 'bob@example.com' } });
+    fireEvent.change(screen.getByLabelText(/Destination Workspace Name/i), { target: { value: 'Target Team Workspace' } });
     expect(transferBtn).toBeDisabled();
 
     // Type partial or wrong name
@@ -133,17 +149,23 @@ describe('ProjectTransferModal Component Tests', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Transfer Project Now/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Send Transfer Request/i })).toBeInTheDocument();
     });
+
+    fireEvent.change(screen.getByLabelText(/Recipient Email/i), { target: { value: 'admin@target.com' } });
+    fireEvent.change(screen.getByLabelText(/Destination Workspace Name/i), { target: { value: 'Target Team Workspace' } });
 
     const input = screen.getByLabelText(/to confirm/i);
     fireEvent.change(input, { target: { value: 'Alpha Project' } });
 
-    const transferBtn = screen.getByRole('button', { name: /Transfer Project Now/i });
+    const transferBtn = screen.getByRole('button', { name: /Send Transfer Request/i });
     fireEvent.click(transferBtn);
 
     await waitFor(() => {
-      expect(projectTransferApi.requestTransfer).toHaveBeenCalledWith('proj-123', 'ws-dest-1');
+      expect(projectTransferApi.requestTransfer).toHaveBeenCalledWith('proj-123', {
+        destinationUserEmail: 'admin@target.com',
+        destinationWorkspaceName: 'Target Team Workspace',
+      });
     });
   });
 
@@ -166,7 +188,7 @@ describe('ProjectTransferModal Component Tests', () => {
     await waitFor(() => {
       expect(screen.getByText('PENDING')).toBeInTheDocument();
       expect(screen.getByText('Target Team Workspace')).toBeInTheDocument();
-      expect(screen.getByText('Alice Admin')).toBeInTheDocument();
+      expect(screen.getByText(/Alice Admin/i)).toBeInTheDocument();
     });
   });
 });

@@ -64,8 +64,8 @@ export class FileService {
   ) {
     const { project } = await this.getMembershipAndProject(projectId, userId);
 
-    if (project.status === 'ARCHIVED') {
-      throw new AppError('Cannot upload files to an archived project', 400);
+    if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+      throw new AppError(`Cannot upload files to a ${project.status.toLowerCase()} project`, 400);
     }
 
     if (!files || files.length === 0) {
@@ -389,25 +389,27 @@ export class FileService {
     };
 
     // Condition for WorkItem attachments:
-    // If isPrivate: false, accessible to all project members.
-    // If isPrivate: true, ONLY work item creator, assignee, or file uploader.
+    // Visible to Owner, Workspace Admin, Project Admin, Assigned User, Task Creator, and Uploader
     const workItemCondition = {
       workItemId: { not: null },
       OR: [
-        { isPrivate: false },
+        { uploadedById: userId },
         {
-          isPrivate: true,
-          OR: [
-            { uploadedById: userId },
-            {
-              workItem: {
-                OR: [
-                  { createdById: userId },
-                  { assignedToId: userId },
-                ],
-              },
-            },
-          ],
+          workItem: {
+            OR: [
+              { createdById: userId },
+              { assignedToId: userId },
+            ],
+          },
+        },
+        {
+          project: {
+            OR: [
+              { workspace: { ownerId: userId } },
+              { workspace: { members: { some: { userId, role: 'WORKSPACE_ADMIN' } } } },
+              { members: { some: { userId, role: 'PROJECT_ADMIN' } } },
+            ],
+          },
         },
       ],
     };
@@ -666,14 +668,13 @@ export class FileService {
     }
 
     // Privacy rule for Work Item attachments:
+    // Visible for Owner, Workspace Admin, Project Admin, Task Creator, Assigned User, and Uploader
     if (file.workItem) {
       const isCreator = file.workItem.createdById === userId;
       const isAssignee = file.workItem.assignedToId === userId;
       const isUploader = file.uploadedById === userId;
-      if (file.isPrivate) {
-        if (!isCreator && !isAssignee && !isUploader) {
-          throw new AppError('You do not have permission to view or download this private work item attachment', 403);
-        }
+      if (!isAdmin && !isCreator && !isAssignee && !isUploader) {
+        throw new AppError('You do not have permission to view or download this task attachment', 403);
       }
     }
 
@@ -738,8 +739,8 @@ export class FileService {
   async renameFile(projectId: string, fileId: string, userId: string, newName: string) {
     const { isAdmin, project } = await this.getMembershipAndProject(projectId, userId);
 
-    if (project.status === 'ARCHIVED') {
-      throw new AppError('Cannot rename files in an archived project', 400);
+    if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+      throw new AppError(`Cannot rename files in a ${project.status.toLowerCase()} project`, 400);
     }
 
     const existing = await this.getFileById(projectId, fileId, userId, false);
@@ -817,8 +818,8 @@ export class FileService {
   async deleteFile(projectId: string, fileId: string, userId: string) {
     const { isAdmin, project } = await this.getMembershipAndProject(projectId, userId);
 
-    if (project.status === 'ARCHIVED') {
-      throw new AppError('Cannot delete files in an archived project', 400);
+    if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+      throw new AppError(`Cannot delete files in a ${project.status.toLowerCase()} project`, 400);
     }
 
     const existing = await this.getFileById(projectId, fileId, userId, false);
@@ -962,8 +963,8 @@ export class FileService {
   async updateFileVisibility(projectId: string, fileId: string, userId: string, isPrivate: boolean) {
     const { isAdmin, project } = await this.getMembershipAndProject(projectId, userId);
 
-    if (project.status === 'ARCHIVED') {
-      throw new AppError('Cannot modify files in an archived project', 400);
+    if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+      throw new AppError(`Cannot modify files in a ${project.status.toLowerCase()} project`, 400);
     }
 
     const existing = await this.getFileById(projectId, fileId, userId, false);

@@ -4,6 +4,11 @@ import { AppError } from '../middlewares/error.middleware.js';
 import { workspaceAuditService } from './workspaceAudit.service.js';
 import { cacheService } from '../redis/cache.service.js';
 import * as realtimeService from '../realtime/realtime.service.js';
+import {
+  sendWorkspaceOwnershipTransferRequestEmail,
+  sendWorkspaceOwnershipTransferAcceptedEmail,
+  sendWorkspaceOwnershipTransferNoticeEmail,
+} from './email.service.js';
 import type { RequestOwnershipTransferInput } from '../schemas/workspace.schema.js';
 import type { WorkspaceRole, WorkspaceOwnershipTransferStatus } from '../generated/prisma/index.js';
 
@@ -64,6 +69,10 @@ export class WorkspaceOwnershipTransferService {
 
     if (ws.ownerId !== sourceOwnerId) {
       throw new AppError('Only the current workspace owner can initiate an ownership transfer', 403);
+    }
+
+    if (input.confirmationName && input.confirmationName.trim().toLowerCase() !== ws.name.trim().toLowerCase()) {
+      throw new AppError(`Confirmation workspace name does not match "${ws.name}"`, 400);
     }
 
     // Resolve target recipient
@@ -171,6 +180,20 @@ export class WorkspaceOwnershipTransferService {
       return transfer;
     });
 
+    try {
+      await sendWorkspaceOwnershipTransferRequestEmail({
+        toEmail: targetUser.email,
+        recipientName: targetUser.fullName || targetUser.username,
+        workspaceName: ws.name,
+        currentOwnerName: ws.owner?.fullName || ws.owner?.username || 'Current Owner',
+        resultingRole: input.targetRole,
+        expiresAt,
+        transferId: created.id,
+      });
+    } catch (emailErr) {
+      console.warn('[WorkspaceOwnershipTransfer] Failed to send request email:', emailErr);
+    }
+
     return {
       id: created.id,
       workspaceId: created.workspaceId,
@@ -261,6 +284,9 @@ export class WorkspaceOwnershipTransferService {
 
     const pending = await prisma.workspaceOwnershipTransfer.findFirst({
       where: { workspaceId, status: 'PENDING' },
+      include: {
+        targetUser: { select: { id: true, fullName: true, username: true, email: true } },
+      },
     });
 
     if (!pending) {
@@ -291,6 +317,20 @@ export class WorkspaceOwnershipTransferService {
       });
     });
 
+    try {
+      if (pending.targetUser?.email) {
+        await sendWorkspaceOwnershipTransferNoticeEmail({
+          toEmail: pending.targetUser.email,
+          recipientName: pending.targetUser.fullName || pending.targetUser.username,
+          workspaceName: ws.name,
+          action: 'cancelled',
+          actorName: 'The workspace owner',
+        });
+      }
+    } catch (emailErr) {
+      console.warn('[WorkspaceOwnershipTransfer] Failed to send cancel notice email:', emailErr);
+    }
+
     return { success: true, message: 'Ownership transfer request cancelled successfully' };
   }
 
@@ -301,10 +341,20 @@ export class WorkspaceOwnershipTransferService {
     workspaceId: string,
     recipientUserId: string,
     token?: string,
+    reason?: string,
     reqMeta?: { ipAddress?: string; userAgent?: string }
   ): Promise<{ success: boolean; message: string }> {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { name: true },
+    });
+
     const pending = await prisma.workspaceOwnershipTransfer.findFirst({
       where: { workspaceId, status: 'PENDING' },
+      include: {
+        sourceOwner: { select: { id: true, fullName: true, username: true, email: true } },
+        targetUser: { select: { id: true, fullName: true, username: true, email: true } },
+      },
     });
 
     if (!pending) {
@@ -345,6 +395,21 @@ export class WorkspaceOwnershipTransferService {
       });
     });
 
+    try {
+      if (pending.sourceOwner?.email) {
+        await sendWorkspaceOwnershipTransferNoticeEmail({
+          toEmail: pending.sourceOwner.email,
+          recipientName: pending.sourceOwner.fullName || pending.sourceOwner.username,
+          workspaceName: ws?.name || 'Workspace',
+          action: 'declined',
+          actorName: pending.targetUser?.fullName || pending.targetUser?.username || 'The recipient',
+          reason,
+        });
+      }
+    } catch (emailErr) {
+      console.warn('[WorkspaceOwnershipTransfer] Failed to send decline notice email:', emailErr);
+    }
+
     return { success: true, message: 'Ownership transfer request declined' };
   }
 
@@ -371,6 +436,10 @@ export class WorkspaceOwnershipTransferService {
 
       const pending = await tx.workspaceOwnershipTransfer.findFirst({
         where: { workspaceId, status: 'PENDING' },
+        include: {
+          sourceOwner: { select: { id: true, fullName: true, username: true, email: true } },
+          targetUser: { select: { id: true, fullName: true, username: true, email: true } },
+        },
       });
 
       if (!pending) {
@@ -496,9 +565,12 @@ export class WorkspaceOwnershipTransferService {
         success: true,
         message: 'Workspace ownership transferred successfully',
         workspaceId,
+        workspaceName: ws.name,
         sourceOwnerId: pending.sourceOwnerId,
         targetUserId: pending.targetUserId,
         targetRole: pending.targetRole,
+        sourceOwner: pending.sourceOwner,
+        targetUser: pending.targetUser,
       };
     }, { timeout: 30000 });
 
@@ -513,6 +585,32 @@ export class WorkspaceOwnershipTransferService {
       ]);
     } catch (cacheErr) {
       console.warn(`[Workspace Ownership] Cache invalidation warning for workspace ${workspaceId}:`, cacheErr);
+    }
+
+    // Send transactional emails to both former owner and new owner
+    try {
+      if (result.sourceOwner?.email) {
+        await sendWorkspaceOwnershipTransferAcceptedEmail({
+          toEmail: result.sourceOwner.email,
+          recipientName: result.sourceOwner.fullName || result.sourceOwner.username,
+          workspaceName: result.workspaceName,
+          isNewOwner: false,
+          otherPartyName: result.targetUser?.fullName || result.targetUser?.username || 'New Owner',
+          formerOwnerRole: result.targetRole,
+        });
+      }
+      if (result.targetUser?.email) {
+        await sendWorkspaceOwnershipTransferAcceptedEmail({
+          toEmail: result.targetUser.email,
+          recipientName: result.targetUser.fullName || result.targetUser.username,
+          workspaceName: result.workspaceName,
+          isNewOwner: true,
+          otherPartyName: result.sourceOwner?.fullName || result.sourceOwner?.username || 'Previous Owner',
+          formerOwnerRole: result.targetRole,
+        });
+      }
+    } catch (emailErr) {
+      console.warn('[WorkspaceOwnershipTransfer] Failed to send acceptance emails:', emailErr);
     }
 
     // Refresh realtime authorization & notify affected users

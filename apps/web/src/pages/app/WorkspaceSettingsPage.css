@@ -142,6 +142,7 @@
   margin: 0 1.25rem !important;
   flex-shrink: 0 !important;
 }
+
 .ws-header-right-col {
   display: flex;
   align-items: center;
@@ -553,6 +554,7 @@
 }
 
 @media (max-width: 1220px) {
+
   .ws-header-center-col,
   .ws-header-divider {
     display: none;
@@ -563,15 +565,18 @@
   .ws-header-card {
     padding: 1rem;
   }
+
   .ws-header-content {
     flex-direction: column;
     align-items: flex-start;
     gap: 1rem;
   }
+
   .ws-header-right-col {
     margin-left: 0;
     width: 100%;
   }
+
   .ws-header-user-pill {
     width: 100%;
     justify-content: space-between;
@@ -1176,11 +1181,11 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-input:checked + .ws-toggle-slider {
+input:checked+.ws-toggle-slider {
   background-color: #2563EB;
 }
 
-input:checked + .ws-toggle-slider:before {
+input:checked+.ws-toggle-slider:before {
   transform: translateX(20px);
 }
 
@@ -1297,4 +1302,532 @@ input:checked + .ws-toggle-slider:before {
   font-size: 0.8125rem;
   color: #64748B;
   font-weight: 500;
+}
+
+
+/* ==========================================================================
+   WORKSPACE SETTINGS PAGE - PROJECT TRANSFERS (PHASE 4 LUXURY THEME)
+   ========================================================================== */
+
+.ws-transfers-subnav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem;
+  background: #F1F5F9;
+  border-radius: 12px;
+  margin-bottom: 1.5rem;
+  width: 100%;
+  max-width: 600px;
+}
+
+.ws-subtab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.15rem;
+  border-radius: 9px;
+  border: none;
+  background: transparent;
+  color: #64748B;
+  font-size: 0.84rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex: 1;
+}
+
+.ws-subtab-btn:hover {
+  color: #0F172A;
+}
+
+.ws-subtab-btn.active {
+  background: #FFFFFF;
+  color: #0F172A;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.ws-subtab-badge {
+  padding: 2px 7px;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.ws-transfer-form-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.ws-field-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.ws-direction-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  gap: 1rem;
+}
+
+.ws-direction-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.ws-direction-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748B;
+}
+
+.ws-ws-pill {
+  display: inline-block;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: 1px solid #CBD5E1;
+  background: #FFFFFF;
+  color: #0F172A;
+}
+
+.ws-direction-arrow {
+  color: #94A3B8;
+  flex-shrink: 0;
+}
+
+.ws-suggestions-box {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ws-suggestions-title {
+  font-size: 0.75rem;
+  color: #64748B;
+}
+
+.ws-suggestions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.ws-suggestion-pill {
+  background: #F1F5F9;
+  border: 1px solid #E2E8F0;
+  border-radius: 9999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.78rem;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ws-suggestion-pill:hover {
+  background: #E2E8F0;
+  color: #0F172A;
+}
+
+.ws-info-box {
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+}
+
+.ws-info-box-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #1E40AF;
+  margin: 0 0 0.4rem 0;
+}
+
+.ws-info-box-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.8rem;
+  color: #1E3A8A;
+  line-height: 1.5;
+}
+
+.ws-transfer-card,
+.ws-history-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.15rem 1.25rem;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  gap: 1rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ws-transfer-card:hover,
+.ws-history-card:hover {
+  border-color: #CBD5E1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+}
+
+.ws-transfer-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.ws-transfer-project-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0F172A;
+}
+
+.ws-project-key-tag {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: #EEF2FF;
+  color: #4F46E5;
+  border: 1px solid #C7D2FE;
+}
+
+.ws-transfer-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  color: #64748B;
+}
+
+.ws-history-route {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #334155;
+}
+
+.ws-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ws-status-pill.status-pending {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.ws-status-pill.status-completed {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.ws-status-pill.status-rejected {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+
+.ws-status-pill.status-cancelled {
+  background: #F1F5F9;
+  color: #475569;
+}
+
+.ws-rejection-note {
+  font-size: 0.78rem;
+  color: #DC2626;
+  background: #FEF2F2;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  margin-top: 0.25rem;
+  border: 1px solid #FECACA;
+}
+
+.ws-transfers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+
+/* =========================================================================
+   Workspace Ownership Transfer Solid & Secure Styles
+   ========================================================================= */
+
+.ws-retention-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.15rem 1.5rem;
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  border-radius: 14px;
+  margin-bottom: 1.5rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ws-retention-icon {
+  color: #16A34A;
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+.ws-retention-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #166534;
+  margin: 0 0 0.25rem 0;
+}
+
+.ws-retention-desc {
+  font-size: 0.8125rem;
+  color: #15803D;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.ws-direction-flow-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.75rem;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  margin-bottom: 1.75rem;
+  gap: 1.5rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ws-direction-party {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.ws-direction-badge {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+}
+
+.ws-direction-badge.ws-direction-current {
+  background: #E2E8F0;
+  color: #475569;
+}
+
+.ws-direction-badge.ws-direction-new {
+  background: #DBEAFE;
+  color: #1D4ED8;
+}
+
+.ws-direction-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #0F172A;
+}
+
+.ws-direction-role {
+  font-size: 0.78125rem;
+  color: #64748B;
+}
+
+.ws-direction-arrow-icon {
+  color: #94A3B8;
+  flex-shrink: 0;
+}
+
+.ws-ownership-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.ws-ownership-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: start;
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.ws-ownership-form-col {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .ws-ownership-form-grid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+}
+
+.ws-project-transfer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  align-items: start;
+  width: 100%;
+}
+
+.ws-project-transfer-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+@media (max-width: 900px) {
+  .ws-project-transfer-grid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+}
+
+.ws-recipient-preview-card {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.875rem 1rem;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  margin-top: 0.75rem;
+}
+
+.ws-recipient-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #2563EB;
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.875rem;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.ws-recipient-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ws-recipient-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  flex: 1;
+}
+
+.ws-recipient-fullname {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0F172A;
+}
+
+.ws-recipient-sub {
+  font-size: 0.78125rem;
+  color: #64748B;
+}
+
+.ws-recipient-role-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  background: #F1F5F9;
+  color: #475569;
+}
+
+.ws-guard-box {
+  background: #FFFBEB;
+  border: 1px solid #FCD34D;
+  border-radius: 12px;
+  padding: 1.15rem 1.25rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ws-guard-label {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #92400E;
+}
+
+.ws-guard-hint {
+  font-size: 0.75rem;
+  color: #B45309;
+}
+
+.ws-pending-card {
+  background: #FFFBEB;
+  border: 1px solid #FCD34D;
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.ws-pending-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.ws-countdown-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: #FEF3C7;
+  color: #92400E;
+  border: 1px solid #FDE68A;
 }

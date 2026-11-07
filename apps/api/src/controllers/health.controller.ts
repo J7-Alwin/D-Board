@@ -4,6 +4,7 @@ import { isRedisReady, getRedisClient } from '../redis/redis.client.js';
 import { storageService } from '../storage/storage.service.js';
 import { getEmailQueue, getDeadlineQueue, getCleanupQueue } from '../jobs/queues.js';
 import { logger } from '../utils/logger.js';
+import { pingDatabase, verifyCronSecret } from '../services/keepalive.service.js';
 
 export async function getLiveness(_req: Request, res: Response): Promise<void> {
   res.status(200).json({
@@ -114,4 +115,30 @@ export async function getReadiness(_req: Request, res: Response): Promise<void> 
     checks,
     timestamp: new Date().toISOString(),
   });
+}
+
+/**
+ * Endpoint for scheduled keepalive pings (cron jobs, uptime monitors).
+ * Executes a round-trip database query to prevent Supabase projects from pausing.
+ * 
+ * Protected by constant-time secret check and rate limiter.
+ */
+export async function handleDatabaseKeepalive(req: Request, res: Response): Promise<void> {
+  const authHeader = req.headers.authorization;
+  const cronKeyHeader = req.headers['x-cron-key'] as string | undefined;
+
+  const isAuthorized = verifyCronSecret(authHeader, cronKeyHeader);
+  if (!isAuthorized) {
+    res.status(401).json({
+      success: false,
+      error: 'Unauthorized',
+      service: 'd-board-db-keepalive',
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const result = await pingDatabase();
+  const statusCode = result.success ? 200 : 503;
+  res.status(statusCode).json(result);
 }

@@ -229,10 +229,11 @@ describe('Multi-Workspace Security Remediation Test Suite', () => {
       );
 
       // Concurrency test: create fresh invitation and run concurrent accepts
+      const concurrentEmail = "concurrent_user_" + Date.now() + "@example.com";
       const invConcurrent = await prisma.invitation.create({
         data: {
           projectId: teamProject2Id,
-          invitedEmail: 'concurrent_user@example.com',
+          invitedEmail: concurrentEmail,
           invitedById: ownerId,
           role: 'PROJECT_MEMBER',
           status: 'PENDING',
@@ -243,7 +244,7 @@ describe('Multi-Workspace Security Remediation Test Suite', () => {
       // Create concurrent user and join workspace
       const cUser = await prisma.user.create({
         data: {
-          email: 'concurrent_user@example.com',
+          email: concurrentEmail,
           username: `concurrent_${Date.now()}`,
           isEmailVerified: true,
         },

@@ -1,0 +1,45 @@
+name: Supabase Database Keepalive
+
+on:
+  schedule:
+    # Runs twice a day (at 00:00 UTC and 12:00 UTC) to prevent Supabase from pausing after inactivity
+    - cron: '0 0,12 * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  keepalive-ping:
+    name: Ping Supabase Database
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Keepalive Ping to API
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          TARGET_URL="${API_URL:-https://d-board-api.onrender.com}/api/cron/keepalive"
+          echo "Sending keepalive request to: $TARGET_URL"
+          
+          if [ -n "$CRON_SECRET" ]; then
+            RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$TARGET_URL" \
+              -H "Content-Type: application/json" \
+              -H "x-cron-key: $CRON_SECRET" \
+              --max-time 30)
+          else
+            RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$TARGET_URL" \
+              -H "Content-Type: application/json" \
+              --max-time 30)
+          fi
+
+          HTTP_BODY=$(echo "$RESPONSE" | sed -e '$d')
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n1 | sed -e 's/HTTP_STATUS://')
+
+          echo "Response Status: $HTTP_STATUS"
+          echo "Response Body: $HTTP_BODY"
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "Keepalive ping succeeded! Supabase database activity registered."
+          else
+            echo "Keepalive ping failed with status $HTTP_STATUS"
+            exit 1
+          fi
+

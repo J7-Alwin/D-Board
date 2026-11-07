@@ -87,17 +87,46 @@ async function runE2ESmokeSuite() {
     // E2E-02: Create project -> invite member -> accept invitation -> member appears
     // -------------------------------------------------------------
     console.log('\n--- [E2E-02] Create Project -> Invite Member -> Accept -> Member Appears ---');
+    // Create a team workspace for collaborative projects (personal workspaces cannot invite members)
+    const createWsRes = await request(app)
+      .post('/api/workspaces')
+      .set('Cookie', sessionCookieA)
+      .send({ name: 'E2E Team Workspace ' + timestamp });
+    if (createWsRes.status !== 201) throw new Error('Create team workspace failed: ' + createWsRes.text);
+    const workspaceAId = createWsRes.body.data.workspace.id;
+
+    // Invite User B to the team workspace
+    const wsInviteRes = await request(app)
+      .post('/api/workspaces/' + workspaceAId + '/invitations')
+      .set('Cookie', sessionCookieA)
+      .send({ email: userB.email, role: 'WORKSPACE_MEMBER' });
+    if (wsInviteRes.status !== 201) throw new Error('Workspace invitation failed: ' + wsInviteRes.text);
+
+    const wsInvite = await prisma.workspaceInvitation.findFirst({
+      where: { workspaceId: workspaceAId, invitedEmail: userB.email, status: 'PENDING' },
+    });
+    if (!wsInvite) throw new Error('Workspace invitation record not found');
+
+    const acceptWsRes = await request(app)
+      .post('/api/workspaces/invitations/' + wsInvite.id + '/accept')
+      .set('Cookie', sessionCookieB);
+    if (acceptWsRes.status !== 200) throw new Error('Accept workspace invitation failed: ' + acceptWsRes.text);
+
+    // Create project in the team workspace with User B invited
     const projRes = await request(app)
       .post('/api/projects')
       .set('Cookie', sessionCookieA)
+      .set('x-workspace-id', workspaceAId)
       .send({
-        name: `E2E Workspace ${timestamp}`,
-        key: `E2E${timestamp.toString().slice(-4)}`,
+        name: 'E2E Workspace ' + timestamp,
+        key: 'E2E' + timestamp.toString().slice(-4),
         description: 'End to end testing project workspace',
         technologyStack: ['React', 'Node'],
+        visibility: 'RESTRICTED',
+        workspaceId: workspaceAId,
         invitations: [{ email: userB.email, role: 'PROJECT_MEMBER' }],
       });
-    if (projRes.status !== 201) throw new Error(`Create project failed: ${projRes.text}`);
+    if (projRes.status !== 201) throw new Error('Create project failed: ' + projRes.text);
     projectId = projRes.body.data.project.id;
 
     // Fetch invitation for User B
@@ -105,35 +134,17 @@ async function runE2ESmokeSuite() {
     if (invites.length === 0) throw new Error('Invitation record not found');
     const inviteId = invites[0].id;
 
-    // Verify workspace membership prerequisite: non-workspace member is blocked
-    const preRes = await request(app)
-      .post(`/api/invitations/${inviteId}/accept`)
-      .set('Cookie', sessionCookieB);
-    if (preRes.status !== 403) throw new Error(`Expected 403 WORKSPACE_MEMBERSHIP_REQUIRED, got: ${preRes.status}`);
-
-    // Join workspace first (prerequisite for project membership)
-    const projData = await prisma.project.findUnique({ where: { id: projectId }, select: { workspaceId: true } });
-    if (!projData?.workspaceId) throw new Error('Project has no workspaceId');
-    await prisma.workspaceMember.create({
-      data: {
-        workspaceId: projData.workspaceId,
-        userId: memberUserId,
-        role: 'WORKSPACE_MEMBER',
-        origin: 'DIRECT',
-      },
-    });
-
     // User B accepts invitation now that workspace membership prerequisite is met
     const acceptRes = await request(app)
-      .post(`/api/invitations/${inviteId}/accept`)
+      .post('/api/invitations/' + inviteId + '/accept')
       .set('Cookie', sessionCookieB);
-    if (acceptRes.status !== 200) throw new Error(`Accept invitation failed: ${acceptRes.text}`);
+    if (acceptRes.status !== 200) throw new Error('Accept invitation failed: ' + acceptRes.text);
 
     // Verify member appears in project members
     const membersRes = await request(app)
-      .get(`/api/projects/${projectId}/members`)
+      .get('/api/projects/' + projectId + '/members')
       .set('Cookie', sessionCookieA);
-    if (membersRes.status !== 200) throw new Error(`List members failed: ${membersRes.text}`);
+    if (membersRes.status !== 200) throw new Error('List members failed: ' + membersRes.text);
     const membersList = Array.isArray(membersRes.body.data) 
       ? membersRes.body.data 
       : (membersRes.body.data?.members || membersRes.body.members || []);

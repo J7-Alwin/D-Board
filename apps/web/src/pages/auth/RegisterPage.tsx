@@ -1,205 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AuthLayout } from '../../components/layout/AuthLayout';
 import { Link, useRouter } from '../../router/Router';
 import { Input } from '../../components/ui/Input';
 import { PasswordInput } from '../../components/ui/PasswordInput';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Button } from '../../components/ui/Button';
-import { GoogleIcon, ArrowRightIcon, ArrowLeftIcon, UserIcon, LockIcon, MailIcon } from '../../components/ui/Icons';
+import { GoogleIcon, ArrowRightIcon, UserIcon, LockIcon, MailIcon } from '../../components/ui/Icons';
 import { authApi } from '../../api/auth.api';
 import { GOOGLE_AUTH_ENABLED } from '../../config/features';
 import { useAuth } from '../../context/AuthContext';
 import { LegalModal } from '../../components/modals/LegalModal';
 import { validatePassword } from '../../utils/passwordPolicy';
-
-function getEmailProviderUrl(email: string): string {
-  const domain = email.split('@')[1]?.toLowerCase();
-  if (!domain) return 'mailto:';
-  if (domain === 'gmail.com' || domain === 'googlemail.com') {
-    return 'https://mail.google.com';
-  }
-  if (domain === 'outlook.com' || domain === 'hotmail.com' || domain === 'live.com') {
-    return 'https://outlook.live.com';
-  }
-  if (domain === 'yahoo.com' || domain === 'ymail.com') {
-    return 'https://mail.yahoo.com';
-  }
-  if (domain === 'icloud.com') {
-    return 'https://www.icloud.com/mail';
-  }
-  return `mailto:${email}`;
-}
-
-const EmailEnvelopeIllustration: React.FC = () => {
-  return (
-    <svg
-      className="account-created-svg"
-      viewBox="0 0 320 330"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <defs>
-        {/* Soft shadow for the sliding letter card */}
-        <filter id="cardShadow" x="-15%" y="-15%" width="130%" height="135%" filterUnits="userSpaceOnUse">
-          <feDropShadow dx="0" dy="8" stdDeviation="10" floodColor="#18181B" floodOpacity="0.08" />
-        </filter>
-        {/* Shadow for the floating dark circular badge */}
-        <filter id="darkBadgeShadow" x="-25%" y="-25%" width="150%" height="150%" filterUnits="userSpaceOnUse">
-          <feDropShadow dx="0" dy="4" stdDeviation="5" floodColor="#18181B" floodOpacity="0.16" />
-        </filter>
-        {/* Soft base shadow */}
-        <filter id="envelopeBaseGlow" x="-10%" y="-10%" width="120%" height="120%" filterUnits="userSpaceOnUse">
-          <feDropShadow dx="0" dy="10" stdDeviation="14" floodColor="#18181B" floodOpacity="0.06" />
-        </filter>
-      </defs>
-
-      {/* Background Soft Organic Circular Aura */}
-      <circle cx="150" cy="180" r="115" fill="#EFF3E8" />
-      <circle cx="180" cy="150" r="135" fill="#F4F6EE" opacity="0.65" />
-      <circle cx="145" cy="180" r="150" stroke="#E2E7D8" strokeWidth="1" fill="none" opacity="0.55" />
-
-      {/* Subtle Dot Matrix in Top-Left Background */}
-      <g opacity="0.45" fill="#A8B29C">
-        <circle cx="65" cy="52" r="1.75" />
-        <circle cx="78" cy="52" r="1.75" />
-        <circle cx="91" cy="52" r="1.75" />
-        <circle cx="104" cy="52" r="1.75" />
-        <circle cx="117" cy="52" r="1.75" />
-
-        <circle cx="65" cy="65" r="1.75" />
-        <circle cx="78" cy="65" r="1.75" />
-        <circle cx="91" cy="65" r="1.75" />
-        <circle cx="104" cy="65" r="1.75" />
-        <circle cx="117" cy="65" r="1.75" />
-
-        <circle cx="65" cy="78" r="1.75" />
-        <circle cx="78" cy="78" r="1.75" />
-        <circle cx="91" cy="78" r="1.75" />
-        <circle cx="104" cy="78" r="1.75" />
-        <circle cx="117" cy="78" r="1.75" />
-
-        <circle cx="65" cy="91" r="1.75" />
-        <circle cx="78" cy="91" r="1.75" />
-        <circle cx="91" cy="91" r="1.75" />
-        <circle cx="104" cy="91" r="1.75" />
-        <circle cx="117" cy="91" r="1.75" />
-      </g>
-
-      {/* Sweeping Dashed Arc Flight Path from lower-left to top-right airplane */}
-      <path
-        d="M 52 245 C 50 165, 120 95, 252 75"
-        stroke="#88907E"
-        strokeWidth="1.4"
-        strokeDasharray="4 4"
-        strokeLinecap="round"
-        fill="none"
-      />
-
-      {/* Paper Airplane at Upper Right (flying ↗) */}
-      <g transform="translate(258, 54) rotate(24)">
-        <polygon points="0,22 26,0 17,25 10,14" fill="#FFFFFF" stroke="#18181B" strokeWidth="1.3" strokeLinejoin="round" />
-        <polygon points="26,0 10,14 17,25" fill="#EAEFE2" />
-        <line x1="26" y1="0" x2="10" y2="14" stroke="#18181B" strokeWidth="1.3" strokeLinejoin="round" />
-        <polygon points="10,14 10,21 14,18" fill="#D6DCD0" stroke="#18181B" strokeWidth="1.3" strokeLinejoin="round" />
-      </g>
-
-      {/* Envelope Group with Soft Base Shadow */}
-      <g filter="url(#envelopeBaseGlow)">
-        {/* Open Envelope Back Flap (pointing upward behind the letter card) */}
-        <polygon
-          points="68,185 160,118 252,185"
-          fill="#E7ECE0"
-          stroke="#DBE1D2"
-          strokeWidth="1.2"
-        />
-
-        {/* Interior Pocket Cavity Shadow behind the letter card */}
-        <polygon
-          points="68,185 252,185 252,260 68,260"
-          fill="#DEE4D6"
-        />
-
-        {/* Sliding Letter Card (tilted ~ -6 deg) */}
-        <g transform="translate(94, 126) rotate(-6)" filter="url(#cardShadow)">
-          {/* Card Body */}
-          <rect
-            width="140"
-            height="112"
-            rx="16"
-            fill="#FFFFFF"
-            stroke="#E1E6D8"
-            strokeWidth="1.4"
-          />
-
-          {/* D-Board Squircle Logo Badge on the Letter */}
-          <g transform="translate(53, 16)">
-            <rect width="34" height="34" rx="9" fill="#18181B" />
-            <g transform="translate(1, 1) scale(0.32)">
-              {/* Brand Lime Neon Chevron Arrow */}
-              <polygon points="22.44,43.11 43.11,57.95 22.44,75.97" fill="#D2F843" />
-              {/* White Developer 'D' shape */}
-              <path
-                d="M 29.33 21.38 A 6.89 6.89 0 0 0 29.33 35.16 L 54.24 35.16 C 55.3 35.16 66.43 40.46 66.43 49.47 C 66.43 58.48 53.18 63.25 47.88 59.54 L 33.57 71.73 C 31.45 74.91 31.98 77.56 36.22 77.56 L 55.3 77.56 C 72.26 77.56 80.74 65.9 80.74 49.47 C 80.74 33.04 72.26 21.38 55.3 21.38 Z"
-                fill="#FFFFFF"
-              />
-            </g>
-          </g>
-
-          {/* Rounded Placeholder Text Lines on the Card */}
-          <rect x="30" y="60" width="80" height="7" rx="3.5" fill="#D0D6C6" />
-          <rect x="32" y="73" width="66" height="7" rx="3.5" fill="#DEE4D6" />
-
-          {/* Floating Dark Circular Badge on Top-Right Corner of Card (Image 2) */}
-          <g transform="translate(130, 10)">
-            {/* 3 Radiating Burst Tick Marks */}
-            <g stroke="#8E9480" strokeWidth="2.2" strokeLinecap="round">
-              {/* Top-left tick */}
-              <line x1="-10" y1="-23" x2="-15" y2="-32" />
-              {/* Top-right tick */}
-              <line x1="8" y1="-22" x2="16" y2="-30" />
-              {/* Right tick */}
-              <line x1="22" y1="-6" x2="31" y2="-5" />
-            </g>
-
-            {/* Dark Circle */}
-            <circle cx="0" cy="0" r="19" fill="#18181B" filter="url(#darkBadgeShadow)" />
-
-            {/* Small White Paper Airplane inside Dark Circle */}
-            <g transform="translate(-7.5, -8) scale(0.85)">
-              <polygon points="0,17 19,0 13,19 7,11" fill="#FFFFFF" stroke="#18181B" strokeWidth="0.8" strokeLinejoin="round" />
-              <polygon points="19,0 7,11 13,19" fill="#E4E7DF" />
-            </g>
-          </g>
-        </g>
-
-        {/* Envelope Front Pocket - Left Side Flap */}
-        <polygon
-          points="68,185 146,242 68,285"
-          fill="#F4F6EC"
-          stroke="#DBE1D2"
-          strokeWidth="1.2"
-        />
-
-        {/* Envelope Front Pocket - Right Side Flap */}
-        <polygon
-          points="252,185 174,242 252,285"
-          fill="#F4F6EC"
-          stroke="#DBE1D2"
-          strokeWidth="1.2"
-        />
-
-        {/* Envelope Front Pocket - Bottom Center Flap with Rounded Crest (Matching Image 2) */}
-        <path
-          d="M 68 285 L 252 285 L 188 234 C 172 222, 148 222, 132 234 Z"
-          fill="#FAFBF6"
-          stroke="#DBE1D2"
-          strokeWidth="1.2"
-        />
-      </g>
-    </svg>
-  );
-};
 
 export const RegisterPage: React.FC = () => {
   const { navigate } = useRouter();
@@ -214,10 +25,16 @@ export const RegisterPage: React.FC = () => {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [legalModalType, setLegalModalType] = useState<'terms' | 'privacy' | null>(null);
 
-  const [isRegistered, setIsRegistered] = useState(false);
-  const [registeredEmail, setRegisteredEmail] = useState('');
-  const [isResending, setIsResending] = useState(false);
-  const [resendStatus, setResendStatus] = useState<string | null>(null);
+  // Pre-registration OTP email verification state
+  const [isEmailVerified, setIsEmailVerified] = useState(false);
+  const [verificationToken, setVerificationToken] = useState<string | null>(null);
+  const [showOtpBox, setShowOtpBox] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [otpSuccessMessage, setOtpSuccessMessage] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const [errors, setErrors] = useState<{
     fullName?: string;
@@ -229,6 +46,15 @@ export const RegisterPage: React.FC = () => {
     general?: string;
   }>({});
   const [isLoading, setIsLoading] = useState(false);
+
+  // Countdown timer for OTP resend cooldown
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   // Compute initials for the fallback avatar
   const initials = useMemo(() => {
@@ -245,451 +71,569 @@ export const RegisterPage: React.FC = () => {
     return '';
   }, [fullName, username]);
 
-  const handleResendVerification = async () => {
-    if (!registeredEmail) return;
-    setIsResending(true);
-    setResendStatus(null);
-    try {
-      await authApi.resendVerification(registeredEmail);
-      setResendStatus('A new verification email has been dispatched. Please check your inbox.');
-    } catch {
-      setResendStatus('A new verification email has been dispatched. Please check your inbox.');
-    } finally {
-      setIsResending(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrors({});
-
-    const newErrors: {
-      fullName?: string;
-      username?: string;
-      email?: string;
-      password?: string;
-      confirmPassword?: string;
-      termsAccepted?: string;
-    } = {};
-
-    if (!fullName.trim()) {
-      newErrors.fullName = 'Full name is required';
-    }
-
-    if (!username.trim()) {
-      newErrors.username = 'Username is required';
-    } else if (username.trim().length < 3) {
-      newErrors.username = 'Username must be at least 3 characters';
-    } else if (!/^[a-zA-Z0-9_-]+$/.test(username.trim())) {
-      newErrors.username = 'Username can only contain letters, numbers, underscores and dashes';
-    }
-
-    if (!email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      newErrors.email = 'Please enter a valid email address';
-    }
-
-    const passwordValidation = validatePassword(password);
-    if (!passwordValidation.isValid) {
-      newErrors.password = passwordValidation.error;
-    }
-
-    if (!confirmPassword) {
-      newErrors.confirmPassword = 'Confirm password is required';
-    } else if (password !== confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
-
-    if (!termsAccepted) {
-      newErrors.termsAccepted = 'You must accept the terms of service to continue';
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      const res: any = await register({
-        fullName: fullName.trim(),
-        username: username.trim(),
-        email: email.trim(),
-        password,
-        avatarUrl: avatarUrl.trim() || undefined,
-        termsAccepted: true,
-      });
-
-      setRegisteredEmail(email.trim());
-      if (res?.data?.emailDeliveryStatus === 'failed' || res?.message?.includes('could not deliver')) {
-        setResendStatus('Account created, but we could not deliver your verification email automatically. Click "Resend verification email" below to receive your link.');
+    const handleSendOtp = async () => {
+      const trimmedEmail = email.trim();
+      if (!trimmedEmail) {
+        setErrors((prev) => ({ ...prev, email: 'Email address is required' }));
+        return;
       }
-      setIsRegistered(true);
-    } catch (err: any) {
-      const fieldErrors: typeof errors = {};
-      if (err.data?.errors) {
-        if (err.data.errors.username?.[0]) fieldErrors.username = err.data.errors.username[0];
-        if (err.data.errors.email?.[0]) fieldErrors.email = err.data.errors.email[0];
-        if (err.data.errors.password?.[0]) fieldErrors.password = err.data.errors.password[0];
-        if (err.data.errors.fullName?.[0]) fieldErrors.fullName = err.data.errors.fullName[0];
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        setErrors((prev) => ({ ...prev, email: 'Please enter a valid email address' }));
+        return;
       }
-      setErrors({
-        ...fieldErrors,
-        general: err.message || 'Registration failed. Please try again.',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
-  if (isRegistered) {
+      try {
+        setIsSendingOtp(true);
+        setErrors((prev) => ({ ...prev, email: undefined }));
+        setOtpError(null);
+        setOtpSuccessMessage(null);
+
+        const res: any = await authApi.sendRegistrationOtp(trimmedEmail);
+        setShowOtpBox(true);
+        setResendCooldown(60);
+        setOtpSuccessMessage(res.message || 'Verification code sent to your email');
+      } catch (err: any) {
+        const errMsg =
+          err?.message ||
+          err?.data?.message ||
+          err?.data?.errors?.email?.[0] ||
+          'Failed to send verification code. Please try again.';
+        setErrors((prev) => ({ ...prev, email: errMsg }));
+        setOtpError(errMsg);
+      } finally {
+        setIsSendingOtp(false);
+      }
+    };
+
+    const handleVerifyOtp = async () => {
+      const cleanOtp = otp.trim();
+      if (!cleanOtp || cleanOtp.length !== 6) {
+        setOtpError('Please enter the 6-digit verification code');
+        return;
+      }
+
+      try {
+        setIsVerifyingOtp(true);
+        setOtpError(null);
+
+        const res: any = await authApi.verifyRegistrationOtp(email.trim(), cleanOtp);
+        const token = res.verificationToken || res.data?.verificationToken;
+        if (token) {
+          setVerificationToken(token);
+          setIsEmailVerified(true);
+          setShowOtpBox(false);
+          setOtp('');
+          setOtpError(null);
+          setErrors((prev) => ({ ...prev, email: undefined }));
+        } else {
+          setOtpError('Verification failed. Invalid verification token.');
+        }
+      } catch (err: any) {
+        const errMsg =
+          err?.message ||
+          err?.data?.message ||
+          'Verification failed. Please check your code and try again.';
+        setOtpError(errMsg);
+      } finally {
+        setIsVerifyingOtp(false);
+      }
+    };
+
+    const handleResendOtp = async () => {
+      if (resendCooldown > 0 || isSendingOtp) return;
+      await handleSendOtp();
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setErrors({});
+
+      const newErrors: {
+        fullName?: string;
+        username?: string;
+        email?: string;
+        password?: string;
+        confirmPassword?: string;
+        termsAccepted?: string;
+      } = {};
+
+      if (!fullName.trim()) {
+        newErrors.fullName = 'Full name is required';
+      }
+
+      if (!username.trim()) {
+        newErrors.username = 'Username is required';
+      } else if (username.trim().length < 3) {
+        newErrors.username = 'Username must be at least 3 characters';
+      } else if (!/^[a-zA-Z0-9_-]+$/.test(username.trim())) {
+        newErrors.username = 'Username can only contain letters, numbers, underscores and dashes';
+      }
+
+      if (!email.trim()) {
+        newErrors.email = 'Email address is required';
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        newErrors.email = 'Please enter a valid email address';
+      } else if (!isEmailVerified) {
+        newErrors.email = 'Please verify your email address before creating an account';
+        if (!showOtpBox) {
+          handleSendOtp();
+        }
+      }
+
+      const passwordValidation = validatePassword(password);
+      if (!passwordValidation.isValid) {
+        newErrors.password = passwordValidation.error;
+      }
+
+      if (!confirmPassword) {
+        newErrors.confirmPassword = 'Confirm password is required';
+      } else if (password !== confirmPassword) {
+        newErrors.confirmPassword = 'Passwords do not match';
+      }
+
+      if (!termsAccepted) {
+        newErrors.termsAccepted = 'You must accept the terms of service to continue';
+      }
+
+      if (Object.keys(newErrors).length > 0) {
+        setErrors(newErrors);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+          await register({
+            fullName: fullName.trim(),
+            username: username.trim(),
+            email: email.trim(),
+            password,
+            avatarUrl: avatarUrl.trim() || undefined,
+            termsAccepted: true,
+            verificationToken: verificationToken || undefined,
+          });
+
+        // Direct authenticated user straight to the dashboard
+        navigate('/app/dashboard');
+      } catch (err: any) {
+        const fieldErrors: typeof errors = {};
+        if (err.data?.errors) {
+          if (err.data.errors.username?.[0]) fieldErrors.username = err.data.errors.username[0];
+          if (err.data.errors.email?.[0]) fieldErrors.email = err.data.errors.email[0];
+          if (err.data.errors.password?.[0]) fieldErrors.password = err.data.errors.password[0];
+          if (err.data.errors.fullName?.[0]) fieldErrors.fullName = err.data.errors.fullName[0];
+        }
+        setErrors({
+          ...fieldErrors,
+          general: err.message || 'Registration failed. Please try again.',
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    const handleGoogleLogin = () => {
+      window.location.href = authApi.getGoogleAuthUrl();
+    };
+
     return (
       <AuthLayout
         headerAction={
           <div className="auth-header-nav-link">
-            <span className="auth-header-nav-text">Already verified?</span>{' '}
+            <span className="auth-header-nav-text">Already have an account?</span>{' '}
             <Link to="/login" className="auth-header-link-highlight">
               Log in
             </Link>
           </div>
         }
       >
-        <div className="account-created-wrapper">
-          <Link to="/login" className="back-link" style={{ alignSelf: 'flex-start', marginBottom: '1.25rem' }}>
-            <ArrowLeftIcon size={16} />
-            <span>Back to sign in</span>
-          </Link>
-
-          <div className="account-created-hero-row">
-            <div className="account-created-text-col">
-              <h1 className="account-created-heading">Account created</h1>
-              <h2 className="account-created-subheading">Check your inbox</h2>
-              <p className="account-created-body">
-                We sent a verification link to{' '}
-                <strong className="account-created-email-highlight">{registeredEmail}</strong>.{' '}
-                Click the button in your email to verify your address and unlock project collaboration.
-              </p>
-            </div>
-
-            <div className="account-created-illustration-col" aria-hidden="true">
-              <EmailEnvelopeIllustration />
-            </div>
+        <div className="auth-form-wrapper">
+          {/* Title */}
+          <div className="auth-header-text">
+            <h1 className="auth-page-title">Create an account</h1>
+            <p className="auth-page-sub">
+              Start organizing your development projects with your team today.
+            </p>
           </div>
 
-          {resendStatus && (
-            <div
-              className="auth-alert success-alert"
-              role="alert"
-              style={{
-                width: '100%',
-                backgroundColor: '#E7F6EC',
-                color: '#166534',
-                border: '1px solid #BBF7D0',
-                marginBottom: '1.25rem',
-                borderRadius: '8px',
-                padding: '0.75rem 1rem',
-                fontSize: '0.875rem',
-              }}
-            >
-              {resendStatus}
+          {/* Google Sign In */}
+          {GOOGLE_AUTH_ENABLED && (
+            <>
+              <button
+                type="button"
+                className="google-auth-btn"
+                onClick={handleGoogleLogin}
+                disabled={isLoading}
+              >
+                <GoogleIcon size={18} />
+                <span>Continue with Google</span>
+              </button>
+
+              {/* Divider 1 */}
+              <div className="auth-divider">
+                <span className="divider-text">OR</span>
+              </div>
+            </>
+          )}
+
+          {/* General Error Alert */}
+          {errors.general && (
+            <div className="auth-alert error-alert" role="alert">
+              {errors.general}
             </div>
           )}
 
-          <div className="account-created-actions-stack">
-            <button
-              type="button"
-              className="account-created-primary-btn"
-              onClick={() => {
-                const mailUrl = getEmailProviderUrl(registeredEmail);
-                if (mailUrl.startsWith('http')) {
-                  window.open(mailUrl, '_blank', 'noopener,noreferrer');
-                } else {
-                  window.location.href = mailUrl;
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="auth-form-fields" noValidate>
+            {/* Optional Avatar Placeholder */}
+            <div className="avatar-picker-section">
+              <div className="avatar-preview-circle">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Avatar Preview" className="avatar-preview-img" />
+                ) : initials ? (
+                  <span className="avatar-initials-text">{initials}</span>
+                ) : (
+                  <UserIcon size={22} className="avatar-placeholder-icon" />
+                )}
+              </div>
+              <div className="avatar-picker-info">
+                <div className="avatar-picker-label">
+                  Profile photo <span className="avatar-optional-badge">(Optional)</span>
+                </div>
+                <div className="avatar-picker-help">
+                  {initials ? `Using initials "${initials}".` : 'JPG, PNG or SVG.'}
+                </div>
+                <div className="avatar-picker-actions">
+                  <label className="avatar-upload-btn">
+                    <span>{avatarUrl ? 'Change photo' : '+ Add Photo'}</span>
+                    <input
+                      type="file"
+                      accept="image/png, image/jpeg, image/svg+xml"
+                      className="avatar-file-input"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            if (typeof event.target?.result === 'string') {
+                              setAvatarUrl(event.target.result);
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      disabled={isLoading}
+                    />
+                  </label>
+                  {avatarUrl && (
+                    <button
+                      type="button"
+                      className="avatar-remove-btn"
+                      onClick={() => setAvatarUrl('')}
+                      disabled={isLoading}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <Input
+              label="Full Name"
+              type="text"
+              placeholder="e.g. Alex Henderson"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              error={errors.fullName}
+              leftIcon={<UserIcon size={18} />}
+              required
+              autoComplete="name"
+              disabled={isLoading}
+            />
+
+            <Input
+              label="Username"
+              type="text"
+              placeholder="e.g. alex_dev"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              error={errors.username}
+              leftIcon={<span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-muted)' }}>@</span>}
+              required
+              autoComplete="username"
+              disabled={isLoading}
+            />
+
+            {/* Email address field with inline Verify button */}
+            <div className="register-email-section">
+              <div className="input-group">
+                <label htmlFor="register-email-input" className="input-label">
+                  Email address <span className="input-required" aria-hidden="true">*</span>
+                </label>
+                <div className={`input-wrapper ${errors.email ? 'has-error' : ''} has-left-icon`}>
+                  <span className="input-icon-left">
+                    <MailIcon size={18} />
+                  </span>
+                  <input
+                    id="register-email-input"
+                    type="email"
+                    placeholder="name@company.com"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (isEmailVerified) {
+                        setIsEmailVerified(false);
+                        setVerificationToken(null);
+                      }
+                      if (errors.email) {
+                        setErrors((prev) => ({ ...prev, email: undefined }));
+                      }
+                    }}
+                    className="input-field"
+                    style={{ paddingRight: isEmailVerified ? '7.5rem' : '5.5rem' }}
+                    required
+                    autoComplete="email"
+                    disabled={isLoading || isSendingOtp || isEmailVerified}
+                  />
+                  <div className="email-verify-action-slot">
+                    {isEmailVerified ? (
+                      <div className="email-verified-pill-wrap">
+                        <span className="email-verified-pill" aria-label="Email verified">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                          Verified
+                        </span>
+                        <button
+                          type="button"
+                          className="email-change-btn"
+                          onClick={() => {
+                            setIsEmailVerified(false);
+                            setVerificationToken(null);
+                            setShowOtpBox(false);
+                            setOtp('');
+                          }}
+                          title="Change email address"
+                        >
+                          Change
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="email-verify-inline-btn"
+                        onClick={handleSendOtp}
+                        disabled={isSendingOtp || !email.trim() || isLoading}
+                      >
+                        {isSendingOtp ? 'Sending...' : 'Verify'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {errors.email && (
+                  <p className="input-error-msg" role="alert">
+                    {errors.email}
+                  </p>
+                )}
+              </div>
+
+              {/* Gap Extension for OTP Input when Verify is pressed */}
+              {showOtpBox && !isEmailVerified && (
+                <div className="register-otp-card" role="region" aria-label="Email Verification Code">
+                  <div className="register-otp-header">
+                    <span className="register-otp-badge">Verification Code</span>
+                    <h4 className="register-otp-title">Enter 6-digit code</h4>
+                    <p className="register-otp-desc">
+                      We sent a verification code to <strong>{email.trim()}</strong>. Enter it below to verify your email.
+                    </p>
+                  </div>
+
+                  <div className="register-otp-input-row">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      pattern="[0-9]*"
+                      maxLength={6}
+                      placeholder="• • • • • •"
+                      value={otp}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                        setOtp(val);
+                        if (otpError) setOtpError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (otp.length === 6 && !isVerifyingOtp) {
+                            handleVerifyOtp();
+                          }
+                        }
+                      }}
+                      className={`register-otp-field ${otpError ? 'has-error' : ''}`}
+                      disabled={isVerifyingOtp}
+                      aria-label="Enter 6-digit verification code"
+                    />
+                    <button
+                      type="button"
+                      className="register-otp-verify-btn"
+                      onClick={handleVerifyOtp}
+                      disabled={isVerifyingOtp || otp.length !== 6}
+                    >
+                      {isVerifyingOtp ? 'Verifying...' : 'Verify Code'}
+                    </button>
+                  </div>
+
+                  {otpError && (
+                    <div className="register-otp-error-msg" role="alert">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                      <span>{otpError}</span>
+                    </div>
+                  )}
+
+                  {otpSuccessMessage && !otpError && (
+                    <div className="register-otp-success-msg" role="status">
+                      <span>{otpSuccessMessage}</span>
+                    </div>
+                  )}
+
+                  <div className="register-otp-footer">
+                    <span className="register-otp-resend-text">Didn't receive code?</span>
+                    <button
+                      type="button"
+                      className="register-otp-resend-btn"
+                      onClick={handleResendOtp}
+                      disabled={resendCooldown > 0 || isSendingOtp}
+                    >
+                      {resendCooldown > 0 ? `Resend OTP (${resendCooldown}s)` : 'Resend OTP'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {isEmailVerified && (
+                <div className="register-email-verified-banner" role="status">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#166534" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>Email address verified. You can now set your password and create your account.</span>
+                </div>
+              )}
+            </div>
+
+            <PasswordInput
+              label="Password"
+              placeholder="Minimum 15 characters"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (errors.password) {
+                  setErrors((prev) => ({ ...prev, password: undefined }));
                 }
               }}
-            >
-              <span>Open email / Check inbox</span>
-              <ArrowRightIcon size={18} />
-            </button>
+              error={errors.password}
+              helperText="💡 Tip: A memorable passphrase of 3–4 words with spaces is easy to remember and secure (min 15 characters). No complex symbols required."
+              leftIcon={<LockIcon size={18} />}
+              required
+              autoComplete="new-password"
+              disabled={isLoading}
+            />
 
-            <button
-              type="button"
-              className="account-created-secondary-btn"
-              onClick={handleResendVerification}
-              disabled={isResending}
-            >
-              {isResending ? 'Resending...' : 'Resend verification email'}
-            </button>
+            <PasswordInput
+              label="Confirm Password"
+              placeholder="Re-enter your password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              error={errors.confirmPassword}
+              leftIcon={<LockIcon size={18} />}
+              required
+              autoComplete="new-password"
+              disabled={isLoading}
+            />
 
-            <button
-              type="button"
-              className="account-created-text-link"
-              onClick={() => navigate('/login')}
+            <div className="terms-checkbox-wrap">
+              <Checkbox
+                label={
+                  <span>
+                    I agree to the{' '}
+                    <button
+                      type="button"
+                      className="legal-link"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setLegalModalType('terms');
+                      }}
+                      style={{ background: 'none', border: 'none', padding: 0, textDecoration: 'underline', color: 'inherit', font: 'inherit', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      Terms of Service
+                    </button>{' '}
+                    and{' '}
+                    <button
+                      type="button"
+                      className="legal-link"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setLegalModalType('privacy');
+                      }}
+                      style={{ background: 'none', border: 'none', padding: 0, textDecoration: 'underline', color: 'inherit', font: 'inherit', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      Privacy Policy
+                    </button>
+                  </span>
+                }
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+                disabled={isLoading}
+              />
+              {errors.termsAccepted && (
+                <span className="input-error-msg">{errors.termsAccepted}</span>
+              )}
+            </div>
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              fullWidth
+              rightIcon={<ArrowRightIcon size={18} />}
+              isLoading={isLoading}
             >
-              Continue to Login
-            </button>
+              Create account
+            </Button>
+          </form>
+
+          {/* Divider 2 */}
+          <div className="auth-divider">
+            <span className="divider-text">Already registered?</span>
           </div>
+
+          {/* Log in Outline Button */}
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            fullWidth
+            onClick={() => navigate('/login')}
+            disabled={isLoading}
+          >
+            Log in instead
+          </Button>
+
+          {/* Inline Legal Modal */}
+          {legalModalType && (
+            <LegalModal
+              isOpen={!!legalModalType}
+              onClose={() => setLegalModalType(null)}
+              type={legalModalType}
+            />
+          )}
         </div>
       </AuthLayout>
     );
-  }
-
-  const handleGoogleLogin = () => {
-    window.location.href = authApi.getGoogleAuthUrl();
   };
-
-  return (
-    <AuthLayout
-      headerAction={
-        <div className="auth-header-nav-link">
-          <span className="auth-header-nav-text">Already have an account?</span>{' '}
-          <Link to="/login" className="auth-header-link-highlight">
-            Log in
-          </Link>
-        </div>
-      }
-    >
-      <div className="auth-form-wrapper">
-        {/* Title */}
-        <div className="auth-header-text">
-          <h1 className="auth-page-title">Create an account</h1>
-          <p className="auth-page-sub">
-            Start organizing your development projects with your team today.
-          </p>
-        </div>
-
-        {/* Google Sign In */}
-        {GOOGLE_AUTH_ENABLED && (
-          <>
-            <button
-              type="button"
-              className="google-auth-btn"
-              onClick={handleGoogleLogin}
-              disabled={isLoading}
-            >
-              <GoogleIcon size={18} />
-              <span>Continue with Google</span>
-            </button>
-
-            {/* Divider 1 */}
-            <div className="auth-divider">
-              <span className="divider-text">OR</span>
-            </div>
-          </>
-        )}
-
-        {/* General Error Alert */}
-        {errors.general && (
-          <div className="auth-alert error-alert" role="alert">
-            {errors.general}
-          </div>
-        )}
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="auth-form-fields" noValidate>
-          {/* Optional Avatar Placeholder */}
-          <div className="avatar-picker-section">
-            <div className="avatar-preview-circle">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt="Avatar Preview" className="avatar-preview-img" />
-              ) : initials ? (
-                <span className="avatar-initials-text">{initials}</span>
-              ) : (
-                <UserIcon size={22} className="avatar-placeholder-icon" />
-              )}
-            </div>
-            <div className="avatar-picker-info">
-              <div className="avatar-picker-label">
-                Profile photo <span className="avatar-optional-badge">(Optional)</span>
-              </div>
-              <div className="avatar-picker-help">
-                {initials ? `Using initials "${initials}".` : 'JPG, PNG or SVG.'}
-              </div>
-              <div className="avatar-picker-actions">
-                <label className="avatar-upload-btn">
-                  <span>{avatarUrl ? 'Change photo' : '+ Add Photo'}</span>
-                  <input
-                    type="file"
-                    accept="image/png, image/jpeg, image/svg+xml"
-                    className="avatar-file-input"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onload = (event) => {
-                          if (typeof event.target?.result === 'string') {
-                            setAvatarUrl(event.target.result);
-                          }
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
-                    disabled={isLoading}
-                  />
-                </label>
-                {avatarUrl && (
-                  <button
-                    type="button"
-                    className="avatar-remove-btn"
-                    onClick={() => setAvatarUrl('')}
-                    disabled={isLoading}
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <Input
-            label="Full Name"
-            type="text"
-            placeholder="e.g. Alex Henderson"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            error={errors.fullName}
-            leftIcon={<UserIcon size={18} />}
-            required
-            autoComplete="name"
-            disabled={isLoading}
-          />
-
-          <Input
-            label="Username"
-            type="text"
-            placeholder="e.g. alex_dev"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            error={errors.username}
-            leftIcon={<span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-muted)' }}>@</span>}
-            required
-            autoComplete="username"
-            disabled={isLoading}
-          />
-
-          <Input
-            label="Email address"
-            type="email"
-            placeholder="name@company.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            error={errors.email}
-            leftIcon={<MailIcon size={18} />}
-            required
-            autoComplete="email"
-            disabled={isLoading}
-          />
-
-          <PasswordInput
-            label="Password"
-            placeholder="Minimum 15 characters"
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              if (errors.password) {
-                setErrors((prev) => ({ ...prev, password: undefined }));
-              }
-            }}
-            error={errors.password}
-            helperText="💡 Tip: A memorable passphrase of 3–4 words with spaces is easy to remember and secure (min 15 characters). No complex symbols required."
-            leftIcon={<LockIcon size={18} />}
-            required
-            autoComplete="new-password"
-            disabled={isLoading}
-          />
-
-          <PasswordInput
-            label="Confirm Password"
-            placeholder="Re-enter your password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            error={errors.confirmPassword}
-            leftIcon={<LockIcon size={18} />}
-            required
-            autoComplete="new-password"
-            disabled={isLoading}
-          />
-
-          <div className="terms-checkbox-wrap">
-            <Checkbox
-              label={
-                <span>
-                  I agree to the{' '}
-                  <button
-                    type="button"
-                    className="legal-link"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setLegalModalType('terms');
-                    }}
-                    style={{ background: 'none', border: 'none', padding: 0, textDecoration: 'underline', color: 'inherit', font: 'inherit', cursor: 'pointer', fontWeight: 600 }}
-                  >
-                    Terms of Service
-                  </button>{' '}
-                  and{' '}
-                  <button
-                    type="button"
-                    className="legal-link"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setLegalModalType('privacy');
-                    }}
-                    style={{ background: 'none', border: 'none', padding: 0, textDecoration: 'underline', color: 'inherit', font: 'inherit', cursor: 'pointer', fontWeight: 600 }}
-                  >
-                    Privacy Policy
-                  </button>
-                </span>
-              }
-              checked={termsAccepted}
-              onChange={(e) => setTermsAccepted(e.target.checked)}
-              disabled={isLoading}
-            />
-            {errors.termsAccepted && (
-              <span className="input-error-msg">{errors.termsAccepted}</span>
-            )}
-          </div>
-
-          <Button
-            type="submit"
-            variant="primary"
-            size="lg"
-            fullWidth
-            rightIcon={<ArrowRightIcon size={18} />}
-            isLoading={isLoading}
-          >
-            Create account
-          </Button>
-        </form>
-
-        {/* Divider 2 */}
-        <div className="auth-divider">
-          <span className="divider-text">Already registered?</span>
-        </div>
-
-        {/* Log in Outline Button */}
-        <Button
-          type="button"
-          variant="outline"
-          size="lg"
-          fullWidth
-          onClick={() => navigate('/login')}
-          disabled={isLoading}
-        >
-          Log in instead
-        </Button>
-
-        {/* Inline Legal Modal */}
-        {legalModalType && (
-          <LegalModal
-            isOpen={!!legalModalType}
-            onClose={() => setLegalModalType(null)}
-            type={legalModalType}
-          />
-        )}
-      </div>
-    </AuthLayout>
-  );
-};

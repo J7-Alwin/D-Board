@@ -22,31 +22,41 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
-  const statusCode = typeof err.statusCode === 'number' && err.statusCode >= 400 && err.statusCode <= 599
-    ? err.statusCode
-    : 500;
+  const isDbReachabilityError =
+    err.code === 'P1001' ||
+    err.message?.includes("Can't reach database server") ||
+    err.message?.includes('database server at');
+
+  const statusCode = isDbReachabilityError
+    ? 503
+    : typeof err.statusCode === 'number' && err.statusCode >= 400 && err.statusCode <= 599
+      ? err.statusCode
+      : 500;
 
   const isProd = process.env.NODE_ENV === 'production';
-  const message =
-    statusCode === 500 && isProd
+  const message = isDbReachabilityError
+    ? 'Database server is temporarily unavailable or waking up. Please retry in a few moments.'
+    : statusCode === 500 && isProd
       ? 'An unexpected error occurred. Please try again later.'
       : err.message || 'Internal Server Error';
 
   const errorCode =
     err.code ||
-    (statusCode === 400
-      ? 'BAD_REQUEST'
-      : statusCode === 401
-      ? 'UNAUTHORIZED'
-      : statusCode === 403
-      ? 'FORBIDDEN'
-      : statusCode === 404
-      ? 'NOT_FOUND'
-      : statusCode === 409
-      ? 'CONFLICT'
-      : statusCode === 429
-      ? 'TOO_MANY_REQUESTS'
-      : 'INTERNAL_SERVER_ERROR');
+      (isDbReachabilityError
+        ? 'SERVICE_UNAVAILABLE'
+        : statusCode === 400
+          ? 'BAD_REQUEST'
+          : statusCode === 401
+            ? 'UNAUTHORIZED'
+            : statusCode === 403
+              ? 'FORBIDDEN'
+              : statusCode === 404
+                ? 'NOT_FOUND'
+                : statusCode === 409
+                  ? 'CONFLICT'
+                  : statusCode === 429
+                    ? 'TOO_MANY_REQUESTS'
+                    : 'INTERNAL_SERVER_ERROR');
 
   const requestId = req.id || (req.headers['x-request-id'] as string) || undefined;
 
@@ -77,4 +87,3 @@ export function errorHandler(
     ...(err.errors ? { errors: err.errors } : {}),
   });
 }
-

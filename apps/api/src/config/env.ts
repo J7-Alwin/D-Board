@@ -36,6 +36,8 @@ export interface EnvConfig {
   S3_SECRET_ACCESS_KEY?: string;
   ENABLE_EMBEDDED_WORKER?: boolean;
   COOKIE_SAME_SITE?: 'lax' | 'none' | 'strict';
+  CRON_SECRET?: string;
+  KEEPALIVE_INTERVAL_HOURS?: number;
 }
 
 export function validateEnv(envInput: NodeJS.ProcessEnv = process.env): EnvConfig {
@@ -128,6 +130,8 @@ export function validateEnv(envInput: NodeJS.ProcessEnv = process.env): EnvConfi
     S3_SECRET_ACCESS_KEY: s3SecretAccessKey,
     ENABLE_EMBEDDED_WORKER: enableEmbeddedWorker,
     COOKIE_SAME_SITE: cookieSameSite,
+    CRON_SECRET: envInput.CRON_SECRET,
+    KEEPALIVE_INTERVAL_HOURS: envInput.KEEPALIVE_INTERVAL_HOURS ? parseInt(envInput.KEEPALIVE_INTERVAL_HOURS, 10) : 12,
   };
 }
 

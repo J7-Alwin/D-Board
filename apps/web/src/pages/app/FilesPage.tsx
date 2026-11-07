@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from '../../router/Router';
-import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { projectsApi, type Project } from '../../api/projects.api';
 import {
@@ -16,12 +15,7 @@ import { FileViewerModal } from '../../components/files/FileViewerModal';
 import { FileUploadModal } from '../../components/files/FileUploadModal';
 import { StorageBreakdownModal } from '../../components/files/StorageBreakdownModal';
 import { ConnectDriveModal } from '../../components/files/ConnectDriveModal';
-import { MoveFileModal } from '../../components/files/MoveFileModal';
 import { DeleteFileModal } from '../../components/files/DeleteFileModal';
-import {
-  CreateFolderModal,
-  type FolderItem,
-} from '../../components/files/CreateFolderModal';
 import { FilesHeaderAtmosphere } from '../../components/common/HeaderAtmosphereArt';
 import {
   FolderIcon,
@@ -38,19 +32,18 @@ import {
   TrashIcon,
   MoreVerticalIcon,
   CheckSquareIcon,
-  UsersIcon,
+  ShieldCheckIcon,
   ImageIcon,
   ChevronRightIcon,
   InfoIcon,
-  LinkIcon,
-  LightbulbIcon,
-  FolderPlusIcon,
   CircleDotIcon,
   CheckIcon,
   AlertCircleIcon,
   ArrowLeftIcon,
   LockIcon,
   GlobeIcon,
+  LinkIcon,
+  LightbulbIcon,
 } from '../../components/ui/Icons';
 import { CustomSelect } from '../../components/ui/CustomSelect';
 
@@ -59,21 +52,98 @@ interface FilesPageProps {
   hideHeader?: boolean;
 }
 
+type SubfolderKey = 'tasks' | 'notes' | 'direct-public' | 'direct-private';
+
+interface FixedSubfolderDef {
+  key: SubfolderKey;
+  name: string;
+  subtitle: string;
+  boldDesc: string;
+  detailDesc: string;
+  emptySubtitle: string;
+  description: string;
+  color: string;
+  bgColor: string;
+  icon: (size?: number) => React.ReactNode;
+  bannerIcon: (size?: number) => React.ReactNode;
+}
+
+const FIXED_SUBFOLDERS: FixedSubfolderDef[] = [
+  {
+    key: 'tasks',
+    name: 'Tasks',
+    subtitle: 'Files attached to tasks & work items',
+    boldDesc: 'Files attached to tasks and work items.',
+    detailDesc: 'Visible to Workspace Owner, Workspace Admins, Project Admins, Task Assignees, and Creators.',
+    emptySubtitle: 'Files attached to tasks and work items. Upload or attach files to see them here.',
+    description: 'Files attached to tasks and work items. Visible to Workspace Owner, Workspace Admins, Project Admins, Task Assignees, and Creators.',
+    color: '#2563EB',
+    bgColor: '#EFF6FF',
+    icon: (size = 18) => <CheckSquareIcon size={size} />,
+    bannerIcon: (size = 16) => <ShieldCheckIcon size={size} />,
+  },
+  {
+    key: 'notes',
+    name: 'Notes',
+    subtitle: 'Files attached to project notes',
+    boldDesc: 'Files attached to project notes.',
+    detailDesc: 'Team notes are visible to all project members; private notes are restricted to creators and tagged users.',
+    emptySubtitle: 'Files attached to project notes. Upload or attach files to see them here.',
+    description: 'Files attached to notes. Team notes are visible to all project members; private notes are restricted to creators and tagged users.',
+    color: '#D97706',
+    bgColor: '#FEF3C7',
+    icon: (size = 18) => <FileTextIcon size={size} />,
+    bannerIcon: (size = 16) => <FileTextIcon size={size} />,
+  },
+  {
+    key: 'direct-public',
+    name: 'Direct Uploads (Public)',
+    subtitle: 'Files uploaded for the team',
+    boldDesc: 'Files directly uploaded to the project with public visibility.',
+    detailDesc: 'Accessible to all project members.',
+    emptySubtitle: 'Files uploaded for the team. Upload files to see them here.',
+    description: 'Files directly uploaded to the project with public visibility, accessible to all project members.',
+    color: '#16A34A',
+    bgColor: '#DCFCE7',
+    icon: (size = 18) => <GlobeIcon size={size} />,
+    bannerIcon: (size = 16) => <GlobeIcon size={size} />,
+  },
+  {
+    key: 'direct-private',
+    name: 'Direct Uploads (Private)',
+    subtitle: 'Files uploaded for your eyes only',
+    boldDesc: 'Files uploaded directly in private mode.',
+    detailDesc: 'Strictly restricted to your eyes only (no admin backdoor).',
+    emptySubtitle: 'Files uploaded for your eyes only. Upload files to see them here.',
+    description: 'Files uploaded directly in private mode. Strictly restricted to your eyes only (no admin backdoor).',
+    color: '#7C3AED',
+    bgColor: '#F5F3FF',
+    icon: (size = 18) => <LockIcon size={size} />,
+    bannerIcon: (size = 16) => <LockIcon size={size} />,
+  },
+];
+
 export const FilesPage: React.FC<FilesPageProps> = ({
   project: propProject,
   hideHeader = false,
 }) => {
   const { path } = useRouter();
   const isProjectScope = path.startsWith('/app/projects/');
-  const projectId = isProjectScope ? path.split('/')[3] : undefined;
-  const { user } = useAuth();
-  const { activeWorkspace, isLoading: wsLoading } = useWorkspace();
+  const routeProjectId = isProjectScope ? path.split('/')[3] : undefined;
+  const { activeWorkspace } = useWorkspace();
   const activeWsId = activeWorkspace?.id;
 
-  // Project state (if in project context)
+  // Project state
   const [project, setProject] = useState<Project | null>(propProject || null);
   const [accessibleProjects, setAccessibleProjects] = useState<Project[]>([]);
   const [selectedGlobalProjectId, setSelectedGlobalProjectId] = useState<string>('all');
+
+  // Multi-level navigation state:
+  // 1. Root: activeNavProjectId is null
+  // 2. Project: activeNavProjectId is set, activeSubfolderKey is null
+  // 3. Subfolder: activeNavProjectId is set, activeSubfolderKey is set
+  const [activeNavProjectId, setActiveNavProjectId] = useState<string | null>(null);
+  const [activeSubfolderKey, setActiveSubfolderKey] = useState<SubfolderKey | null>(null);
 
   // Files & filtering state
   const [files, setFiles] = useState<AttachmentDTO[]>([]);
@@ -87,63 +157,6 @@ export const FilesPage: React.FC<FilesPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Server-backed Folder System state
-  const [folders, setFolders] = useState<FolderItem[]>([]);
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
-  const [movingFile, setMovingFile] = useState<AttachmentDTO | null>(null);
-  const [fileToDelete, setFileToDelete] = useState<AttachmentDTO | null>(null);
-  const [isDeletingFile, setIsDeletingFile] = useState(false);
-
-  // Load server-backed folders for project(s)
-  const loadFolders = useCallback(async () => {
-    const targetProjId = projectId || (selectedGlobalProjectId !== 'all' ? selectedGlobalProjectId : null);
-    if (targetProjId) {
-      try {
-        const res = await filesApi.getProjectFolders(targetProjId);
-        if (res.success && res.data?.folders) {
-          setFolders(
-            res.data.folders.map((f) => ({
-              id: f.id,
-              name: f.name,
-              projectId: f.projectId,
-              projectName: project?.name || 'Project',
-              parentId: f.parentId,
-              color: '#8B5CF6',
-              createdAt: f.createdAt,
-            }))
-          );
-        }
-      } catch (e) {
-        console.error('Failed to load project folders:', e);
-      }
-    } else if (accessibleProjects.length > 0) {
-      try {
-        const allFolderLists = await Promise.all(
-          accessibleProjects.map((p) => filesApi.getProjectFolders(p.id).catch(() => null))
-        );
-        const aggregated: FolderItem[] = [];
-        allFolderLists.forEach((res, idx) => {
-          if (res && res.success && res.data?.folders) {
-            const p = accessibleProjects[idx];
-            res.data.folders.forEach((f) => {
-              aggregated.push({
-                id: f.id,
-                name: f.name,
-                projectId: f.projectId,
-                projectName: p.name,
-                parentId: f.parentId,
-                color: '#8B5CF6',
-                createdAt: f.createdAt,
-              });
-            });
-          }
-        });
-        setFolders(aggregated);
-      } catch (e) {}
-    }
-  }, [projectId, selectedGlobalProjectId, accessibleProjects, project]);
-
   // Modals state
   const [selectedFileForViewer, setSelectedFileForViewer] = useState<AttachmentDTO | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -152,74 +165,48 @@ export const FilesPage: React.FC<FilesPageProps> = ({
   const [isCreateWorkModalOpen, setIsCreateWorkModalOpen] = useState(false);
   const [selectedWorkItemId, setSelectedWorkItemId] = useState<string | null>(null);
   const [selectedWorkItemProject, setSelectedWorkItemProject] = useState<Project | null>(null);
-
-  // Action menu dropdown state
   const [activeMenuFileId, setActiveMenuFileId] = useState<string | null>(null);
-  const [activeMenuFolderId, setActiveMenuFolderId] = useState<string | null>(null);
-
-  // Close menus on outside click
-  useEffect(() => {
-    const handleGlobalClick = () => {
-      setActiveMenuFileId(null);
-      setActiveMenuFolderId(null);
-    };
-    if (activeMenuFileId || activeMenuFolderId) {
-      document.addEventListener('click', handleGlobalClick);
-      return () => document.removeEventListener('click', handleGlobalClick);
-    }
-  }, [activeMenuFileId, activeMenuFolderId]);
-
-  // Drag-and-drop state
+  const [fileToDelete, setFileToDelete] = useState<AttachmentDTO | null>(null);
+  const [isDeletingFile, setIsDeletingFile] = useState(false);
   const [isDraggingOverPage, setIsDraggingOverPage] = useState(false);
 
-  const activeProjectId = projectId || (selectedGlobalProjectId !== 'all' ? selectedGlobalProjectId : undefined);
+  // Effective project ID (either from route or navigation state)
+  const effectiveProjectId = routeProjectId || project?.id || activeNavProjectId;
 
-  // Load project if in workspace context
+  const effectiveProject = useMemo(() => {
+    if (!effectiveProjectId) return null;
+    return accessibleProjects.find((p) => p.id === effectiveProjectId) || (project?.id === effectiveProjectId ? project : null);
+  }, [effectiveProjectId, accessibleProjects, project]);
+
+  // Load project metadata if in project scope
   useEffect(() => {
-    if (projectId) {
-      projectsApi
-        .getProjectById(projectId, activeWsId)
-        .then((res) => {
-          if (res.success && res.data.project) {
-            setProject(res.data.project);
-          }
-        })
-        .catch(() => {});
-    } else {
-      if (wsLoading) return;
-      setAccessibleProjects([]);
-      setSelectedGlobalProjectId('all');
-      projectsApi
-        .getUserProjects(activeWsId)
-        .then((res) => {
-          if (res.success && res.data?.all) {
-            setAccessibleProjects(res.data.all);
-          }
-        })
-        .catch(() => {});
+    if (routeProjectId && (!project || project.id !== routeProjectId)) {
+      projectsApi.getProjectById(routeProjectId).then((res) => {
+        if (res.success && res.data?.project) {
+          setProject(res.data.project);
+        }
+      }).catch(() => { });
     }
-  }, [projectId, activeWsId, wsLoading]);
+  }, [routeProjectId, project]);
 
-  // Load storage stats
-  const loadStorageStats = useCallback(async () => {
-    try {
-      const res = await filesApi.getStorageStats(activeWsId);
-      if (res.success) {
-        setStats(res.data);
+  // Load accessible projects for global project picker & folders
+  useEffect(() => {
+    projectsApi.getUserProjects(activeWsId).then((res) => {
+      if (res.success && res.data) {
+        setAccessibleProjects(res.data.all || []);
       }
-    } catch {}
+    }).catch(() => { });
   }, [activeWsId]);
 
-  // Load files
+  // Load all files
   const loadFiles = useCallback(async () => {
-    setFiles([]);
     setLoading(true);
     setError(null);
-
     try {
-      if (projectId) {
-        const res = await filesApi.getProjectFiles(projectId, {
-          category: categoryFilter,
+      const targetProjId = routeProjectId || (effectiveProjectId ? effectiveProjectId : undefined);
+      if (targetProjId) {
+        const res = await filesApi.getProjectFiles(targetProjId, {
+          category: categoryFilter !== 'ALL' ? (categoryFilter as FileCategory) : undefined,
           search: searchQuery.trim() || undefined,
           sortBy,
           sortOrder,
@@ -227,304 +214,133 @@ export const FilesPage: React.FC<FilesPageProps> = ({
         });
         if (res.success) {
           setFiles(res.data.files);
+        } else {
+          setError('Failed to load project files');
         }
       } else {
         const res = await filesApi.getGlobalFiles({
           projectId: selectedGlobalProjectId !== 'all' ? selectedGlobalProjectId : undefined,
-          category: categoryFilter,
+          category: categoryFilter !== 'ALL' ? (categoryFilter as FileCategory) : undefined,
           search: searchQuery.trim() || undefined,
           sortBy,
           sortOrder,
           limit: 100,
-        }, activeWsId);
+        });
         if (res.success) {
           setFiles(res.data.files);
+        } else {
+          setError('Failed to load files');
         }
       }
-      loadStorageStats();
     } catch (err: any) {
-      setFiles([]);
-      setError(err.message || 'Failed to load files');
+      let msg = err?.message || 'Error loading files';
+      try {
+        const parsed = JSON.parse(msg);
+        if (Array.isArray(parsed) && parsed[0]?.message) {
+          msg = parsed[0].message;
+        }
+      } catch { }
+      setError(msg);
     } finally {
       setLoading(false);
     }
-  }, [projectId, selectedGlobalProjectId, categoryFilter, searchQuery, sortBy, sortOrder, loadStorageStats, activeWsId, wsLoading]);
+  }, [routeProjectId, effectiveProjectId, selectedGlobalProjectId, categoryFilter, searchQuery, sortBy, sortOrder]);
+
+  const loadStorageStats = useCallback(async () => {
+    try {
+      const res = await filesApi.getStorageStats();
+      if (res.success) {
+        setStats(res.data);
+      }
+    } catch { }
+  }, []);
 
   useEffect(() => {
     loadFiles();
-    loadFolders();
-  }, [loadFiles, loadFolders]);
+  }, [loadFiles]);
 
-  // Active current folder item or active project folder
-  const currentFolder = useMemo(() => {
-    if (!currentFolderId) return null;
-    if (currentFolderId.startsWith('proj-')) {
-      const pId = currentFolderId.replace('proj-', '');
-      const foundProj = accessibleProjects.find((p) => p.id === pId) || (project?.id === pId ? project : null);
-      if (foundProj) {
-        return {
-          id: currentFolderId,
-          name: foundProj.name,
-          projectId: foundProj.id,
-          projectName: foundProj.name,
-          parentId: null,
-          color: '#16A34A',
-          isProjectFolder: true,
-          project: foundProj,
-        };
-      }
-    }
-    return folders.find((f) => f.id === currentFolderId) || null;
-  }, [folders, currentFolderId, accessibleProjects, project]);
+  useEffect(() => {
+    loadStorageStats();
+  }, [loadStorageStats]);
 
-  // Breadcrumbs path
-  const folderBreadcrumbs = useMemo(() => {
-    if (!currentFolder) return [];
-    if ((currentFolder as any).isProjectFolder) {
-      return [currentFolder as any];
-    }
-    const crumbs: FolderItem[] = [];
-    let curr: any = currentFolder;
-    while (curr) {
-      crumbs.unshift(curr);
-      curr = curr.parentId ? folders.find((f) => f.id === curr!.parentId) || null : null;
-    }
-    return crumbs;
-  }, [currentFolder, folders]);
+  // Close menus on outside click
+  useEffect(() => {
+    const handleWindowClick = () => {
+      setActiveMenuFileId(null);
+    };
+    window.addEventListener('click', handleWindowClick);
+    return () => window.removeEventListener('click', handleWindowClick);
+  }, []);
 
-  // Combined Visible Folders (Project Folders + Personal Folders)
-  const visibleFolders = useMemo(() => {
-    if (currentFolderId) {
-      // Inside a project folder or personal subfolder
-      return folders.filter((f) => f.parentId === currentFolderId);
-    }
-
-    // At Root:
-    const projectFolderItems = (!projectId ? accessibleProjects : project ? [project] : []).map((p) => ({
-      id: `proj-${p.id}`,
-      name: p.name,
-      projectId: p.id,
-      projectName: p.name,
-      parentId: null,
-      color: '#16A34A',
-      isProjectFolder: true,
-      project: p,
-      createdAt: p.createdAt || new Date().toISOString(),
-    }));
-
-    const personalFolderItems = folders.filter((f) => {
-      if (projectId && f.projectId !== projectId && f.projectId !== 'all') return false;
-      if (selectedGlobalProjectId !== 'all' && f.projectId !== selectedGlobalProjectId && f.projectId !== 'all') {
-        return false;
-      }
-      return !f.parentId;
-    });
-
-    return [...projectFolderItems, ...personalFolderItems];
-  }, [folders, currentFolderId, projectId, selectedGlobalProjectId, accessibleProjects, project]);
-
-  // Filtered files in current folder view
-  const visibleFiles = useMemo(() => {
-    return files.filter((file) => {
-      if (currentFolderId) {
-        if (currentFolderId.startsWith('proj-')) {
-          const pId = currentFolderId.replace('proj-', '');
-          return file.projectId === pId;
-        }
-        return file.folderId === currentFolderId;
-      }
-      // Root view: show all files or top-level files
-      return true;
-    });
-  }, [files, currentFolderId]);
-
-  // Handle Folder Creation
-  const handleCreateFolder = async (newFolderData: Omit<FolderItem, 'id' | 'createdAt'>) => {
-    const targetProjId =
-      newFolderData.projectId && newFolderData.projectId !== 'all'
-        ? newFolderData.projectId
-        : activeProjectId || accessibleProjects[0]?.id;
-
-    if (!targetProjId) {
-      setFeedback({ type: 'error', message: 'Please select a project before creating a folder.' });
-      return;
-    }
-
-    try {
-      const res = await filesApi.createFolder(targetProjId, newFolderData.name, newFolderData.parentId);
-      if (res.success) {
-        setFeedback({ type: 'success', message: `Folder "${res.data.folder.name}" created successfully!` });
-        loadFolders();
-      }
-    } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || 'Failed to create folder' });
-    }
-  };
-
-  // Handle Folder Deletion
-  const handleDeleteFolder = async (folderId: string, folderName: string) => {
-    if (folderId.startsWith('proj-')) {
-      setFeedback({ type: 'error', message: 'Project folders are managed via Project Settings.' });
-      return;
-    }
-    if (!window.confirm(`Delete folder "${folderName}"? Files inside will be moved to Root.`)) return;
-
-    const folder = folders.find((f) => f.id === folderId);
-    const targetProjId = folder?.projectId || activeProjectId;
-    if (!targetProjId) return;
-
-    try {
-      await filesApi.deleteFolder(targetProjId, folderId);
-      if (currentFolderId === folderId) setCurrentFolderId(null);
-      setFeedback({ type: 'success', message: `Folder "${folderName}" deleted.` });
-      loadFolders();
-      loadFiles();
-    } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || 'Failed to delete folder' });
-    }
-  };
-
-  // Move file into a folder
-  const handleMoveFileToFolder = async (fileId: string, targetFolderId: string | null) => {
-    const targetFile = files.find((f) => f.id === fileId);
-    if (!targetFile) return;
-
-    try {
-      await filesApi.moveFile(targetFile.projectId, fileId, targetFolderId);
-      setMovingFile(null);
-      setFeedback({ type: 'success', message: 'File moved successfully!' });
-      loadFiles();
-    } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || 'Failed to move file' });
-    }
-  };
-
-  // Toggle file visibility (Public vs Private)
-  const handleToggleFilePrivacy = async (file: AttachmentDTO) => {
-    try {
-      const nextPrivacy = !file.isPrivate;
-      await filesApi.updateFileVisibility(file.projectId, file.id, nextPrivacy);
-      setFiles((prev) => prev.map((f) => (f.id === file.id ? { ...f, isPrivate: nextPrivacy } : f)));
-      setFeedback({ type: 'success', message: `File marked as ${nextPrivacy ? 'private' : 'public'}` });
-    } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || 'Failed to update file privacy' });
-    }
-  };
-
-  // Handle Drag and Drop anywhere on the page
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDraggingOverPage(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDraggingOverPage(false);
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDraggingOverPage(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const targetProjId = activeProjectId || accessibleProjects[0]?.id;
-      if (!targetProjId) {
-        setFeedback({ type: 'error', message: 'Please select a project before uploading files.' });
-        return;
-      }
-      try {
-        const droppedFiles = Array.from(e.dataTransfer.files);
-        const res = await filesApi.uploadFiles(targetProjId, droppedFiles, {
-          folderId: currentFolderId || null,
-        });
-        if (res.success) {
-          // Associate newly uploaded files with current active folder if open and not already assigned
-          if (currentFolderId && res.data?.files) {
-            await Promise.all(
-              res.data.files.map((f) =>
-                f.folderId !== currentFolderId
-                  ? filesApi.moveFile(targetProjId, f.id, currentFolderId).catch(() => {})
-                  : Promise.resolve()
-              )
-            );
-          }
-
-          setFeedback({
-            type: 'success',
-            message: `${droppedFiles.length} file(s) uploaded successfully${
-              currentFolder ? ` into "${currentFolder.name}"` : ''
-            }!`,
-          });
-          loadFiles();
-        }
-      } catch (err: any) {
-        setFeedback({ type: 'error', message: err.message || 'Failed to upload dropped files' });
-      }
-    }
-  };
-
-  const getCategoryIcon = (category: FileCategory) => {
-    switch (category) {
-      case 'SPREADSHEET':
-        return <TableIcon size={18} />;
-      case 'DOCUMENT':
-      case 'TEXT':
-        return <FileTextIcon size={18} />;
-      case 'PRESENTATION':
-        return <LayersIcon size={18} />;
-      case 'CODE':
-        return <CodeIcon size={18} />;
-      case 'DATA':
-        return <DatabaseIcon size={18} />;
-      case 'ARCHIVE':
-        return <FolderIcon size={18} />;
-      case 'IMAGE':
-        return <ImageIcon size={18} />;
-      case 'PDF':
-        return <FileTextIcon size={18} />;
-      default:
-        return <FileTextIcon size={18} />;
-    }
-  };
-
-  const getCategoryTheme = (category: FileCategory) => {
-    switch (category) {
-      case 'SPREADSHEET':
-        return { bg: '#DCFCE7', color: '#16A34A', label: 'Spreadsheet' };
-      case 'DOCUMENT':
-      case 'TEXT':
-        return { bg: '#EFF6FF', color: '#2563EB', label: 'Document' };
-      case 'PRESENTATION':
-        return { bg: '#FEF3C7', color: '#D97706', label: 'Presentation' };
-      case 'CODE':
-        return { bg: '#F3E8FF', color: '#9333EA', label: 'Code' };
-      case 'DATA':
-        return { bg: '#E0E7FF', color: '#4F46E5', label: 'Data' };
-      case 'ARCHIVE':
-        return { bg: '#FEE2E2', color: '#DC2626', label: 'Archive' };
-      case 'IMAGE':
-        return { bg: '#FCE7F3', color: '#DB2777', label: 'Image' };
-      case 'PDF':
-        return { bg: '#FFE4E6', color: '#E11D48', label: 'PDF' };
-      default:
-        return { bg: '#F3F4F6', color: '#4B5563', label: 'Other' };
-    }
-  };
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
+  // Format helper functions
+  const formatFileSize = (bytes: number) => {
+    if (!bytes || bytes === 0) return '0 B';
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) {
-      const kb = bytes / 1024;
-      return `${Number.isInteger(kb) ? kb : kb.toFixed(1)} KB`;
+      return `${(bytes / 1024).toFixed(1)} KB`;
     }
-    if (bytes < 1024 * 1024 * 1024) {
-      const mb = bytes / (1024 * 1024);
-      return `${Number.isInteger(mb) ? mb : mb.toFixed(1)} MB`;
-    }
-    const gb = bytes / (1024 * 1024 * 1024);
-    return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const handleOpenWorkItem = async (workItemId: string) => {
+  const formatDate = (isoString: string) => {
+    const d = new Date(isoString);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const getCategoryTheme = (category: string) => {
+    switch (category) {
+      case 'IMAGE':
+        return { color: '#DB2777', bgColor: '#FCE7F3', label: 'Image', icon: <ImageIcon size={14} /> };
+      case 'SPREADSHEET':
+        return { color: '#16A34A', bgColor: '#DCFCE7', label: 'Spreadsheet', icon: <TableIcon size={14} /> };
+      case 'PRESENTATION':
+        return { color: '#D97706', bgColor: '#FEF3C7', label: 'Presentation', icon: <LayersIcon size={14} /> };
+      case 'CODE':
+        return { color: '#9333EA', bgColor: '#F3E8FF', label: 'Code', icon: <CodeIcon size={14} /> };
+      case 'PDF':
+        return { color: '#E11D48', bgColor: '#FFE4E6', label: 'PDF', icon: <FileTextIcon size={14} /> };
+      default:
+        return { color: '#2563EB', bgColor: '#EFF6FF', label: 'Document', icon: <FileTextIcon size={14} /> };
+    }
+  };
+
+  // Toggle file privacy
+  const handleToggleFilePrivacy = async (file: AttachmentDTO) => {
+    try {
+      const res = await filesApi.updateFileVisibility(file.projectId, file.id, !file.isPrivate);
+      if (res.success) {
+        setFeedback({
+          type: 'success',
+          message: `File is now ${res.data.file.isPrivate ? 'Private (only you)' : 'Public (project members)'}`,
+        });
+        loadFiles();
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to update visibility' });
+    }
+  };
+
+  // Delete file
+  const handleDeleteFile = async (fileId: string) => {
+    if (!fileToDelete) return;
+    setIsDeletingFile(true);
+    try {
+      const res = await filesApi.deleteFile(fileToDelete.projectId, fileId);
+      if (res.success) {
+        setFeedback({ type: 'success', message: `Deleted "${fileToDelete.originalName}"` });
+        setFileToDelete(null);
+        loadFiles();
+        loadStorageStats();
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to delete file' });
+    } finally {
+      setIsDeletingFile(false);
+    }
+  };
+
+  // Open task details modal
+  const handleOpenWorkItemDetails = async (workItemId: string) => {
     if (project) {
       setSelectedWorkItemId(workItemId);
       setSelectedWorkItemProject(project);
@@ -537,12 +353,139 @@ export const FilesPage: React.FC<FilesPageProps> = ({
             setSelectedWorkItemId(workItemId);
             setSelectedWorkItemProject(res.data.project);
           }
-        } catch {}
+        } catch { }
       }
     }
   };
 
-  // Categories list matching reference design
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOverPage(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOverPage(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOverPage(false);
+    setIsUploadModalOpen(true);
+  };
+
+  // Calculate file counts inside each subfolder for a given project
+  const getSubfolderFileCount = (projId: string, subKey: SubfolderKey) => {
+    const projFiles = files.filter((f) => f.projectId === projId);
+    if (subKey === 'tasks') {
+      return projFiles.filter((f) => f.workItemId != null).length;
+    }
+    if (subKey === 'notes') {
+      return projFiles.filter((f) => f.noteId != null).length;
+    }
+    if (subKey === 'direct-public') {
+      return projFiles.filter((f) => !f.workItemId && !f.noteId && !f.isPrivate).length;
+    }
+    if (subKey === 'direct-private') {
+      return projFiles.filter((f) => !f.workItemId && !f.noteId && f.isPrivate).length;
+    }
+    return 0;
+  };
+
+  // Filtered files in subfolder view or search view
+  const visibleFiles = useMemo(() => {
+    return files.filter((file) => {
+      // If a specific subfolder is selected
+      if (activeSubfolderKey) {
+        if (effectiveProjectId && file.projectId !== effectiveProjectId) return false;
+        if (activeSubfolderKey === 'tasks') return file.workItemId != null;
+        if (activeSubfolderKey === 'notes') return file.noteId != null;
+        if (activeSubfolderKey === 'direct-public') return !file.workItemId && !file.noteId && !file.isPrivate;
+        if (activeSubfolderKey === 'direct-private') return !file.workItemId && !file.noteId && file.isPrivate;
+      }
+
+      // If at project level (no subfolder selected)
+      if (effectiveProjectId) {
+        return file.projectId === effectiveProjectId;
+      }
+
+      // If at global level
+      return true;
+    });
+  }, [files, activeSubfolderKey, effectiveProjectId]);
+
+  // Current active subfolder metadata
+  const currentSubfolder = useMemo(() => {
+    if (!activeSubfolderKey) return null;
+    return FIXED_SUBFOLDERS.find((f) => f.key === activeSubfolderKey) || null;
+  }, [activeSubfolderKey]);
+
+  // Breadcrumb Up navigation
+  const handleGoUp = () => {
+    if (activeSubfolderKey) {
+      setActiveSubfolderKey(null);
+    } else if (activeNavProjectId && !routeProjectId) {
+      setActiveNavProjectId(null);
+    }
+  };
+
+  // Render Origin badge on file cards / list rows
+  const renderOriginBadge = (file: AttachmentDTO) => {
+    if (file.workItem) {
+      return (
+        <span className="file-origin-pill-tag tag-task" title={`Attached to task: ${file.workItem.title}`}>
+          <CheckSquareIcon size={11} /> Task
+        </span>
+      );
+    }
+    if (file.note) {
+      const isPrivate = file.note.visibility === 'USERS';
+      return isPrivate ? (
+        <span className="file-origin-pill-tag tag-note-private" title={`Attached to private note: ${file.note.title}`}>
+          <LockIcon size={11} /> Note (Private)
+        </span>
+      ) : (
+        <span className="file-origin-pill-tag tag-note" title={`Attached to team note: ${file.note.title}`}>
+          <FileTextIcon size={11} /> Note (Team)
+        </span>
+      );
+    }
+    if (file.isPrivate) {
+      return (
+        <span className="file-origin-pill-tag tag-direct-private" title="Direct upload - private to you">
+          <LockIcon size={11} /> Direct (Private)
+        </span>
+      );
+    }
+    return (
+      <span className="file-origin-pill-tag tag-direct-public" title="Direct upload - public to project members">
+        <GlobeIcon size={11} /> Direct (Public)
+      </span>
+    );
+  };
+
+  // Render Jump button
+  const renderJumpButton = (file: AttachmentDTO) => {
+    if (file.workItem?.id) {
+      return (
+        <button
+          type="button"
+          className="file-link-jump jump-task"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleOpenWorkItemDetails(file.workItem!.id);
+          }}
+          title="View Task"
+        >
+          View Task
+        </button>
+      );
+    }
+    return null;
+  };
+
+  // Categories list
   const categoryFiltersList: Array<{ id: string; label: string; icon?: React.ReactNode }> = [
     { id: 'ALL', label: 'All' },
     { id: 'DOCUMENT', label: 'Documents', icon: <FileTextIcon size={14} /> },
@@ -577,7 +520,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
         />
       )}
 
-      {/* Main Top Header matching screenshot: Hidden in project overview page for now per user request */}
+      {/* Main Top Header */}
       {!hideHeader && (
         <div className="cal-page-header files-page-top-header">
           <div className="cal-header-left">
@@ -587,42 +530,18 @@ export const FilesPage: React.FC<FilesPageProps> = ({
             <div className="cal-banner-titles">
               <div className="cal-title-row">
                 <h1 className="cal-header-title">
-                  {project ? `${project.name} Files` : 'Files & Storage'}
+                  {effectiveProject ? `${effectiveProject.name} Files` : 'Files & Storage'}
                 </h1>
               </div>
               <p className="cal-header-subtitle">
-                Manage team documents, project attachments, and files.
+                Manage team documents, project attachments, and files with structured role-based access.
               </p>
             </div>
           </div>
 
-          {/* Atmosphere Quote & Illustration */}
           <FilesHeaderAtmosphere />
 
-          {/* Right Header Action Buttons */}
           <div className="cal-header-right" style={{ display: 'flex', gap: '0.5rem' }}>
-            <button
-              type="button"
-              className="cal-btn-new-event files-btn-create-folder"
-              onClick={() => setIsCreateFolderModalOpen(true)}
-              style={{
-                backgroundColor: '#FFFFFF',
-                color: '#0F172A',
-                border: '1px solid #E2E8F0',
-                borderRadius: '9999px',
-                padding: '0.48rem 0.95rem',
-                fontWeight: 600,
-                fontSize: '0.8125rem',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                cursor: 'pointer',
-              }}
-            >
-              <FolderPlusIcon size={15} />
-              <span>New Folder</span>
-            </button>
-
             <button
               type="button"
               className="cal-btn-new-event files-btn-upload-primary"
@@ -638,9 +557,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
       {/* Feedback Banner */}
       {feedback && (
         <div
-          className={`form-feedback-banner ${
-            feedback.type === 'success' ? 'feedback-success' : 'feedback-error'
-          }`}
+          className={`form-feedback-banner ${feedback.type === 'success' ? 'feedback-success' : 'feedback-error'}`}
           style={{ marginBottom: '1rem' }}
         >
           {feedback.type === 'success' ? <CheckIcon size={16} /> : <AlertCircleIcon size={16} />}
@@ -653,7 +570,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
         <div className="files-drag-overlay-banner">
           <UploadCloudIcon size={28} />
           <span>
-            Drop files here to upload{currentFolder ? ` into "${currentFolder.name}"` : ' to D-Board'}
+            Drop files here to upload{effectiveProject ? ` into "${effectiveProject.name}"` : ' to D-Board'}
           </span>
         </div>
       )}
@@ -662,9 +579,8 @@ export const FilesPage: React.FC<FilesPageProps> = ({
       <div className="cal-main-grid files-main-grid-layout">
         {/* LEFT COLUMN: Main Files & Folders Card */}
         <div className="cal-card-primary files-card-primary">
-          {/* Controls Row 1: Search, Project Filter, Sort, View Mode Switches */}
+          {/* Controls Toolbar */}
           <div className="files-controls-toolbar">
-            {/* Search Box */}
             <div className="files-search-input-wrap">
               <SearchIcon size={15} />
               <input
@@ -677,11 +593,19 @@ export const FilesPage: React.FC<FilesPageProps> = ({
             </div>
 
             <div className="files-filter-dropdowns-group">
-              {/* Project Filter */}
-              {!projectId && (
+              {!routeProjectId && (
                 <CustomSelect
                   value={selectedGlobalProjectId}
-                  onChange={(val) => setSelectedGlobalProjectId(val)}
+                  onChange={(val) => {
+                    setSelectedGlobalProjectId(val);
+                    if (val === 'all') {
+                      setActiveNavProjectId(null);
+                      setActiveSubfolderKey(null);
+                    } else {
+                      setActiveNavProjectId(val);
+                      setActiveSubfolderKey(null);
+                    }
+                  }}
                   compact
                   fullWidth={false}
                   options={[
@@ -705,7 +629,6 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                 />
               )}
 
-              {/* Sort Dropdown */}
               <CustomSelect
                 value={`${sortBy}-${sortOrder}`}
                 onChange={(val) => {
@@ -725,7 +648,6 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                 ]}
               />
 
-              {/* View Switchers */}
               <div className="files-view-buttons-cluster">
                 <button
                   type="button"
@@ -760,28 +682,6 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginLeft: 'auto' }}>
                   <button
                     type="button"
-                    className="cal-btn-new-event files-btn-create-folder"
-                    onClick={() => setIsCreateFolderModalOpen(true)}
-                    style={{
-                      backgroundColor: '#FFFFFF',
-                      color: '#0F172A',
-                      border: '1px solid #E2E8F0',
-                      borderRadius: '8px',
-                      padding: '0.38rem 0.75rem',
-                      fontWeight: 600,
-                      fontSize: '0.78125rem',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.35rem',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <FolderPlusIcon size={14} />
-                    <span>New Folder</span>
-                  </button>
-
-                  <button
-                    type="button"
                     className="cal-btn-new-event files-btn-upload-primary"
                     onClick={() => setIsUploadModalOpen(true)}
                     style={{
@@ -798,7 +698,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
             </div>
           </div>
 
-          {/* Controls Row 2: Category Filter Horizontal Pills */}
+          {/* Category Filter Pills */}
           <div className="files-category-pills-row">
             {categoryFiltersList.map((cat) => {
               const isActive = categoryFilter === cat.id;
@@ -816,43 +716,60 @@ export const FilesPage: React.FC<FilesPageProps> = ({
             })}
           </div>
 
-          {/* Breadcrumb Folder Navigation Bar */}
+          {/* Breadcrumb Navigation Bar */}
           <div className="files-folder-breadcrumbs-bar">
             <div className="folder-breadcrumbs-left">
-              <button
-                type="button"
-                className={`folder-breadcrumb-node ${!currentFolderId ? 'active' : ''}`}
-                onClick={() => setCurrentFolderId(null)}
-              >
-                <FolderIcon size={15} />
-                <span>All Files</span>
-              </button>
+              {!routeProjectId && (
+                <button
+                  type="button"
+                  className={`folder-breadcrumb-node ${!effectiveProjectId ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveNavProjectId(null);
+                    setActiveSubfolderKey(null);
+                    setSelectedGlobalProjectId('all');
+                  }}
+                >
+                  <FolderIcon size={15} />
+                  <span>All Projects</span>
+                </button>
+              )}
 
-              {folderBreadcrumbs.map((crumb, idx) => {
-                const isLast = idx === folderBreadcrumbs.length - 1;
-                return (
-                  <React.Fragment key={crumb.id}>
-                    <ChevronRightIcon size={14} className="folder-crumb-arrow" />
-                    <button
-                      type="button"
-                      className={`folder-breadcrumb-node ${isLast ? 'active' : ''}`}
-                      onClick={() => setCurrentFolderId(crumb.id)}
-                    >
-                      <span className="crumb-color-dot" style={{ backgroundColor: crumb.color }} />
-                      <span>{crumb.name}</span>
-                    </button>
-                  </React.Fragment>
-                );
-              })}
+              {effectiveProjectId && (
+                <>
+                  {!routeProjectId && <ChevronRightIcon size={14} className="folder-crumb-arrow" />}
+                  <button
+                    type="button"
+                    className={`folder-breadcrumb-node ${!activeSubfolderKey ? 'active' : ''}`}
+                    onClick={() => setActiveSubfolderKey(null)}
+                  >
+                    <span className="crumb-color-dot" style={{ backgroundColor: '#16A34A' }} />
+                    <span>{effectiveProject?.name || 'Project'}</span>
+                  </button>
+                </>
+              )}
+
+              {activeSubfolderKey && currentSubfolder && (
+                <>
+                  <ChevronRightIcon size={14} className="folder-crumb-arrow" />
+                  <button
+                    type="button"
+                    className="folder-breadcrumb-node active"
+                    onClick={() => { }}
+                  >
+                    <span className="crumb-color-dot" style={{ backgroundColor: currentSubfolder.color }} />
+                    <span>{currentSubfolder.name}</span>
+                  </button>
+                </>
+              )}
             </div>
 
             <div className="folder-breadcrumbs-right">
-              {currentFolderId && (
+              {(activeSubfolderKey || (activeNavProjectId && !routeProjectId)) && (
                 <button
                   type="button"
                   className="folder-btn-up"
-                  onClick={() => setCurrentFolderId(currentFolder?.parentId || null)}
-                  title="Go up one folder"
+                  onClick={handleGoUp}
+                  title="Go up one folder level"
                 >
                   <ArrowLeftIcon size={14} />
                   <span>Up</span>
@@ -861,120 +778,72 @@ export const FilesPage: React.FC<FilesPageProps> = ({
 
               <button
                 type="button"
-                className="folder-btn-new-sub"
-                onClick={() => setIsCreateFolderModalOpen(true)}
+                className="folder-btn-up"
+                onClick={() => setIsUploadModalOpen(true)}
+                title="Upload file"
               >
-                <FolderPlusIcon size={13} />
-                <span>{currentFolderId ? 'New Subfolder' : 'New Folder'}</span>
+                <UploadCloudIcon size={14} />
+                <span>Upload</span>
               </button>
             </div>
           </div>
 
-          {/* FOLDERS GRID SECTION */}
-          {visibleFolders.length > 0 && !searchQuery && (
+          {/* LEVEL 1: ROOT VIEW (Global Scope, No Project Selected) */}
+          {!effectiveProjectId && !searchQuery && categoryFilter === 'ALL' && (
             <div className="files-folders-shelf-section">
-              <div className="folders-shelf-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+              <div className="folders-shelf-header">
                 <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  {currentFolderId ? 'Subfolders' : 'All Folders'} ({visibleFolders.length})
+                  Project Folders ({accessibleProjects.length})
                 </span>
-                {!currentFolderId && (
-                  <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
-                    Select a folder below to view files
-                  </span>
-                )}
+                <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                  Select a project folder to view categorized subfolders
+                </span>
               </div>
-              <div className="folders-shelf-grid">
-                {visibleFolders.map((fld: any) => {
-                  const isProj = Boolean(fld.isProjectFolder);
-                  const itemsInside = isProj
-                    ? files.filter((f) => f.projectId === fld.projectId).length
-                    : files.filter((f) => f.folderId === fld.id).length;
 
+              <div className="folders-shelf-grid">
+                {accessibleProjects.map((p) => {
+                  const projFileCount = files.filter((f) => f.projectId === p.id).length;
                   return (
                     <div
-                      key={fld.id}
-                      className={`folder-shelf-tile ${activeMenuFolderId === fld.id ? 'is-menu-open' : ''}`}
-                      onClick={() => setCurrentFolderId(fld.id)}
+                      key={p.id}
+                      className="folder-shelf-tile"
+                      onClick={() => {
+                        setActiveNavProjectId(p.id);
+                        setActiveSubfolderKey(null);
+                        setSelectedGlobalProjectId(p.id);
+                      }}
                     >
                       <div className="folder-tile-left">
-                        {isProj && fld.project?.avatarUrl ? (
+                        {p.avatarUrl ? (
                           <img
-                            src={fld.project.avatarUrl}
-                            alt={fld.name}
+                            src={p.avatarUrl}
+                            alt={p.name}
                             className="folder-tile-avatar"
                             style={{ width: '2.25rem', height: '2.25rem', borderRadius: '8px', objectFit: 'cover' }}
                           />
                         ) : (
                           <span
                             className="folder-tile-icon-box"
-                            style={{
-                              backgroundColor: isProj ? '#EBF5EC' : `${fld.color}18`,
-                              color: isProj ? '#16A34A' : fld.color,
-                            }}
+                            style={{ backgroundColor: '#EBF5EC', color: '#16A34A' }}
                           >
                             <FolderIcon size={20} />
                           </span>
                         )}
                         <div className="folder-tile-info">
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                            <h4 className="folder-tile-name" title={fld.name}>
-                              {fld.name}
+                            <h4 className="folder-tile-name" title={p.name}>
+                              {p.name}
                             </h4>
-                            {isProj && <span className="folder-badge-project">Project</span>}
+                            <span className="folder-badge-project">Project</span>
                           </div>
                           <span className="folder-tile-count">
-                            {itemsInside} file{itemsInside !== 1 ? 's' : ''}
+                            {projFileCount} file{projFileCount !== 1 ? 's' : ''}
                           </span>
                         </div>
                       </div>
 
-                      <div className="folder-tile-actions" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          className="folder-tile-menu-btn"
-                          onClick={() => setActiveMenuFolderId(activeMenuFolderId === fld.id ? null : fld.id)}
-                          aria-label="Folder actions"
-                        >
-                          <MoreVerticalIcon size={15} />
-                        </button>
-
-                        {activeMenuFolderId === fld.id && (
-                          <div className="file-action-dropdown">
-                            <button
-                              type="button"
-                              className="dropdown-item"
-                              onClick={() => {
-                                setActiveMenuFolderId(null);
-                                setCurrentFolderId(fld.id);
-                              }}
-                            >
-                              <FolderIcon size={14} /> Open Folder
-                            </button>
-                            <button
-                              type="button"
-                              className="dropdown-item"
-                              onClick={() => {
-                                setActiveMenuFolderId(null);
-                                setCurrentFolderId(fld.id);
-                                setIsUploadModalOpen(true);
-                              }}
-                            >
-                              <UploadCloudIcon size={14} /> Upload Here
-                            </button>
-                            {!isProj && (
-                              <button
-                                type="button"
-                                className="dropdown-item text-danger"
-                                onClick={() => {
-                                  setActiveMenuFolderId(null);
-                                  handleDeleteFolder(fld.id, fld.name);
-                                }}
-                              >
-                                <TrashIcon size={14} /> Delete Folder
-                              </button>
-                            )}
-                          </div>
-                        )}
+                      <div className="folder-tile-actions">
+                        <ChevronRightIcon size={16} style={{ color: '#94A3B8' }} />
                       </div>
                     </div>
                   );
@@ -983,9 +852,80 @@ export const FilesPage: React.FC<FilesPageProps> = ({
             </div>
           )}
 
-          {/* MAIN FILES CONTENT AREA (Only shown when inside a folder, or searching, or filtering) */}
-          {(currentFolderId || searchQuery || categoryFilter !== 'ALL') && (
+          {/* LEVEL 2: PROJECT VIEW (Project Selected, Showing 4 Fixed Subfolders) */}
+          {effectiveProjectId && !activeSubfolderKey && !searchQuery && categoryFilter === 'ALL' && (
+            <div className="files-folders-shelf-section">
+              <div className="folders-shelf-header">
+                <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Project Subfolders (4)
+                </span>
+                <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                  Select a folder to view categorized files
+                </span>
+              </div>
+
+              <div className="subfolders-shelf-grid-2col">
+                {FIXED_SUBFOLDERS.map((fld) => {
+                  const count = getSubfolderFileCount(effectiveProjectId, fld.key);
+                  return (
+                    <div
+                      key={fld.key}
+                      className="folder-shelf-tile"
+                      onClick={() => setActiveSubfolderKey(fld.key)}
+                    >
+                      <div className="folder-tile-left">
+                        <span
+                          className="folder-tile-icon-box"
+                          style={{ backgroundColor: fld.bgColor, color: fld.color }}
+                        >
+                          {fld.icon(20)}
+                        </span>
+                        <div className="folder-tile-info">
+                          <h4 className="folder-tile-name" title={fld.name}>
+                            {fld.name}
+                          </h4>
+                          <span className="folder-tile-count" style={{ color: '#64748B', fontSize: '0.75rem' }}>
+                            {count} file{count !== 1 ? 's' : ''} · {fld.subtitle}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="folder-tile-actions">
+                        <ChevronRightIcon size={16} style={{ color: '#94A3B8' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* LEVEL 3: SUBFOLDER VIEW OR SEARCH/FILTER ACTIVE */}
+          {(activeSubfolderKey || searchQuery || categoryFilter !== 'ALL') && (
             <div className="files-content-body-wrap files-content-body-area">
+              {/* Guidance Info Banner when inside a fixed subfolder */}
+              {currentSubfolder && !searchQuery && categoryFilter === 'ALL' && (
+                <div className="folder-category-info-banner">
+                  <div className="folder-banner-left">
+                    <span
+                      className="folder-banner-icon-badge"
+                      style={{
+                        backgroundColor: currentSubfolder.key === 'tasks' ? '#DBEAFE' : currentSubfolder.bgColor,
+                        color: currentSubfolder.key === 'tasks' ? '#2563EB' : currentSubfolder.color,
+                      }}
+                    >
+                      {currentSubfolder.bannerIcon(16)}
+                    </span>
+                    <span className="folder-banner-text">
+                      <strong>{currentSubfolder.boldDesc}</strong> {currentSubfolder.detailDesc}
+                    </span>
+                  </div>
+                  <div className="folder-banner-right" title="Access policy">
+                    <InfoIcon size={18} />
+                  </div>
+                </div>
+              )}
+
               {loading ? (
                 <div className="files-loading-state">
                   <div className="files-loading-spinner" />
@@ -993,179 +933,138 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                 </div>
               ) : error ? (
                 <div className="files-error-state">
+                  <AlertCircleIcon size={32} />
+                  <h3>Failed to load files</h3>
                   <p>{error}</p>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => loadFiles()}>
+                  <button type="button" className="cal-btn-retry" onClick={() => loadFiles()}>
                     Retry
                   </button>
                 </div>
               ) : visibleFiles.length === 0 ? (
-                /* EMPTY STATE INSIDE SELECTED FOLDER */
+                /* EMPTY STATE INSIDE SUBFOLDER */
                 <div className="files-empty-state-card files-empty-state-box">
                   <div className="files-empty-illustration-wrap files-empty-illustration">
                     <div className="files-empty-folder-svg-box files-empty-circle">
-                      <svg width="68" height="68" viewBox="0 0 96 96" fill="none">
-                        {/* Cloud background */}
+                      <svg width="68" height="68" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        {/* D-Board Editorial Folder Outline */}
                         <path
-                          d="M28 54C22 54 18 49 18 43C18 37.5 22.5 33 28 33C29 33 30 33.2 31 33.6C33.5 26.8 40.2 22 48 22C57.5 22 65.4 28.8 67 38C72 39 76 43.5 76 49C76 55 71 60 65 60L28 60C25.8 60 28 54 28 54Z"
-                          fill="#F1F5F9"
-                        />
-                        {/* Document sheet */}
-                        <rect x="42" y="24" width="26" height="34" rx="4" fill="#E2E8F0" />
-                        <line x1="48" y1="32" x2="62" y2="32" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" />
-                        <line x1="48" y1="38" x2="58" y2="38" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" />
-                        <line x1="48" y1="44" x2="54" y2="44" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" />
-                        {/* Main Folder outline */}
-                        <path
-                          d="M20 38H34L40 45H68C70.2 45 72 46.8 72 49V64C72 66.2 70.2 68 68 68H20C17.8 68 16 66.2 16 64V42C16 39.8 17.8 38 20 38Z"
+                          d="M12 24C12 20.6863 14.6863 18 18 18H28L34 24H50C53.3137 24 56 26.6863 56 30V48C56 51.3137 53.3137 54 50 54H18C14.6863 54 12 51.3137 12 48V24Z"
                           stroke="#0F172A"
-                          strokeWidth="3.5"
+                          strokeWidth="3.2"
                           strokeLinejoin="round"
+                          fill="#FFFFFF"
                         />
-                        {/* Little sparkle */}
-                        <path d="M66 18V24M63 21H69" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" />
+                        {/* Accent Plus Sign */}
+                        <path d="M51 14V20M48 17H54" stroke="#94A3B8" strokeWidth="2.2" strokeLinecap="round" />
+                        {/* Upload Arrow */}
+                        <path d="M34 43V31M34 31L28 37M34 31L40 37" stroke="#0F172A" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                        {/* Base underline */}
+                        <path d="M27 45H41" stroke="#0F172A" strokeWidth="3" strokeLinecap="round" />
                       </svg>
                     </div>
                   </div>
 
                   <h3 className="files-empty-title">
-                    {currentFolder ? `"${currentFolder.name}" is empty` : 'No files found'}
+                    {currentSubfolder ? `“${currentSubfolder.name}” is empty` : 'No files found'}
                   </h3>
                   <p className="files-empty-subtitle">
                     {searchQuery || categoryFilter !== 'ALL'
                       ? 'No files matched your search or category filter.'
-                      : currentFolder
-                      ? `Upload documents, spreadsheets, or code directly into "${currentFolder.name}".`
-                      : 'Upload documents, spreadsheets, code, or images to get started.'}
+                      : currentSubfolder
+                        ? currentSubfolder.emptySubtitle
+                        : 'Upload documents, spreadsheets, code, or images to get started.'}
                   </p>
-
-                  <button
-                    type="button"
-                    className="files-btn-upload-empty"
-                    onClick={() => setIsUploadModalOpen(true)}
-                  >
-                    <UploadCloudIcon size={16} />
-                    <span>Upload Files Here</span>
-                  </button>
                 </div>
               ) : viewMode === 'grid' ? (
-              /* GRID VIEW */
-              <div className="files-grid-container">
-                {visibleFiles.map((file) => {
-                  const theme = getCategoryTheme(file.category);
-                  const assignedFolder = folders.find((f) => f.id === file.folderId);
+                /* GRID VIEW */
+                <div className="files-grid-container">
+                  {visibleFiles.map((file) => {
+                    const theme = getCategoryTheme(file.category);
+                    const isImg = file.mimeType?.startsWith('image/');
+                    const ext = file.originalName.split('.').pop()?.toUpperCase() || 'FILE';
 
-                  return (
-                    <div
-                      key={file.id}
-                      className={`file-grid-card ${activeMenuFileId === file.id ? 'is-menu-open' : ''}`}
-                      onClick={() => setSelectedFileForViewer(file)}
-                    >
-                      <div className="file-grid-preview-box">
-                        {file.category === 'IMAGE' ? (
-                          <img
-                            src={filesApi.getFileContentUrl(file.projectId, file.id)}
-                            alt={file.originalName}
-                            className="file-grid-img-thumb"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div
-                            className="file-grid-icon-placeholder"
-                            style={{ backgroundColor: theme.bg, color: theme.color }}
-                          >
-                            {getCategoryIcon(file.category)}
-                            <span className="file-grid-ext-badge">{file.extension.toUpperCase()}</span>
-                          </div>
-                        )}
-                      </div>
+                    return (
+                      <div
+                        key={file.id}
+                        className={`file-grid-card ${activeMenuFileId === file.id ? 'is-menu-open' : ''}`}
+                        onClick={() => setSelectedFileForViewer(file)}
+                      >
+                        <div className="file-grid-preview-box">
+                          {isImg ? (
+                            <img
+                              src={filesApi.getFileContentUrl(file.projectId, file.id)}
+                              alt={file.originalName}
+                              className="file-grid-img-thumb"
+                            />
+                          ) : (
+                            <div
+                              className="file-grid-icon-placeholder"
+                              style={{ backgroundColor: theme.bgColor, color: theme.color }}
+                            >
+                              {theme.icon}
+                              <span className="file-grid-ext-badge">{ext}</span>
+                            </div>
+                          )}
+                        </div>
 
-                      <div className="file-grid-details">
-                        <div className="file-grid-header-row">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
-                            <h4 className="file-grid-name" title={file.originalName} style={{ margin: 0 }}>
+                        <div className="file-grid-details">
+                          <div className="file-grid-header-row">
+                            <h4 className="file-grid-name" title={file.originalName}>
                               {file.originalName}
                             </h4>
-                            {file.isPrivate && (
-                              <span
-                                title="Private File"
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '2px',
-                                  padding: '1px 5px',
-                                  borderRadius: '4px',
-                                  fontSize: '0.65rem',
-                                  fontWeight: 600,
-                                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                                  color: '#ef4444',
-                                  flexShrink: 0,
-                                }}
-                              >
-                                <LockIcon size={10} />
-                                Private
-                              </span>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            className="file-card-menu-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveMenuFileId(activeMenuFileId === file.id ? null : file.id);
-                            }}
-                            aria-label="Actions"
-                          >
-                            <MoreVerticalIcon size={16} />
-                          </button>
 
-                          {/* Dropdown Action Menu */}
-                          {activeMenuFileId === file.id && (
-                            <div
-                              className="file-action-dropdown"
-                              onClick={(e) => e.stopPropagation()}
+                            <button
+                              type="button"
+                              className="file-card-menu-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveMenuFileId(activeMenuFileId === file.id ? null : file.id);
+                              }}
+                              aria-label="File actions"
                             >
-                              <button
-                                type="button"
-                                className="dropdown-item"
-                                onClick={() => {
-                                  setActiveMenuFileId(null);
-                                  setSelectedFileForViewer(file);
-                                }}
-                              >
-                                <FileTextIcon size={14} /> Open in Viewer
-                              </button>
-                              <button
-                                type="button"
-                                className="dropdown-item"
-                                onClick={() => {
-                                  setActiveMenuFileId(null);
-                                  setMovingFile(file);
-                                }}
-                              >
-                                <FolderIcon size={14} /> Move to Folder
-                              </button>
-                              <a
-                                href={filesApi.getFileDownloadUrl(file.projectId, file.id)}
-                                download={file.originalName}
-                                className="dropdown-item"
-                                onClick={() => setActiveMenuFileId(null)}
-                              >
-                                <DownloadIcon size={14} /> Download
-                              </a>
-                              {((file.isPrivate ? file.uploadedById === user?.id : (file.uploadedById === user?.id || project?.userRole === 'PROJECT_ADMIN')) && (!file.note || file.note.visibility !== 'USERS')) && (
+                              <MoreVerticalIcon size={15} />
+                            </button>
+
+                            {activeMenuFileId === file.id && (
+                              <div className="file-action-dropdown" onClick={(e) => e.stopPropagation()}>
                                 <button
                                   type="button"
                                   className="dropdown-item"
                                   onClick={() => {
                                     setActiveMenuFileId(null);
-                                    handleToggleFilePrivacy(file);
+                                    setSelectedFileForViewer(file);
                                   }}
                                 >
-                                  {file.isPrivate ? <GlobeIcon size={14} /> : <LockIcon size={14} />}
-                                  {file.isPrivate ? 'Make Public' : 'Make Private'}
+                                  <FileTextIcon size={14} /> View File
                                 </button>
-                              )}
-                              {(file.isPrivate ? file.uploadedById === user?.id : (file.uploadedById === user?.id || project?.userRole === 'PROJECT_ADMIN')) && (
+                                <a
+                                  href={filesApi.getFileDownloadUrl(file.projectId, file.id)}
+                                  download={file.originalName}
+                                  className="dropdown-item"
+                                  onClick={() => setActiveMenuFileId(null)}
+                                >
+                                  <DownloadIcon size={14} /> Download
+                                </a>
+                                {!file.workItem && !file.note && (
+                                  <button
+                                    type="button"
+                                    className="dropdown-item"
+                                    onClick={() => {
+                                      setActiveMenuFileId(null);
+                                      handleToggleFilePrivacy(file);
+                                    }}
+                                  >
+                                    {file.isPrivate ? (
+                                      <>
+                                        <GlobeIcon size={14} /> Make Public
+                                      </>
+                                    ) : (
+                                      <>
+                                        <LockIcon size={14} /> Make Private
+                                      </>
+                                    )}
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   className="dropdown-item text-danger"
@@ -1174,178 +1073,116 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                                     setFileToDelete(file);
                                   }}
                                 >
-                                  <TrashIcon size={14} /> Delete
+                                  <TrashIcon size={14} /> Delete File
                                 </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                              </div>
+                            )}
+                          </div>
 
-                        <div className="file-grid-meta-row">
-                          <span className="file-grid-size">{formatFileSize(file.sizeBytes)}</span>
-                          <span className="file-dot-sep">·</span>
-                          <span className="file-grid-project">{file.project?.name || 'D-Board'}</span>
-                          {assignedFolder && (
-                            <>
-                              <span className="file-dot-sep">·</span>
-                              <span className="file-grid-folder-tag" style={{ color: assignedFolder.color }}>
-                                📁 {assignedFolder.name}
-                              </span>
-                            </>
-                          )}
-                        </div>
+                          {/* Origin Badge & Jump Action */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem', marginTop: '0.15rem' }}>
+                            {renderOriginBadge(file)}
+                            {renderJumpButton(file)}
+                          </div>
 
-                        {/* File Origin Tag */}
-                        <div className="file-card-origin-section">
-                          {file.note ? (
-                            <div className="file-card-origin-tag origin-team-note">
-                              <UsersIcon size={12} />
-                              <span className="origin-name">Note: {file.note.title}</span>
-                            </div>
-                          ) : file.workItem ? (
-                            <div
-                              className="file-card-origin-tag origin-workitem"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenWorkItem(file.workItem!.id);
-                              }}
-                            >
-                              <CheckSquareIcon size={12} />
-                              <span className="origin-name">Work: {file.workItem.title}</span>
-                            </div>
-                          ) : (
-                            <div className="file-card-origin-tag origin-direct">
-                              <UploadCloudIcon size={12} />
-                              <span className="origin-type-label">Direct Upload</span>
-                            </div>
-                          )}
+                          <div className="file-grid-meta-row" style={{ marginTop: '0.25rem' }}>
+                            <span className="file-grid-size">{formatFileSize(file.sizeBytes)}</span>
+                            <span>•</span>
+                            <span>{formatDate(file.createdAt)}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              /* LIST VIEW */
-              <div className="files-list-table-container">
-                <table className="files-list-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Project / Folder</th>
-                      <th>Category</th>
-                      <th>Size</th>
-                      <th>Uploaded Date</th>
-                      <th style={{ textAlign: 'right' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleFiles.map((file) => {
-                      const theme = getCategoryTheme(file.category);
-                      const assignedFolder = folders.find((f) => f.id === file.folderId);
+                    );
+                  })}
+                </div>
+              ) : (
+                /* LIST VIEW */
+                <div className="files-list-table-container">
+                  <table className="files-list-table">
+                    <thead>
+                      <tr>
+                        <th>File Name</th>
+                        <th>Origin</th>
+                        <th>Project</th>
+                        <th>Category</th>
+                        <th>Size</th>
+                        <th>Uploaded</th>
+                        <th style={{ textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleFiles.map((file) => {
+                        const theme = getCategoryTheme(file.category);
+                        const projName = file.project?.name || accessibleProjects.find((p) => p.id === file.projectId)?.name || 'Project';
 
-                      return (
-                        <tr
-                          key={file.id}
-                          className="files-list-row"
-                          onClick={() => setSelectedFileForViewer(file)}
-                        >
-                          <td className="files-list-cell-name">
-                            <div className="files-list-name-box">
-                              <span
-                                className="files-list-icon-pill"
-                                style={{ backgroundColor: theme.bg, color: theme.color }}
-                              >
-                                {getCategoryIcon(file.category)}
-                              </span>
-                              <span className="files-list-file-name" title={file.originalName}>
-                                {file.originalName}
-                              </span>
-                              {file.isPrivate && (
+                        return (
+                          <tr
+                            key={file.id}
+                            className="files-list-row"
+                            onClick={() => setSelectedFileForViewer(file)}
+                          >
+                            <td>
+                              <div className="files-list-name-cell">
                                 <span
-                                  title="Private File"
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '2px',
-                                    padding: '1px 5px',
-                                    borderRadius: '4px',
-                                    fontSize: '0.65rem',
-                                    fontWeight: 600,
-                                    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                                    color: '#ef4444',
-                                    flexShrink: 0,
-                                    marginLeft: '6px',
-                                  }}
+                                  className="files-list-icon-pill"
+                                  style={{ backgroundColor: theme.bgColor, color: theme.color }}
                                 >
-                                  <LockIcon size={10} />
-                                  Private
+                                  {theme.icon}
                                 </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="files-list-cell-project">
-                            <span>{file.project?.name || 'D-Board'}</span>
-                            {assignedFolder && (
-                              <span className="files-list-folder-badge" style={{ color: assignedFolder.color }}>
-                                · 📁 {assignedFolder.name}
+                                <span className="files-list-filename" title={file.originalName}>
+                                  {file.originalName}
+                                </span>
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                                {renderOriginBadge(file)}
+                                {renderJumpButton(file)}
+                              </div>
+                            </td>
+                            <td>
+                              <span className="files-list-project-tag">{projName}</span>
+                            </td>
+                            <td>
+                              <span
+                                className="files-list-cat-pill"
+                                style={{ backgroundColor: theme.bgColor, color: theme.color }}
+                              >
+                                {theme.label}
                               </span>
-                            )}
-                          </td>
-                          <td>
-                            <span
-                              className="files-list-category-badge"
-                              style={{ backgroundColor: theme.bg, color: theme.color }}
-                            >
-                              {theme.label}
-                            </span>
-                          </td>
-                          <td className="files-list-cell-size">{formatFileSize(file.sizeBytes)}</td>
-                          <td className="files-list-cell-date">
-                            {new Date(file.createdAt).toLocaleDateString(undefined, {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                            })}
-                          </td>
-                          <td className="files-list-cell-actions" onClick={(e) => e.stopPropagation()}>
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'flex-end',
-                                gap: '0.35rem',
-                              }}
-                            >
-                              <a
-                                href={filesApi.getFileDownloadUrl(file.projectId, file.id)}
-                                download={file.originalName}
-                                className="files-list-btn-action"
-                                title="Download"
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                <DownloadIcon size={14} />
-                              </a>
-                              <button
-                                type="button"
-                                className="files-list-btn-action"
-                                title="Move to folder"
-                                onClick={() => setMovingFile(file)}
-                              >
-                                <FolderIcon size={14} />
-                              </button>
-                              {((file.isPrivate ? file.uploadedById === user?.id : (file.uploadedById === user?.id || project?.userRole === 'PROJECT_ADMIN')) && (!file.note || file.note.visibility !== 'USERS')) && (
+                            </td>
+                            <td>
+                              <span className="files-list-size">{formatFileSize(file.sizeBytes)}</span>
+                            </td>
+                            <td>{formatDate(file.createdAt)}</td>
+                            <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                              <div className="files-list-row-actions">
                                 <button
                                   type="button"
                                   className="files-list-btn-action"
-                                  title={file.isPrivate ? 'Make Public' : 'Make Private'}
-                                  onClick={() => handleToggleFilePrivacy(file)}
+                                  title="Preview"
+                                  onClick={() => setSelectedFileForViewer(file)}
                                 >
-                                  {file.isPrivate ? <GlobeIcon size={14} /> : <LockIcon size={14} />}
+                                  <FileTextIcon size={14} />
                                 </button>
-                              )}
-                              {(file.isPrivate ? file.uploadedById === user?.id : (file.uploadedById === user?.id || project?.userRole === 'PROJECT_ADMIN')) && (
+                                <a
+                                  href={filesApi.getFileDownloadUrl(file.projectId, file.id)}
+                                  download={file.originalName}
+                                  className="files-list-btn-action"
+                                  title="Download"
+                                >
+                                  <DownloadIcon size={14} />
+                                </a>
+                                {!file.workItem && !file.note && (
+                                  <button
+                                    type="button"
+                                    className="files-list-btn-action"
+                                    title={file.isPrivate ? 'Make Public' : 'Make Private'}
+                                    onClick={() => handleToggleFilePrivacy(file)}
+                                  >
+                                    {file.isPrivate ? <LockIcon size={14} /> : <GlobeIcon size={14} />}
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   className="files-list-btn-action btn-action-delete"
@@ -1354,21 +1191,20 @@ export const FilesPage: React.FC<FilesPageProps> = ({
                                 >
                                   <TrashIcon size={14} />
                                 </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* RIGHT COLUMN: 3 Stacked Cards matching screenshot */}
+        {/* RIGHT COLUMN: 3 Stacked Cards (Restoring Original Pixel-Perfect Styles) */}
         <div className="cal-sidebar-column files-sidebar-column">
           {/* CARD 1: Storage Quota Card (Click opens Pop-up Storage Modal) */}
           <div
@@ -1393,9 +1229,8 @@ export const FilesPage: React.FC<FilesPageProps> = ({
 
             <div className="files-storage-progress-track">
               <div
-                className={`files-storage-progress-fill ${
-                  usedPercentage > 90 ? 'danger' : usedPercentage > 75 ? 'warning' : 'normal'
-                }`}
+                className={`files-storage-progress-fill ${usedPercentage > 90 ? 'danger' : usedPercentage > 75 ? 'warning' : 'normal'
+                  }`}
                 style={{ width: `${Math.max(1, usedPercentage)}%` }}
               />
             </div>
@@ -1422,18 +1257,6 @@ export const FilesPage: React.FC<FilesPageProps> = ({
               <button
                 type="button"
                 className="files-quick-action-row"
-                onClick={() => setIsCreateFolderModalOpen(true)}
-              >
-                <div className="action-row-left">
-                  <FolderPlusIcon size={16} className="action-row-icon" />
-                  <span>Create Folder</span>
-                </div>
-                <ChevronRightIcon size={14} className="action-row-arrow" />
-              </button>
-
-              <button
-                type="button"
-                className="files-quick-action-row"
                 onClick={() => setIsConnectDriveModalOpen(true)}
               >
                 <div className="action-row-left">
@@ -1445,7 +1268,7 @@ export const FilesPage: React.FC<FilesPageProps> = ({
             </div>
           </div>
 
-          {/* CARD 3: Tip Card matching screenshot */}
+          {/* CARD 3: Tip Card */}
           <div className="files-tip-card">
             <div className="files-tip-header">
               <LightbulbIcon size={18} className="files-tip-bulb-icon" />
@@ -1458,7 +1281,18 @@ export const FilesPage: React.FC<FilesPageProps> = ({
         </div>
       </div>
 
-      {/* MODAL 1: Storage Breakdown & File Management Modal (Matching Screenshot) */}
+      {/* MODAL 1: Connect Drive Modal */}
+      {isConnectDriveModalOpen && (
+        <ConnectDriveModal
+          isOpen={isConnectDriveModalOpen}
+          onClose={() => setIsConnectDriveModalOpen(false)}
+          files={files}
+          folders={[]}
+          projects={accessibleProjects}
+        />
+      )}
+
+      {/* MODAL 2: Storage Breakdown Modal */}
       {isStorageModalOpen && (
         <StorageBreakdownModal
           isOpen={isStorageModalOpen}
@@ -1467,73 +1301,33 @@ export const FilesPage: React.FC<FilesPageProps> = ({
             loadFiles();
             loadStorageStats();
           }}
-          onOpenUpload={() => setIsUploadModalOpen(true)}
-        />
-      )}
-
-      {/* MODAL 2: Create Folder Modal */}
-      {isCreateFolderModalOpen && (
-        <CreateFolderModal
-          isOpen={isCreateFolderModalOpen}
-          onClose={() => setIsCreateFolderModalOpen(false)}
-          onCreateFolder={handleCreateFolder}
-          projects={accessibleProjects}
-          activeProjectId={activeProjectId}
-          currentFolderId={currentFolderId}
-          existingFolders={folders}
-        />
-      )}
-
-      {/* MODAL 3: Connect Google Drive Modal */}
-      {isConnectDriveModalOpen && (
-        <ConnectDriveModal
-          isOpen={isConnectDriveModalOpen}
-          onClose={() => setIsConnectDriveModalOpen(false)}
-          files={files}
-          folders={folders}
-          projects={accessibleProjects}
-        />
-      )}
-
-      {/* MODAL 4: Move File to Folder Dialog */}
-      {movingFile && (
-        <MoveFileModal
-          isOpen={!!movingFile}
-          file={movingFile}
-          onClose={() => setMovingFile(null)}
-          onMove={(fileId, destFolderId) => handleMoveFileToFolder(fileId, destFolderId)}
-          folders={folders}
-          projects={accessibleProjects}
-          currentFolderId={currentFolderId}
-        />
-      )}
-
-      {/* MODAL: Delete File Confirmation Dialog */}
-      {fileToDelete && (
-        <DeleteFileModal
-          isOpen={!!fileToDelete}
-          file={fileToDelete}
-          onClose={() => setFileToDelete(null)}
-          isDeleting={isDeletingFile}
-          onConfirmDelete={async (fileId) => {
-            if (!fileToDelete) return;
-            try {
-              setIsDeletingFile(true);
-              await filesApi.deleteFile(fileToDelete.projectId, fileId);
-              setFeedback({ type: 'success', message: `Deleted "${fileToDelete.originalName}"` });
-              setFileToDelete(null);
-              loadFiles();
-              loadStorageStats();
-            } catch (err: any) {
-              setFeedback({ type: 'error', message: err.message || 'Failed to delete file' });
-            } finally {
-              setIsDeletingFile(false);
-            }
+          onOpenUpload={() => {
+            setIsStorageModalOpen(false);
+            setIsUploadModalOpen(true);
           }}
         />
       )}
 
-      {/* MODAL 5: In-Platform File Viewer */}
+      {/* MODAL 3: File Upload Modal */}
+      {isUploadModalOpen && (
+        <FileUploadModal
+          isOpen={isUploadModalOpen}
+          onClose={() => setIsUploadModalOpen(false)}
+          onUploadSuccess={() => {
+            setIsUploadModalOpen(false);
+            loadFiles();
+            loadStorageStats();
+          }}
+          projects={accessibleProjects}
+          project={effectiveProject}
+          activeProjectId={effectiveProjectId || undefined}
+          isProjectScope={Boolean(routeProjectId)}
+          folders={[]}
+          currentFolderId={null}
+        />
+      )}
+
+      {/* MODAL 4: File Viewer Modal */}
       {selectedFileForViewer && (
         <FileViewerModal
           file={selectedFileForViewer}
@@ -1541,64 +1335,46 @@ export const FilesPage: React.FC<FilesPageProps> = ({
           onFileDeleted={() => {
             setSelectedFileForViewer(null);
             loadFiles();
+            loadStorageStats();
           }}
-          onFileUpdated={() => loadFiles()}
-          canDelete={
-            selectedFileForViewer.isPrivate
-              ? selectedFileForViewer.uploadedById === user?.id
-              : selectedFileForViewer.uploadedById === user?.id || project?.userRole === 'PROJECT_ADMIN'
-          }
-          onOpenWorkItem={(id) => handleOpenWorkItem(id)}
-        />
-      )}
-
-      {/* MODAL 6: File Upload Modal */}
-      {isUploadModalOpen && (
-        <FileUploadModal
-          isOpen={isUploadModalOpen}
-          onClose={() => setIsUploadModalOpen(false)}
-          onUploadSuccess={async (createdFiles, destFolderId) => {
-            setIsUploadModalOpen(false);
-            if (destFolderId && createdFiles && createdFiles.length > 0) {
-              await Promise.all(
-                createdFiles.map((f) =>
-                  f.id && f.projectId && f.folderId !== destFolderId
-                    ? filesApi.moveFile(f.projectId, f.id, destFolderId).catch(() => {})
-                    : Promise.resolve()
-                )
-              );
-            }
-            setFeedback({ type: 'success', message: 'Files uploaded successfully!' });
+          onFileUpdated={() => {
             loadFiles();
           }}
-          projects={accessibleProjects}
-          project={project}
-          projectName={project?.name}
-          isProjectScope={isProjectScope}
-          activeProjectId={projectId || activeProjectId}
-          folders={folders}
-          currentFolderId={currentFolderId}
+          canDelete={true}
+          canEdit={true}
+          onOpenWorkItem={(wId) => {
+            setSelectedFileForViewer(null);
+            handleOpenWorkItemDetails(wId);
+          }}
         />
       )}
 
-      {/* MODAL 7: Create Work Item */}
-      {isCreateWorkModalOpen && project && (
+      {/* MODAL 5: Delete File Modal */}
+      {fileToDelete && (
+        <DeleteFileModal
+          isOpen={Boolean(fileToDelete)}
+          file={fileToDelete}
+          onClose={() => setFileToDelete(null)}
+          onConfirmDelete={handleDeleteFile}
+          isDeleting={isDeletingFile}
+        />
+      )}
+
+      {/* MODAL 6: Create Work Item Modal */}
+      {isCreateWorkModalOpen && effectiveProject && (
         <CreateWorkItemModal
           isOpen={isCreateWorkModalOpen}
           onClose={() => setIsCreateWorkModalOpen(false)}
-          onCreated={() => {
-            setIsCreateWorkModalOpen(false);
-            loadFiles();
-          }}
-          project={project}
+          project={effectiveProject}
+          onCreated={() => loadFiles()}
         />
       )}
 
-      {/* MODAL 8: Work Item Details */}
+      {/* MODAL 7: Work Item Details Modal */}
       {selectedWorkItemId && selectedWorkItemProject && (
         <WorkItemDetailsModal
-          project={selectedWorkItemProject}
           workItemId={selectedWorkItemId}
+          project={selectedWorkItemProject}
           onClose={() => {
             setSelectedWorkItemId(null);
             setSelectedWorkItemProject(null);

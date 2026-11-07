@@ -6,6 +6,11 @@ const router = Router();
 
 router.use(authenticate);
 
+// List user's pending transfers across all workspaces where they are owner/admin
+router.get('/pending', (req, res, next) =>
+  projectTransferController.getUserPendingTransfers(req as any, res, next)
+);
+
 // View details of a transfer request (workspace boundary enforced)
 router.get('/:transferId', (req, res, next) =>
   projectTransferController.getTransferDetails(req as any, res, next)

@@ -23,7 +23,7 @@ export const fileQuerySchema = z.object({
   noteId: z.string().uuid().optional(),
   isPrivate: z.coerce.boolean().optional(),
   page: z.coerce.number().int().positive().optional().default(1),
-  limit: z.coerce.number().int().positive().max(100).optional().default(20),
+  limit: z.coerce.number().int().positive().max(500).optional().default(20),
   sortBy: z.enum(['createdAt', 'originalName', 'sizeBytes']).optional().default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
 });

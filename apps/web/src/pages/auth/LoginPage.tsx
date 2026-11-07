@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthLayout } from '../../components/layout/AuthLayout';
 import { Link, useRouter } from '../../router/Router';
 import { Input } from '../../components/ui/Input';
@@ -10,14 +10,37 @@ import { authApi } from '../../api/auth.api';
 import { GOOGLE_AUTH_ENABLED } from '../../config/features';
 import { useAuth } from '../../context/AuthContext';
 
+const REMEMBER_ME_STORAGE_KEY = 'dboard_remember_me';
+const REMEMBERED_IDENTIFIER_KEY = 'dboard_remembered_identifier';
+
 export const LoginPage: React.FC = () => {
   const { navigate } = useRouter();
-  const { login } = useAuth();
-  const [identifier, setIdentifier] = useState('');
+  const { login, isAuthenticated, isLoading: isAuthLoading } = useAuth();
+
+  const [identifier, setIdentifier] = useState(() => {
+    try {
+      return localStorage.getItem(REMEMBERED_IDENTIFIER_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(() => {
+    try {
+      return localStorage.getItem(REMEMBER_ME_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [errors, setErrors] = useState<{ identifier?: string; password?: string; general?: string }>({});
   const [isLoading, setIsLoading] = useState(false);
+
+  // If already authenticated (e.g. kept logged in across sessions), redirect directly to dashboard
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated) {
+      navigate('/app/dashboard');
+    }
+  }, [isAuthLoading, isAuthenticated, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,6 +66,19 @@ export const LoginPage: React.FC = () => {
         password,
         rememberMe,
       });
+
+      // Persist or clear remembered credentials preference based on rememberMe toggle
+      try {
+        if (rememberMe) {
+          localStorage.setItem(REMEMBER_ME_STORAGE_KEY, 'true');
+          localStorage.setItem(REMEMBERED_IDENTIFIER_KEY, identifier.trim());
+        } else {
+          localStorage.removeItem(REMEMBER_ME_STORAGE_KEY);
+          localStorage.removeItem(REMEMBERED_IDENTIFIER_KEY);
+        }
+      } catch {
+        // Ignore localStorage restrictions
+      }
 
       navigate('/app/dashboard');
     } catch (err: any) {

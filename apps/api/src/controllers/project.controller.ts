@@ -153,7 +153,7 @@ export class ProjectController {
         (req.headers['x-workspace-id'] as string) ||
         (req.query.workspaceId as string) ||
         (req.body?.workspaceId as string);
-      const result = await projectService.completeProject(projectId, req.user.userId, reason, explicitWorkspaceId);
+      const result = await projectService.completeProject(projectId, req.user.userId, reason, explicitWorkspaceId, Boolean((req.body || {}).autoResolveOpenTasks));
       res.status(200).json({
         success: true,
         message: result.message,

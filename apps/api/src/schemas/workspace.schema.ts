@@ -278,6 +278,7 @@ export const requestOwnershipTransferSchema = z.object({
   targetUserId: z.string().uuid('Invalid user ID format').optional(),
   targetEmail: z.string().trim().email('Invalid email address').toLowerCase().optional(),
   targetRole: z.enum(['WORKSPACE_ADMIN', 'WORKSPACE_MEMBER']).default('WORKSPACE_ADMIN'),
+  confirmationName: z.string().trim().optional(),
 }).refine((data) => !!data.targetUserId || !!data.targetEmail, {
   message: 'Either targetUserId or targetEmail must be provided',
 });
@@ -292,6 +293,7 @@ export type AcceptOwnershipTransferInput = z.infer<typeof acceptOwnershipTransfe
 
 export const rejectOwnershipTransferSchema = z.object({
   token: z.string().trim().min(16).optional(),
+  reason: z.string().trim().max(300).optional(),
 });
 
 export type RejectOwnershipTransferInput = z.infer<typeof rejectOwnershipTransferSchema>;

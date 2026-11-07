@@ -3,6 +3,7 @@ import type { AuthenticatedRequest } from '../middlewares/auth.middleware.js';
 import { projectTransferService } from '../services/projectTransfer.service.js';
 import {
   requestProjectTransferSchema,
+  approveProjectTransferSchema,
   rejectProjectTransferSchema,
 } from '../schemas/projectTransfer.schema.js';
 import { AppError } from '../middlewares/error.middleware.js';
@@ -86,6 +87,81 @@ export class ProjectTransferController {
   }
 
   /**
+   * GET /api/projects/:projectId/transfers/deferred-members
+   */
+  async getDeferredMembers(
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const projectId = req.params.projectId as string;
+
+      const result = await projectTransferService.getDeferredMembers(
+        projectId,
+        req.user.userId
+      );
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /api/projects/:projectId/transfers/deferred-members/resolve
+   */
+  async resolveDeferredMembers(
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+      const projectId = req.params.projectId as string;
+      const { action, userIds } = req.body;
+
+      const result = await projectTransferService.resolveDeferredMembers(
+        projectId,
+        req.user.userId,
+        { action, userIds }
+      );
+
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /api/transfers/pending
+   */
+  async getUserPendingTransfers(
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      if (!req.user) throw new AppError('Authentication required', 401);
+
+      const pending = await projectTransferService.getUserPendingTransfers(
+        req.user.userId
+      );
+
+      res.status(200).json({
+        success: true,
+        data: pending,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * GET /api/workspaces/:workspaceId/transfers/pending
    */
   async getWorkspacePendingTransfers(
@@ -122,10 +198,12 @@ export class ProjectTransferController {
     try {
       if (!req.user) throw new AppError('Authentication required', 401);
       const transferId = req.params.transferId as string;
+      const input = approveProjectTransferSchema.parse(req.body || {});
 
       const result = await projectTransferService.approveTransfer(
         transferId,
-        req.user.userId
+        req.user.userId,
+        input
       );
 
       res.status(200).json(result);

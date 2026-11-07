@@ -272,7 +272,7 @@ export class MemberService {
     }
 
     // If demoting from ADMIN to MEMBER, ensure at least one other designated project admin exists
-    if (targetMember.role === 'PROJECT_ADMIN' && newRole === 'PROJECT_MEMBER' && !isWsOwner && !isWsAdmin) {
+    if (targetMember.role === 'PROJECT_ADMIN' && newRole === 'PROJECT_MEMBER') {
       const adminCount = await prisma.projectMember.count({
         where: { projectId, role: 'PROJECT_ADMIN' },
       });
@@ -336,7 +336,7 @@ export class MemberService {
     }
 
     // Protect last designated PROJECT_ADMIN from removal without replacement
-    if (targetMember.role === 'PROJECT_ADMIN' && !isWsOwner && !isWsAdmin) {
+    if (targetMember.role === 'PROJECT_ADMIN') {
       const adminCount = await prisma.projectMember.count({
         where: { projectId, role: 'PROJECT_ADMIN' },
       });

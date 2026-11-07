@@ -22,19 +22,33 @@ export async function runWorkspacesBackfill(): Promise<BackfillSummary> {
   };
 
   // 1. Process all existing users to ensure each has a Personal Workspace
-  const users = await prisma.user.findMany({
-    select: { id: true, username: true, fullName: true, email: true },
-  });
+  const [users, allPersonalWorkspaces] = await Promise.all([
+    prisma.user.findMany({
+      select: { id: true, username: true, fullName: true, email: true },
+    }),
+    prisma.workspace.findMany({
+      where: { isPersonal: true },
+      select: { id: true, ownerId: true },
+    }),
+  ]);
   summary.usersProcessed = users.length;
 
-  for (const user of users) {
-    const existingPersonalWorkspace = await prisma.workspace.findFirst({
-      where: { ownerId: user.id, isPersonal: true },
-    });
+  const wsByOwner = new Map(allPersonalWorkspaces.map((w) => [w.ownerId, w.id]));
 
+  const allOwnerMembers = await prisma.workspaceMember.findMany({
+    where: {
+      role: 'OWNER',
+      workspaceId: { in: allPersonalWorkspaces.map((w) => w.id) },
+    },
+    select: { workspaceId: true, userId: true },
+  });
+  const ownerMemberSet = new Set(allOwnerMembers.map((m) => `${m.workspaceId}_${m.userId}`));
+
+  for (const user of users) {
+    const existingPersonalWorkspaceId = wsByOwner.get(user.id);
     let personalWorkspaceId: string;
 
-    if (!existingPersonalWorkspace) {
+    if (!existingPersonalWorkspaceId) {
       const cleanUsername = user.username.toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'user';
       const slug = `${cleanUsername}-personal-${user.id.slice(0, 8)}`;
       const name = user.fullName?.trim()
@@ -78,31 +92,23 @@ export async function runWorkspacesBackfill(): Promise<BackfillSummary> {
         }
 
         personalWorkspaceId = created.id;
+        wsByOwner.set(user.id, personalWorkspaceId);
+        ownerMemberSet.add(`${personalWorkspaceId}_${user.id}`);
         summary.personalWorkspacesCreated++;
         console.log(`[Backfill] Created personal workspace for user ${user.username} (${user.id}): ${created.id}`);
       } catch (err: any) {
         if (err.code === 'P2002' || err.message?.includes('Unique constraint')) {
-          // Concurrency recovery: Personal workspace was provisioned concurrently
           const fallback = await prisma.workspace.findFirst({
             where: { ownerId: user.id, isPersonal: true },
           });
 
           if (fallback) {
             personalWorkspaceId = fallback.id;
+            wsByOwner.set(user.id, personalWorkspaceId);
             summary.personalWorkspacesExisting++;
             console.log(`[Backfill] Recovered existing personal workspace on concurrency conflict for ${user.username}: ${fallback.id}`);
 
-            // Ensure owner membership exists
-            const ownerMember = await prisma.workspaceMember.findUnique({
-              where: {
-                workspaceId_userId: {
-                  workspaceId: fallback.id,
-                  userId: user.id,
-                },
-              },
-            });
-
-            if (!ownerMember) {
+            if (!ownerMemberSet.has(`${fallback.id}_${user.id}`)) {
               await prisma.workspaceMember.create({
                 data: {
                   workspaceId: fallback.id,
@@ -111,6 +117,7 @@ export async function runWorkspacesBackfill(): Promise<BackfillSummary> {
                   origin: 'DIRECT',
                 },
               }).catch(() => {});
+              ownerMemberSet.add(`${fallback.id}_${user.id}`);
               summary.workspaceMembershipsCreated++;
             }
           } else {
@@ -124,20 +131,11 @@ export async function runWorkspacesBackfill(): Promise<BackfillSummary> {
         }
       }
     } else {
-      personalWorkspaceId = existingPersonalWorkspace.id;
+      personalWorkspaceId = existingPersonalWorkspaceId;
       summary.personalWorkspacesExisting++;
 
       // Ensure owner has an OWNER row in WorkspaceMember
-      const existingOwnerMember = await prisma.workspaceMember.findUnique({
-        where: {
-          workspaceId_userId: {
-            workspaceId: personalWorkspaceId,
-            userId: user.id,
-          },
-        },
-      });
-
-      if (!existingOwnerMember) {
+      if (!ownerMemberSet.has(`${personalWorkspaceId}_${user.id}`)) {
         await prisma.workspaceMember.create({
           data: {
             workspaceId: personalWorkspaceId,
@@ -145,7 +143,8 @@ export async function runWorkspacesBackfill(): Promise<BackfillSummary> {
             role: 'OWNER',
             origin: 'DIRECT',
           },
-        });
+        }).catch(() => {});
+        ownerMemberSet.add(`${personalWorkspaceId}_${user.id}`);
         summary.workspaceMembershipsCreated++;
       }
     }

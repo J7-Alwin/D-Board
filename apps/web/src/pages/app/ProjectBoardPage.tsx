@@ -323,26 +323,27 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
   // Project Member sees only tasks that they created or are assigned to.
   const isWsOwner = Boolean(
     activeRole === 'OWNER' ||
-      (activeRole as string)?.toUpperCase() === 'OWNER' ||
-      activeWorkspace?.isOwner ||
-      (activeWorkspace?.ownerId && user?.id && activeWorkspace.ownerId === user.id)
+    (activeRole as string)?.toUpperCase() === 'OWNER' ||
+    activeWorkspace?.isOwner ||
+    (activeWorkspace?.ownerId && user?.id && activeWorkspace.ownerId === user.id)
   );
   const isWsAdmin = Boolean(
     activeRole === 'WORKSPACE_ADMIN' ||
-      (activeRole as string)?.toUpperCase() === 'WORKSPACE_ADMIN' ||
-      (activeRole as string)?.toUpperCase() === 'ADMIN' ||
-      activeWorkspace?.userRole === 'WORKSPACE_ADMIN' ||
-      (activeWorkspace?.userRole as string)?.toUpperCase() === 'WORKSPACE_ADMIN' ||
-      (activeWorkspace as any)?.role === 'WORKSPACE_ADMIN'
+    (activeRole as string)?.toUpperCase() === 'WORKSPACE_ADMIN' ||
+    (activeRole as string)?.toUpperCase() === 'ADMIN' ||
+    activeWorkspace?.userRole === 'WORKSPACE_ADMIN' ||
+    (activeWorkspace?.userRole as string)?.toUpperCase() === 'WORKSPACE_ADMIN' ||
+    (activeWorkspace as any)?.role === 'WORKSPACE_ADMIN'
   );
   const isProjectAdmin = Boolean(
     isWsOwner ||
-      isWsAdmin ||
-      project?.userRole === 'PROJECT_ADMIN' ||
-      (project?.userRole as string) === 'ADMIN' ||
-      (project?.createdById && user?.id && project.createdById === user.id)
+    isWsAdmin ||
+    project?.userRole === 'PROJECT_ADMIN' ||
+    (project?.userRole as string) === 'ADMIN' ||
+    (project?.createdById && user?.id && project.createdById === user.id)
   );
   const canSeeAllTasks = isWsOwner || isWsAdmin || isProjectAdmin;
+  const isProjectCompleted = project?.status === 'COMPLETED' || project?.status === 'ARCHIVED';
 
   // Filtered and sorted work items
   const filteredItems = useMemo(() => {
@@ -422,6 +423,7 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
     newStatus: WorkItemStatus
   ) => {
     if (e) e.stopPropagation();
+    if (isProjectCompleted) return;
     try {
       // Optimistic update
       setWorkItems((prev) =>
@@ -441,6 +443,7 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
   };
 
   const canUserDragItem = (item: WorkItem) => {
+    if (isProjectCompleted) return false;
     return isProjectAdmin || Boolean(user?.id && item.createdById === user.id);
   };
 
@@ -451,6 +454,7 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
   };
 
   const handleDragOver = (e: React.DragEvent, colId: WorkItemStatus) => {
+    if (isProjectCompleted) return;
     e.preventDefault();
     if (dragOverColId !== colId) {
       setDragOverColId(colId);
@@ -462,6 +466,7 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
   };
 
   const handleDrop = (e: React.DragEvent, colId: WorkItemStatus) => {
+    if (isProjectCompleted) return;
     e.preventDefault();
     setDragOverColId(null);
     const itemId = e.dataTransfer.getData('text/plain') || draggedItemId;
@@ -539,9 +544,8 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
 
   return (
     <div
-      className={`project-board-page-container ${isFullScreen ? 'is-fullscreen' : ''} ${
-        hideHeader ? 'project-board-embedded' : 'project-workspace-page project-board-page-modern'
-      }`}
+      className={`project-board-page-container ${isFullScreen ? 'is-fullscreen' : ''} ${hideHeader ? 'project-board-embedded' : 'project-workspace-page project-board-page-modern'
+        }`}
     >
       {/* Scoped CSS matching My Tasks page */}
       <style>{`
@@ -1393,6 +1397,23 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
         </div>
       </div>
 
+      {/* Read-Only Banner for Completed Projects */}
+      {project?.status === 'COMPLETED' && (
+        <div className="kb-completed-readonly-banner">
+          <div className="kb-completed-readonly-left">
+            <div className="kb-completed-readonly-icon-box">
+              <CheckCircleIcon size={16} />
+            </div>
+            <div>
+              <span className="kb-completed-readonly-title">Project Completed (Read-Only Mode)</span>
+              <p className="kb-completed-readonly-desc">
+                This project has been marked as finished. Tasks and columns are locked to preserve the historical record. Workspace Owners or Admins can reactivate this project at any time.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 5-Column Kanban Board Grid */}
       <div className="mywork-content-area">
         <div ref={gridContainerRef} className="kb-grid-columns compact-mode">
@@ -1425,16 +1446,18 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
                     <span className="kb-col-count-pill">{columnItems.length}</span>
                   </div>
 
-                  <div className="kb-col-header-actions">
-                    <button
-                      type="button"
-                      className="kb-col-add-icon-btn"
-                      title={`Add task in ${col.title}`}
-                      onClick={() => handleOpenCreateForColumn(col.id)}
-                    >
-                      <PlusIcon size={14} />
-                    </button>
-                  </div>
+                  {!isProjectCompleted && (
+                    <div className="kb-col-header-actions">
+                      <button
+                        type="button"
+                        className="kb-col-add-icon-btn"
+                        title={`Add task in ${col.title}`}
+                        onClick={() => handleOpenCreateForColumn(col.id)}
+                      >
+                        <PlusIcon size={14} />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Cards List / Empty State */}
@@ -1444,14 +1467,16 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
                       <div className="kb-empty-icon-circle">{col.emptyIcon}</div>
                       <h4 className="kb-empty-title">No work items</h4>
                       <p className="kb-empty-subtitle">{col.emptySubtitle}</p>
-                      <button
-                        type="button"
-                        className="kb-empty-add-btn"
-                        onClick={() => handleOpenCreateForColumn(col.id)}
-                      >
-                        <PlusIcon size={12} />
-                        <span>Add work item</span>
-                      </button>
+                      {!isProjectCompleted && (
+                        <button
+                          type="button"
+                          className="kb-empty-add-btn"
+                          onClick={() => handleOpenCreateForColumn(col.id)}
+                        >
+                          <PlusIcon size={12} />
+                          <span>Add work item</span>
+                        </button>
+                      )}
                     </div>
                   ) : (
                     columnItems.map((item) => {
@@ -1485,9 +1510,8 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
                       return (
                         <div
                           key={item.id}
-                          className={`kb-work-card ${statusClass} ${
-                            isCreatedByMe ? 'card-created-by-me' : ''
-                          }`}
+                          className={`kb-work-card ${statusClass} ${isCreatedByMe ? 'card-created-by-me' : ''
+                            }`}
                           draggable={canDrag}
                           onDragStart={(e) => {
                             if (!canDrag) {
@@ -1551,16 +1575,15 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
                             <div className="kb-card-footer-left">
                               {item.dueDate && (
                                 <span
-                                  className={`kb-due-date-pill ${
-                                    isDueUrgent ? 'due-urgent overdue' : ''
-                                  }`}
+                                  className={`kb-due-date-pill ${isDueUrgent ? 'due-urgent overdue' : ''
+                                    }`}
                                   title={
                                     isDueUrgent
                                       ? 'Urgent: Due in 3 days or less'
                                       : `Due ${new Date(item.dueDate).toLocaleDateString('en-US', {
-                                          month: 'short',
-                                          day: 'numeric',
-                                        })}`
+                                        month: 'short',
+                                        day: 'numeric',
+                                      })}`
                                   }
                                 >
                                   {isDueUrgent ? (
@@ -1600,36 +1623,41 @@ export const ProjectBoardPage: React.FC<ProjectBoardPageProps> = ({
                                     className="kb-assignees-stack"
                                     style={{ display: 'flex', alignItems: 'center' }}
                                   >
-                                    {visible.map((usr, idx) => (
-                                      <div
-                                        key={usr.id}
-                                        className="kb-assignee-avatar"
-                                        title={usr.fullName || usr.username}
-                                        style={{
-                                          width: '20px',
-                                          height: '20px',
-                                          borderRadius: '50%',
-                                          overflow: 'hidden',
-                                          backgroundColor: idx === 0 ? '#1E293B' : '#3B82F6',
-                                          color: '#FFFFFF',
-                                          fontSize: '0.65rem',
-                                          fontWeight: 700,
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          marginLeft: idx > 0 ? '-6px' : '0',
-                                          boxShadow: '0 0 0 1.5px #FFFFFF',
-                                        }}
-                                      >
-                                        {usr.avatarUrl ? (
-                                          <img src={usr.avatarUrl} alt="" />
-                                        ) : (
-                                          <span>
-                                            {(usr.fullName || usr.username)[0].toUpperCase()}
-                                          </span>
-                                        )}
-                                      </div>
-                                    ))}
+                                    {visible.map((usr, idx) => {
+                                      const isPrevMember = Boolean(
+                                        project?.members && !project.members.some((m: any) => m.userId === usr.id)
+                                      );
+                                      return (
+                                        <div
+                                          key={usr.id}
+                                          className="kb-assignee-avatar"
+                                          title={isPrevMember ? `${usr.fullName || usr.username} (Previous Member)` : (usr.fullName || usr.username)}
+                                          style={{
+                                            width: '20px',
+                                            height: '20px',
+                                            borderRadius: '50%',
+                                            overflow: 'hidden',
+                                            backgroundColor: isPrevMember ? '#D97706' : idx === 0 ? '#1E293B' : '#3B82F6',
+                                            color: '#FFFFFF',
+                                            fontSize: '0.65rem',
+                                            fontWeight: 700,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            marginLeft: idx > 0 ? '-6px' : '0',
+                                            boxShadow: isPrevMember ? '0 0 0 1.5px #F59E0B' : '0 0 0 1.5px #FFFFFF',
+                                          }}
+                                        >
+                                          {usr.avatarUrl ? (
+                                            <img src={usr.avatarUrl} alt="" />
+                                          ) : (
+                                            <span>
+                                              {(usr.fullName || usr.username)[0].toUpperCase()}
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
                                     {extra > 0 && (
                                       <span
                                         style={{

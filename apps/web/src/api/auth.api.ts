@@ -19,6 +19,7 @@ export interface RegisterInput {
   password: string;
   termsAccepted?: boolean;
   avatarUrl?: string | null;
+  verificationToken?: string;
 }
 
 export interface LoginInput {
@@ -107,6 +108,26 @@ export const authApi = {
     return apiClient<ApiResponse<{ available: boolean; message?: string }>>(
       `/auth/check-username?username=${encodeURIComponent(username)}`,
       { method: 'GET' }
+    );
+  },
+
+  async sendRegistrationOtp(email: string): Promise<ApiResponse<{ success: boolean; message: string; otp?: string }>> {
+    return apiClient<ApiResponse<{ success: boolean; message: string; otp?: string }>>('/auth/send-registration-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  async verifyRegistrationOtp(
+    email: string,
+    otp: string
+  ): Promise<ApiResponse<{ success: boolean; message: string; verificationToken: string }>> {
+    return apiClient<ApiResponse<{ success: boolean; message: string; verificationToken: string }>>(
+      '/auth/verify-registration-otp',
+      {
+        method: 'POST',
+        body: JSON.stringify({ email, otp }),
+      }
     );
   },
 

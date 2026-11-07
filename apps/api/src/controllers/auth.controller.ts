@@ -11,15 +11,21 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 const SAME_SITE = ((process.env.COOKIE_SAME_SITE || env.COOKIE_SAME_SITE || 'lax') as 'lax' | 'none' | 'strict');
 const COOKIE_SECURE = SAME_SITE === 'none' ? true : IS_PROD;
 
-function setAuthCookie(res: Response, token: string, rememberMe = true): void {
-  const maxAge = rememberMe ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000; // 7 days or 1 day
-  res.cookie(COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: COOKIE_SECURE,
-    sameSite: SAME_SITE,
-    maxAge,
-    path: '/',
-  });
+    function setAuthCookie(res: Response, token: string, rememberMe = false): void {
+      const cookieOptions: any = {
+        httpOnly: true,
+        secure: COOKIE_SECURE,
+        sameSite: SAME_SITE,
+        path: '/',
+};
+
+// If rememberMe is true: persistent cookie for 30 days.
+// If rememberMe is false: session cookie (no maxAge/expires), deleted when browser is closed.
+if (rememberMe) {
+  cookieOptions.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
+}
+
+res.cookie(COOKIE_NAME, token, cookieOptions);
 }
 
 function clearAuthCookie(res: Response): void {
@@ -63,8 +69,9 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
       userAgent: req.headers['user-agent'],
       ipAddress: req.ip || req.socket.remoteAddress,
     };
+    const rememberMe = Boolean(req.body.rememberMe);
     const { user, token } = await authService.login(req.body, meta);
-    setAuthCookie(res, token, req.body.rememberMe !== false);
+    setAuthCookie(res, token, rememberMe);
 
     res.status(200).json({
       success: true,
@@ -362,6 +369,26 @@ export async function suggestUsernames(req: AuthenticatedRequest, res: Response,
     }
     const suggestions = await authService.getSuggestedUsernames(req.user.userId);
     res.status(200).json({ success: true, data: { suggestions } });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function sendRegistrationOtp(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { email } = req.body;
+    const result = await authService.sendRegistrationOtp(email);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function verifyRegistrationOtp(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { email, otp } = req.body;
+    const result = await authService.verifyRegistrationOtp(email, otp);
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { ProjectOverviewPage } from '../pages/app/ProjectOverviewPage';
 import type { Project } from '../api/projects.api';
@@ -194,4 +194,173 @@ describe('ProjectOverviewPage Tests', () => {
       expect(screen.getByText(/As workspace owner, your action immediately moves this project/i)).toBeInTheDocument();
     });
   });
-});
+
+  it('renders successfully and does not crash when secondary activityApi fails', async () => {
+    const { activityApi } = await import('../api/activity.api');
+    vi.mocked(activityApi.getProjectActivities).mockRejectedValueOnce(new Error('Activity service down'));
+
+    render(
+      <ProjectOverviewPage
+        project={mockProject}
+        hideHeader={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Total Tasks')).toBeInTheDocument();
+      expect(screen.getByText('In Progress')).toBeInTheDocument();
+      expect(screen.getByText('Completed')).toBeInTheDocument();
+    });
+
+    // Main page renders fine without crashing into error state
+    expect(screen.queryByText('Unable to load project')).not.toBeInTheDocument();
+  });
+
+  it('opens and renders refined Mark Project as Complete modal for Workspace Owner with editorial UI design', async () => {
+    mockWorkspaceRole = 'OWNER';
+    mockIsOwner = true;
+
+    render(
+      <ProjectOverviewPage
+        project={mockProject}
+        hideHeader={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Mark Project as Complete')).toBeInTheDocument();
+    });
+
+    const markCompleteBtn = screen.getByText('Mark Project as Complete');
+    fireEvent.click(markCompleteBtn);
+
+    await waitFor(() => {
+      const modal = screen.getByRole('dialog');
+      expect(within(modal).getByText('Deliverables Health')).toBeInTheDocument();
+      expect(within(modal).getByText('Total Tasks')).toBeInTheDocument();
+      expect(within(modal).getByText('Remaining Open')).toBeInTheDocument();
+      expect(within(modal).getByText('Completion Summary & Release Notes (Optional)')).toBeInTheDocument();
+      expect(within(modal).getByText('Read-Only Protection:')).toBeInTheDocument();
+      expect(within(modal).getByText('Confirm & Complete Project')).toBeInTheDocument();
+    });
+  });
+
+  it('opens and renders Request Project Completion modal with leadership notes and dark submit button', async () => {
+    mockWorkspaceRole = 'WORKSPACE_MEMBER';
+    mockIsOwner = false;
+
+    render(
+      <ProjectOverviewPage
+        project={{ ...mockProject, userRole: 'PROJECT_MEMBER' }}
+        hideHeader={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Request Project Completion')).toBeInTheDocument();
+    });
+
+    const requestBtn = screen.getByText('Request Project Completion');
+    fireEvent.click(requestBtn);
+
+    await waitFor(() => {
+      const modal = screen.getByRole('dialog');
+      expect(within(modal).getByText('Deliverables Health')).toBeInTheDocument();
+      expect(within(modal).getByText('Completion Notes for Leadership (Recommended)')).toBeInTheDocument();
+      expect(within(modal).getByText('Submit Completion Request')).toBeInTheDocument();
+      expect(within(modal).getByPlaceholderText(/Describe key deliverables, milestones completed/i)).toBeInTheDocument();
+    });
+  });
+
+    it('correctly displays member role tags: only OWNER, ADMIN, and MEMBER (no P-ADMIN prefix)', async () => {
+      const projectWithMembers: Project = {
+        ...mockProject,
+        workspace: {
+          id: 'ws-1',
+          ownerId: 'u1',
+          members: [
+            { userId: 'u1', role: 'OWNER' },
+            { userId: 'u2', role: 'WORKSPACE_ADMIN' },
+            { userId: 'u3', role: 'WORKSPACE_MEMBER' },
+          ],
+        } as any,
+        members: [
+          {
+            id: 'pm-1',
+            userId: 'u1', // Workspace Owner
+            role: 'PROJECT_ADMIN',
+            joinedAt: new Date().toISOString(),
+            user: { id: 'u1', fullName: 'Alwin James', username: 'aj07', avatarUrl: null },
+          },
+          {
+            id: 'pm-2',
+            userId: 'u2', // Workspace Admin / Project Admin
+            role: 'PROJECT_ADMIN',
+            joinedAt: new Date().toISOString(),
+            user: { id: 'u2', fullName: 'Admin User', username: 'wadmin', avatarUrl: null },
+          },
+          {
+            id: 'pm-3',
+            userId: 'u3', // Workspace Member / Project Member
+            role: 'PROJECT_MEMBER',
+            joinedAt: new Date().toISOString(),
+            user: { id: 'u3', fullName: 'd-board', username: 'dboard', avatarUrl: null },
+          },
+        ],
+      };
+
+      render(
+        <ProjectOverviewPage
+          project={projectWithMembers}
+          hideHeader={true}
+        />
+      );
+
+      await waitFor(() => {
+        // Workspace Owner must be tagged as OWNER
+        expect(screen.getByText('OWNER')).toBeInTheDocument();
+        // Admin must be tagged as ADMIN
+        expect(screen.getByText('ADMIN')).toBeInTheDocument();
+        // Member must be tagged as MEMBER
+        expect(screen.getByText('MEMBER')).toBeInTheDocument();
+        // Must not contain P-ADMIN or P-MEMBER
+        expect(screen.queryByText('P-ADMIN')).not.toBeInTheDocument();
+        expect(screen.queryByText('P-MEMBER')).not.toBeInTheDocument();
+      });
+    });
+
+    it('correctly displays OWNER tag when workspace owner is a project member without project admin role', async () => {
+      const projectWithOwnerAsMember: Project = {
+        ...mockProject,
+        createdById: 'u2',
+        workspace: {
+          id: 'ws-1',
+          ownerId: 'u-owner',
+          members: [
+            { userId: 'u-owner', role: 'OWNER' },
+            { userId: 'u2', role: 'WORKSPACE_ADMIN' },
+          ],
+        } as any,
+        members: [
+          {
+            id: 'pm-owner',
+            userId: 'u-owner',
+            role: 'PROJECT_MEMBER',
+            joinedAt: new Date().toISOString(),
+            user: { id: 'u-owner', fullName: 'Owner Person', username: 'owneruser', avatarUrl: null },
+          },
+        ],
+      };
+
+      render(
+        <ProjectOverviewPage
+          project={projectWithOwnerAsMember}
+          hideHeader={true}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('OWNER')).toBeInTheDocument();
+      });
+    });
+  });

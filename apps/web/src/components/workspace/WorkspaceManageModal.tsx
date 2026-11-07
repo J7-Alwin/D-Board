@@ -18,6 +18,7 @@ import {
   SearchIcon,
   TrashIcon,
   CheckIcon,
+  ClockIcon,
   AlertCircleIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -29,6 +30,9 @@ import {
   projectTransferApi,
   type ProjectTransfer,
 } from '../../api/projectTransfer.api';
+import { projectsApi } from '../../api/projects.api';
+import { ProjectTransferAcceptModal } from './ProjectTransferAcceptModal';
+import { ProjectTransferDeclineModal } from './ProjectTransferDeclineModal';
 import './WorkspaceManageModal.css';
 
 export interface WorkspaceManageModalProps {
@@ -86,6 +90,11 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
   const sortedMembers = useMemo(() => {
     return sortWorkspaceMembers(members);
   }, [members]);
+
+  const otherWorkspaces = useMemo(() => {
+    const all = [...(workspaces?.owned || []), ...(workspaces?.joined || [])];
+    return all.filter((w) => w.id !== activeWorkspace?.id && !w.isPersonal);
+  }, [workspaces, activeWorkspace?.id]);
 
   // Role Change Confirmation
   const [targetMemberForRole, setTargetMemberForRole] = useState<{
@@ -156,15 +165,24 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
   const [limitFeedback, setLimitFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Transfers Tab State (Phase 4)
+  const [transferSubTab, setTransferSubTab] = useState<'transfer' | 'incoming' | 'history'>('transfer');
   const [incomingTransfers, setIncomingTransfers] = useState<ProjectTransfer[]>([]);
   const [outgoingTransfers, setOutgoingTransfers] = useState<ProjectTransfer[]>([]);
   const [transfersLoading, setTransfersLoading] = useState(false);
   const [transfersError, setTransfersError] = useState<string | null>(null);
-  const [transferToApprove, setTransferToApprove] = useState<ProjectTransfer | null>(null);
-  const [transferToReject, setTransferToReject] = useState<ProjectTransfer | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
+  const [selectedTransferForAccept, setSelectedTransferForAccept] = useState<ProjectTransfer | null>(null);
+  const [selectedTransferForDecline, setSelectedTransferForDecline] = useState<ProjectTransfer | null>(null);
   const [isProcessingTransfer, setIsProcessingTransfer] = useState(false);
   const [transferFeedback, setTransferFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Transfer Project Form State (matching ProjectTransferModal)
+  const [workspaceProjects, setWorkspaceProjects] = useState<Array<{ id: string; name: string; key?: string | null }>>([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [destinationWorkspaceName, setDestinationWorkspaceName] = useState('');
+  const [confirmationName, setConfirmationName] = useState('');
+  const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
 
   // Ownership Transfer Tab State (Phase 5A)
   const [pendingOwnershipTransfer, setPendingOwnershipTransfer] = useState<OwnershipTransferItem | null>(null);
@@ -175,10 +193,15 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
   const [targetRecipientUserId, setTargetRecipientUserId] = useState<string>('');
   const [targetRecipientEmail, setTargetRecipientEmail] = useState<string>('');
   const [resultingRole, setResultingRole] = useState<'WORKSPACE_ADMIN' | 'WORKSPACE_MEMBER'>('WORKSPACE_ADMIN');
+  const [ownershipConfirmationName, setOwnershipConfirmationName] = useState<string>('');
   const [isInitiatingTransfer, setIsInitiatingTransfer] = useState(false);
   const [isCancellingTransfer, setIsCancellingTransfer] = useState(false);
   const [isAcceptingTransfer, setIsAcceptingTransfer] = useState(false);
   const [isRejectingTransfer, setIsRejectingTransfer] = useState(false);
+  const [showCancelTransferModal, setShowCancelTransferModal] = useState(false);
+  const [showAcceptTransferModal, setShowAcceptTransferModal] = useState(false);
+  const [showDeclineTransferModal, setShowDeclineTransferModal] = useState(false);
+  const [ownershipDeclineReason, setOwnershipDeclineReason] = useState('');
 
   // Audit Trail Tab State (Phase 5C)
   const [auditLogs, setAuditLogs] = useState<WorkspaceAuditLogItem[]>([]);
@@ -313,6 +336,30 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
     }
   }, [activeWorkspace]);
 
+  // Load Workspace Projects for Transfer
+  const loadWorkspaceProjects = useCallback(async () => {
+    if (!activeWorkspace || activeWorkspace.isPersonal) return;
+    try {
+      setLoadingProjects(true);
+      const res = await projectsApi.getUserProjects(activeWorkspace.id);
+      if (res.success && res.data) {
+        const projs = (res.data.all || []).map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          key: p.key,
+        }));
+        setWorkspaceProjects(projs);
+        if (projs.length > 0) {
+          setSelectedProjectId((prev) => (prev && projs.some((pr: any) => pr.id === prev) ? prev : projs[0].id));
+        }
+      }
+    } catch (err: any) {
+      console.warn('Failed to load workspace projects', err);
+    } finally {
+      setLoadingProjects(false);
+    }
+  }, [activeWorkspace?.id, activeWorkspace?.isPersonal]);
+
   // Load Pending Ownership Transfer (Phase 5A)
   const loadPendingOwnershipTransfer = useCallback(async () => {
     if (!activeWorkspace || activeWorkspace.isPersonal) return;
@@ -403,6 +450,7 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
       loadPermissions();
     } else if (activeTab === 'transfers') {
       loadTransfers();
+      loadWorkspaceProjects();
     } else if (activeTab === 'ownership') {
       loadPendingOwnershipTransfer();
     } else if (activeTab === 'audit') {
@@ -423,6 +471,7 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
     loadInvitations,
     loadPermissions,
     loadTransfers,
+    loadWorkspaceProjects,
     loadPendingOwnershipTransfer,
     loadAuditLogs,
     canTransfer,
@@ -430,43 +479,49 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
     auditActionFilter,
   ]);
 
-  // Handle Approve Transfer
-  const confirmApproveTransfer = async () => {
-    if (!activeWorkspace || !transferToApprove) return;
-    try {
-      setIsProcessingTransfer(true);
-      setTransferFeedback(null);
-      const res = await projectTransferApi.approveTransfer(transferToApprove.id);
-      if (res.success) {
-        setTransferFeedback({ type: 'success', message: 'Project transfer approved! Project added to workspace.' });
-        setTransferToApprove(null);
-        await loadTransfers();
-        await refreshWorkspaces();
-      }
-    } catch (err: any) {
-      setTransferFeedback({ type: 'error', message: err.message || 'Failed to approve transfer' });
-    } finally {
-      setIsProcessingTransfer(false);
-    }
-  };
+  // Handle Transfer Project Submit
+  const selectedProject = workspaceProjects.find((p) => p.id === selectedProjectId);
+  const isConfirmed = selectedProject ? confirmationName.trim() === selectedProject.name.trim() : false;
+  const canSubmitTransfer =
+    Boolean(selectedProject) &&
+    recipientEmail.trim().length > 0 &&
+    destinationWorkspaceName.trim().length > 0 &&
+    isConfirmed &&
+    !isSubmittingTransfer;
 
-  // Handle Reject Transfer
-  const confirmRejectTransfer = async () => {
-    if (!activeWorkspace || !transferToReject) return;
+  const handleTransferSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmitTransfer || !selectedProject) return;
+
     try {
-      setIsProcessingTransfer(true);
+      setIsSubmittingTransfer(true);
       setTransferFeedback(null);
-      const res = await projectTransferApi.rejectTransfer(transferToReject.id, rejectReason.trim() || undefined);
+
+      const res = await projectTransferApi.requestTransfer(selectedProject.id, {
+        destinationUserEmail: recipientEmail.trim(),
+        destinationWorkspaceName: destinationWorkspaceName.trim(),
+      });
+
       if (res.success) {
-        setTransferFeedback({ type: 'success', message: 'Project transfer rejected.' });
-        setTransferToReject(null);
-        setRejectReason('');
+        setTransferFeedback({
+          type: 'success',
+          message:
+            res.data?.message ||
+            `Transfer request sent to ${recipientEmail}. The recipient has received an email and notification card.`,
+        });
+        setConfirmationName('');
+        setRecipientEmail('');
+        setDestinationWorkspaceName('');
         await loadTransfers();
+        setTransferSubTab('history');
       }
     } catch (err: any) {
-      setTransferFeedback({ type: 'error', message: err.message || 'Failed to reject transfer' });
+      setTransferFeedback({
+        type: 'error',
+        message: err.message || 'Failed to initiate project transfer',
+      });
     } finally {
-      setIsProcessingTransfer(false);
+      setIsSubmittingTransfer(false);
     }
   };
 
@@ -512,6 +567,16 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
     try {
       setIsInitiatingTransfer(true);
       setOwnershipFeedback(null);
+
+      if (ownershipConfirmationName.trim().toLowerCase() !== activeWorkspace.name.trim().toLowerCase()) {
+        setOwnershipFeedback({
+          type: 'error',
+          message: `Please type "${activeWorkspace.name}" exactly to confirm transfer.`,
+        });
+        setIsInitiatingTransfer(false);
+        return;
+      }
+
       if (targetRecipientMode === 'member' && !targetRecipientUserId) {
         setOwnershipFeedback({ type: 'error', message: 'Please select a workspace member to receive ownership' });
         setIsInitiatingTransfer(false);
@@ -524,15 +589,16 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
       }
 
       const input = targetRecipientMode === 'member'
-        ? { targetUserId: targetRecipientUserId, targetRole: resultingRole }
-        : { targetEmail: targetRecipientEmail.trim().toLowerCase(), targetRole: resultingRole };
+        ? { targetUserId: targetRecipientUserId, targetRole: resultingRole, confirmationName: ownershipConfirmationName.trim() }
+        : { targetEmail: targetRecipientEmail.trim().toLowerCase(), targetRole: resultingRole, confirmationName: ownershipConfirmationName.trim() };
 
       const res = await workspacesApi.requestOwnershipTransfer(activeWorkspace.id, input);
       if (res.success && res.data) {
         setPendingOwnershipTransfer(res.data.transfer);
+        setOwnershipConfirmationName('');
         setOwnershipFeedback({
           type: 'success',
-          message: 'Ownership transfer request initiated! The recipient must accept to complete the transfer.',
+          message: 'Ownership transfer request initiated! Verification email sent to recipient.',
         });
         setTargetRecipientEmail('');
         setTargetRecipientUserId('');
@@ -553,6 +619,7 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
       const res = await workspacesApi.cancelOwnershipTransfer(activeWorkspace.id);
       if (res.success) {
         setPendingOwnershipTransfer(null);
+        setShowCancelTransferModal(false);
         setOwnershipFeedback({ type: 'success', message: 'Ownership transfer request cancelled.' });
       }
     } catch (err: any) {
@@ -570,6 +637,7 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
       setOwnershipFeedback(null);
       const res = await workspacesApi.acceptOwnershipTransfer(activeWorkspace.id);
       if (res.success) {
+        setShowAcceptTransferModal(false);
         setOwnershipFeedback({ type: 'success', message: 'You are now the Owner of this workspace!' });
         await refreshWorkspaces();
         await loadPendingOwnershipTransfer();
@@ -587,10 +655,12 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
     try {
       setIsRejectingTransfer(true);
       setOwnershipFeedback(null);
-      const res = await workspacesApi.rejectOwnershipTransfer(activeWorkspace.id);
+      const res = await workspacesApi.rejectOwnershipTransfer(activeWorkspace.id, undefined, ownershipDeclineReason.trim() || undefined);
       if (res.success) {
         setPendingOwnershipTransfer(null);
-        setOwnershipFeedback({ type: 'success', message: 'Ownership transfer request rejected.' });
+        setShowDeclineTransferModal(false);
+        setOwnershipDeclineReason('');
+        setOwnershipFeedback({ type: 'success', message: 'Ownership transfer request declined.' });
       }
     } catch (err: any) {
       setOwnershipFeedback({ type: 'error', message: err.message || 'Failed to reject ownership transfer' });
@@ -881,9 +951,8 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
             }}
           >
             <div
-              className={`project-created-toast-banner ${
-                toastMessage.type === 'success' ? 'toast-success' : 'toast-error'
-              } animate-slide-down`}
+              className={`project-created-toast-banner ${toastMessage.type === 'success' ? 'toast-success' : 'toast-error'
+                } animate-slide-down`}
               role="alert"
             >
               <div className="toast-icon-wrapper">
@@ -919,23 +988,22 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
               <div className="wmm-header-title-row">
                 <h2 className="wmm-header-title">{activeWorkspace.name}</h2>
                 <span
-                  className={`wmm-tag-role ${
-                    isOwner
+                  className={`wmm-tag-role ${isOwner
                       ? 'wmm-tag-owner'
                       : activeRole === 'WORKSPACE_ADMIN'
-                      ? 'wmm-tag-admin'
-                      : activeRole === 'PROJECT_ADMIN'
-                      ? 'wmm-tag-project-admin'
-                      : 'wmm-tag-member'
-                  }`}
+                        ? 'wmm-tag-admin'
+                        : activeRole === 'PROJECT_ADMIN'
+                          ? 'wmm-tag-project-admin'
+                          : 'wmm-tag-member'
+                    }`}
                 >
                   {isOwner
                     ? 'Owner'
                     : activeRole === 'WORKSPACE_ADMIN'
-                    ? 'Workspace Admin'
-                    : activeRole === 'PROJECT_ADMIN'
-                    ? 'Project Admin'
-                    : 'Workspace Member'}
+                      ? 'Workspace Admin'
+                      : activeRole === 'PROJECT_ADMIN'
+                        ? 'Project Admin'
+                        : 'Workspace Member'}
                 </span>
               </div>
               <span className="wmm-header-subtitle">
@@ -1189,9 +1257,8 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
 
               {inviteFeedback && (
                 <div
-                  className={`wmm-feedback-banner ${
-                    inviteFeedback.type === 'success' ? 'wmm-feedback-success' : 'wmm-feedback-error'
-                  }`}
+                  className={`wmm-feedback-banner ${inviteFeedback.type === 'success' ? 'wmm-feedback-success' : 'wmm-feedback-error'
+                    }`}
                 >
                   {inviteFeedback.type === 'success' ? <CheckIcon size={16} /> : <AlertCircleIcon size={16} />}
                   <span>{inviteFeedback.message}</span>
@@ -1216,9 +1283,8 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                           padding: '0.625rem 0.875rem',
                           borderRadius: '8px',
                           backgroundColor: isLimitReached ? 'rgba(239, 68, 68, 0.12)' : 'rgba(59, 130, 246, 0.1)',
-                          border: `1px solid ${
-                            isLimitReached ? 'rgba(239, 68, 68, 0.25)' : 'rgba(59, 130, 246, 0.2)'
-                          }`,
+                          border: `1px solid ${isLimitReached ? 'rgba(239, 68, 68, 0.25)' : 'rgba(59, 130, 246, 0.2)'
+                            }`,
                           marginBottom: '1rem',
                           fontSize: '0.8125rem',
                         }}
@@ -1326,8 +1392,8 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                               {inv.role === 'WORKSPACE_ADMIN'
                                 ? 'Workspace Admin'
                                 : inv.role === 'PROJECT_ADMIN'
-                                ? 'Project Admin'
-                                : 'Workspace Member'}
+                                  ? 'Project Admin'
+                                  : 'Workspace Member'}
                             </span>
                           </div>
                           <span className="wmm-inv-meta">
@@ -1415,9 +1481,8 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
 
                 {limitFeedback && (
                   <div
-                    className={`wmm-feedback-banner ${
-                      limitFeedback.type === 'success' ? 'wmm-feedback-success' : 'wmm-feedback-error'
-                    }`}
+                    className={`wmm-feedback-banner ${limitFeedback.type === 'success' ? 'wmm-feedback-success' : 'wmm-feedback-error'
+                      }`}
                     style={{ marginBottom: '0.75rem' }}
                   >
                     {limitFeedback.type === 'success' ? <CheckIcon size={16} /> : <AlertCircleIcon size={16} />}
@@ -1456,9 +1521,8 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
 
               {permissionsFeedback && (
                 <div
-                  className={`wmm-feedback-banner ${
-                    permissionsFeedback.type === 'success' ? 'wmm-feedback-success' : 'wmm-feedback-error'
-                  }`}
+                  className={`wmm-feedback-banner ${permissionsFeedback.type === 'success' ? 'wmm-feedback-success' : 'wmm-feedback-error'
+                    }`}
                 >
                   {permissionsFeedback.type === 'success' ? <CheckIcon size={16} /> : <AlertCircleIcon size={16} />}
                   <span>{permissionsFeedback.message}</span>
@@ -1573,9 +1637,8 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
             <div className="wmm-transfers-section">
               {transferFeedback && (
                 <div
-                  className={`wmm-alert ${
-                    transferFeedback.type === 'success' ? 'wmm-alert-success' : 'wmm-alert-error'
-                  }`}
+                  className={`wmm-alert ${transferFeedback.type === 'success' ? 'wmm-alert-success' : 'wmm-alert-error'
+                    }`}
                   style={{
                     padding: '0.75rem 1rem',
                     borderRadius: '8px',
@@ -1583,9 +1646,8 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                     backgroundColor:
                       transferFeedback.type === 'success' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
                     color: transferFeedback.type === 'success' ? '#34d399' : '#f87171',
-                    border: `1px solid ${
-                      transferFeedback.type === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'
-                    }`,
+                    border: `1px solid ${transferFeedback.type === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'
+                      }`,
                     display: 'flex',
                     alignItems: 'center',
                     gap: '0.5rem',
@@ -1597,112 +1659,323 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                 </div>
               )}
 
-              {transfersLoading ? (
-                <div className="wmm-empty-state">
-                  <RefreshCwIcon size={24} className="wmm-spin" />
-                  <p>Loading project transfers...</p>
+              {transfersError && (
+                <div
+                  className="wmm-alert wmm-alert-error"
+                  style={{
+                    padding: '0.75rem 1rem',
+                    borderRadius: '8px',
+                    marginBottom: '1rem',
+                    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                    color: '#f87171',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    fontSize: '0.8125rem',
+                  }}
+                >
+                  <AlertCircleIcon size={16} />
+                  <span>{transfersError}</span>
                 </div>
-              ) : transfersError ? (
-                <div className="wmm-empty-state">
-                  <AlertCircleIcon size={24} style={{ color: '#ef4444' }} />
-                  <p>{transfersError}</p>
-                </div>
-              ) : (
-                <>
-                  {/* Incoming Transfer Requests */}
-                  <div className="wmm-transfers-group">
-                    <h3 className="wmm-transfers-title">
-                      Incoming Transfer Requests ({incomingTransfers.length})
-                    </h3>
-                    {incomingTransfers.length === 0 ? (
-                      <div className="wmm-empty-state" style={{ padding: '1.5rem', minHeight: 'unset' }}>
-                        <p style={{ margin: 0, fontSize: '0.8125rem' }}>No incoming project transfer requests for this workspace.</p>
-                      </div>
-                    ) : (
-                      <div className="wmm-transfers-list">
-                        {incomingTransfers.map((item) => (
-                          <div key={item.id} className="wmm-transfer-card">
-                            <div className="wmm-transfer-card-info">
-                              <span className="wmm-transfer-project-name">
-                                {item.project?.name || item.projectName || 'Project'}
-                              </span>
-                              <div className="wmm-transfer-meta">
-                                <span>From: <strong>{item.sourceWorkspace?.name}</strong></span>
-                                <span>•</span>
-                                <span>By: {item.initiatedBy?.fullName || item.initiatedBy?.username}</span>
-                                <span>•</span>
-                                <span>{new Date(item.createdAt).toLocaleDateString()}</span>
-                              </div>
-                            </div>
-                            <div className="wmm-transfer-actions">
-                              <button
-                                type="button"
-                                className="wmm-btn-reject"
-                                onClick={() => {
-                                  setTransferToReject(item);
-                                  setRejectReason('');
-                                }}
-                                disabled={isProcessingTransfer}
-                              >
-                                Reject
-                              </button>
-                              <button
-                                type="button"
-                                className="wmm-btn-approve"
-                                onClick={() => setTransferToApprove(item)}
-                                disabled={isProcessingTransfer}
-                              >
-                                <CheckIcon size={14} />
-                                <span>Approve</span>
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+              )}
 
-                  {/* Outgoing Transfer Requests */}
-                  <div className="wmm-transfers-group" style={{ marginTop: '1rem' }}>
-                    <h3 className="wmm-transfers-title">
-                      Outgoing Transfer Requests ({outgoingTransfers.length})
-                    </h3>
-                    {outgoingTransfers.length === 0 ? (
-                      <div className="wmm-empty-state" style={{ padding: '1.5rem', minHeight: 'unset' }}>
-                        <p style={{ margin: 0, fontSize: '0.8125rem' }}>No outgoing project transfer requests.</p>
+              {/* Sub-tab Navigation matching ProjectTransferModal */}
+              <div className="wmm-transfers-subnav">
+                <button
+                  type="button"
+                  className={`wmm-subtab-btn ${transferSubTab === 'transfer' ? 'active' : ''}`}
+                  onClick={() => setTransferSubTab('transfer')}
+                >
+                  <ArrowRightIcon size={14} />
+                  <span>Transfer Project</span>
+                </button>
+                <button
+                  type="button"
+                  className={`wmm-subtab-btn ${transferSubTab === 'incoming' ? 'active' : ''}`}
+                  onClick={() => setTransferSubTab('incoming')}
+                >
+                  <span>Incoming Requests</span>
+                  {incomingTransfers.length > 0 && (
+                    <span className="wmm-subtab-badge" style={{ backgroundColor: '#f59e0b', color: '#000000' }}>
+                      {incomingTransfers.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className={`wmm-subtab-btn ${transferSubTab === 'history' ? 'active' : ''}`}
+                  onClick={() => {
+                    setTransferSubTab('history');
+                    loadTransfers();
+                  }}
+                >
+                  <span>Transfer History ({outgoingTransfers.length})</span>
+                </button>
+              </div>
+
+              {/* Subtab Content 1: Transfer Project Form */}
+              {transferSubTab === 'transfer' && (
+                <form onSubmit={handleTransferSubmit} className="wmm-transfer-form-card">
+                  {loadingProjects ? (
+                    <div className="wmm-empty-state">
+                      <RefreshCwIcon size={24} className="wmm-spin" />
+                      <p>Loading workspace projects...</p>
+                    </div>
+                  ) : workspaceProjects.length === 0 ? (
+                    <div className="wmm-empty-state" style={{ padding: '2rem 1rem' }}>
+                      <p style={{ margin: 0, fontSize: '0.875rem' }}>No projects available in this workspace to transfer.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="wmm-field-group">
+                        <label className="wmm-field-label">Select Project to Transfer</label>
+                        <select
+                          className="wmm-select"
+                          value={selectedProjectId}
+                          onChange={(e) => {
+                            setSelectedProjectId(e.target.value);
+                            setConfirmationName('');
+                          }}
+                          disabled={isSubmittingTransfer}
+                        >
+                          {workspaceProjects.map((proj) => (
+                            <option key={proj.id} value={proj.id}>
+                              {proj.name} {proj.key ? `(${proj.key})` : ''}
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                    ) : (
-                      <div className="wmm-transfers-list">
-                        {outgoingTransfers.map((item) => (
-                          <div key={item.id} className="wmm-transfer-card">
-                            <div className="wmm-transfer-card-info">
+
+                      {/* Direction Preview */}
+                      <div className="wmm-direction-card">
+                        <div className="wmm-direction-col">
+                          <span className="wmm-direction-label">Source Workspace</span>
+                          <span className="wmm-ws-pill source">{activeWorkspace.name}</span>
+                        </div>
+                        <ArrowRightIcon size={18} className="wmm-direction-arrow" />
+                        <div className="wmm-direction-col">
+                          <span className="wmm-direction-label">Destination Workspace</span>
+                          <span className="wmm-ws-pill dest">
+                            {destinationWorkspaceName.trim() || 'Specified Below'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Destination Workspace Name */}
+                      <div className="wmm-field-group">
+                        <label className="wmm-field-label">Destination Workspace Name</label>
+                        <input
+                          type="text"
+                          className="wmm-input"
+                          placeholder="e.g. Mobile Engineering or Client Portal"
+                          value={destinationWorkspaceName}
+                          onChange={(e) => setDestinationWorkspaceName(e.target.value)}
+                          disabled={isSubmittingTransfer}
+                          required
+                        />
+                        {otherWorkspaces.length > 0 && (
+                          <div className="wmm-suggestions-box">
+                            <span className="wmm-suggestions-title">Your other workspaces:</span>
+                            <div className="wmm-suggestions-list">
+                              {otherWorkspaces.map((ws) => (
+                                <button
+                                  key={ws.id}
+                                  type="button"
+                                  className="wmm-suggestion-pill"
+                                  onClick={() => setDestinationWorkspaceName(ws.name)}
+                                  disabled={isSubmittingTransfer}
+                                >
+                                  {ws.name}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Recipient User Email */}
+                      <div className="wmm-field-group">
+                        <label className="wmm-field-label">Recipient User Email</label>
+                        <input
+                          type="email"
+                          className="wmm-input"
+                          placeholder="owner-or-admin@example.com"
+                          value={recipientEmail}
+                          onChange={(e) => setRecipientEmail(e.target.value)}
+                          disabled={isSubmittingTransfer}
+                          required
+                        />
+                        <span className="wmm-field-help">
+                          Must be an Owner or Admin of the destination workspace.
+                        </span>
+                      </div>
+
+                      {/* Informational Box */}
+                      <div className="wmm-info-box">
+                        <h4 className="wmm-info-box-title">Transfer Workflow</h4>
+                        <ul className="wmm-info-box-list">
+                          <li>The recipient will receive an email and a transfer card on their dashboard.</li>
+                          <li>Upon review, the recipient chooses whether to invite existing project members or exclude them.</li>
+                          <li>All tasks, comments, notes, and files transfer intact.</li>
+                        </ul>
+                      </div>
+
+                      {/* Exact Name Confirmation Safeguard */}
+                      {selectedProject && (
+                        <div className="wmm-field-group" style={{ marginTop: '0.5rem' }}>
+                          <label className="wmm-field-label">
+                            Type <strong>{selectedProject.name}</strong> to confirm transfer:
+                          </label>
+                          <input
+                            type="text"
+                            className="wmm-input"
+                            placeholder={selectedProject.name}
+                            value={confirmationName}
+                            onChange={(e) => setConfirmationName(e.target.value)}
+                            disabled={isSubmittingTransfer}
+                          />
+                        </div>
+                      )}
+
+                      <div className="wmm-form-actions">
+                        <Button
+                          type="submit"
+                          variant="primary"
+                          size="sm"
+                          isLoading={isSubmittingTransfer}
+                          disabled={!canSubmitTransfer}
+                        >
+                          Send Transfer Request
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </form>
+              )}
+
+              {/* Subtab Content 2: Incoming Requests */}
+              {transferSubTab === 'incoming' && (
+                <div className="wmm-transfers-group">
+                  {transfersLoading ? (
+                    <div className="wmm-empty-state">
+                      <RefreshCwIcon size={24} className="wmm-spin" />
+                      <p>Loading incoming requests...</p>
+                    </div>
+                  ) : incomingTransfers.length === 0 ? (
+                    <div className="wmm-empty-state" style={{ padding: '2.5rem 1rem' }}>
+                      <p style={{ margin: 0, fontSize: '0.875rem' }}>No incoming project transfer requests for this workspace.</p>
+                    </div>
+                  ) : (
+                    <div className="wmm-transfers-list">
+                      {incomingTransfers.map((item) => (
+                        <div key={item.id} className="wmm-transfer-card">
+                          <div className="wmm-transfer-card-info">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
                               <span className="wmm-transfer-project-name">
                                 {item.project?.name || item.projectName || 'Project'}
                               </span>
-                              <div className="wmm-transfer-meta">
-                                <span>To: <strong>{item.destinationWorkspace?.name}</strong></span>
-                                <span>•</span>
-                                <span>Status: Pending destination approval</span>
+                              {item.project?.key && (
+                                <span className="wmm-project-key-tag">
+                                  {item.project.key}
+                                </span>
+                              )}
+                            </div>
+                            <div className="wmm-transfer-meta">
+                              <span>From: <strong>{item.sourceWorkspace?.name}</strong></span>
+                              <span>•</span>
+                              <span>By: {item.initiatedBy?.fullName || item.initiatedBy?.username}</span>
+                              <span>•</span>
+                              <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                          <div className="wmm-transfer-actions">
+                            <button
+                              type="button"
+                              className="wmm-btn-reject"
+                              onClick={() => setSelectedTransferForDecline(item)}
+                              disabled={isProcessingTransfer}
+                            >
+                              Decline
+                            </button>
+                            <button
+                              type="button"
+                              className="wmm-btn-approve"
+                              onClick={() => setSelectedTransferForAccept(item)}
+                              disabled={isProcessingTransfer}
+                            >
+                              <CheckIcon size={14} />
+                              <span>Review & Accept</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Subtab Content 3: Transfer History & Outgoing Requests */}
+              {transferSubTab === 'history' && (
+                <div className="wmm-transfers-group">
+                  {transfersLoading ? (
+                    <div className="wmm-empty-state">
+                      <RefreshCwIcon size={24} className="wmm-spin" />
+                      <p>Loading transfer history...</p>
+                    </div>
+                  ) : outgoingTransfers.length === 0 ? (
+                    <div className="wmm-empty-state" style={{ padding: '2.5rem 1rem' }}>
+                      <p style={{ margin: 0, fontSize: '0.875rem' }}>No outgoing transfer history records.</p>
+                    </div>
+                  ) : (
+                    <div className="wmm-transfers-list">
+                      {outgoingTransfers.map((item) => {
+                        const status = item.status?.toLowerCase() || 'pending';
+                        return (
+                          <div key={item.id} className="wmm-history-card">
+                            <div className="wmm-transfer-card-info">
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.375rem' }}>
+                                <span className="wmm-transfer-project-name">
+                                  {item.project?.name || item.projectName || 'Project'}
+                                </span>
+                                <span className={`wmm-status-pill status-${status}`}>
+                                  {item.status}
+                                </span>
+                              </div>
+                              <div className="wmm-history-route">
+                                <span>{item.sourceWorkspace?.name || activeWorkspace.name}</span>
+                                <ArrowRightIcon size={12} />
+                                <span>{item.destinationWorkspace?.name || item.destinationWorkspaceName || 'Destination'}</span>
+                              </div>
+                              <div className="wmm-transfer-meta" style={{ marginTop: '0.25rem' }}>
+                                <span>Sent to: {item.recipientEmail || 'Recipient'}</span>
                                 <span>•</span>
                                 <span>{new Date(item.createdAt).toLocaleDateString()}</span>
                               </div>
+                              {item.rejectionReason && (
+                                <div className="wmm-rejection-note">
+                                  <strong>Reason:</strong> {item.rejectionReason}
+                                </div>
+                              )}
                             </div>
                             <div className="wmm-transfer-actions">
-                              <button
-                                type="button"
-                                className="wmm-btn-cancel-transfer"
-                                onClick={() => handleCancelOutgoingTransfer(item.id)}
-                                disabled={isProcessingTransfer}
-                              >
-                                Cancel Request
-                              </button>
+                              {item.status === 'PENDING' && (
+                                <button
+                                  type="button"
+                                  className="wmm-btn-cancel-transfer"
+                                  onClick={() => handleCancelOutgoingTransfer(item.id)}
+                                  disabled={isProcessingTransfer}
+                                >
+                                  Cancel Request
+                                </button>
+                              )}
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -1710,23 +1983,18 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
           {/* Phase 5A: Ownership Tab */}
           {activeTab === 'ownership' && (
             <div className="wmm-ownership-section">
-              <div className="wmm-notice-card">
-                <div className="wmm-notice-title">
-                  <ShieldIcon size={16} />
-                  <span>Workspace Ownership Lifecycle</span>
+              <div className="wmm-section-header">
+                <div>
+                  <h3 className="wmm-section-title">Workspace Ownership Lifecycle</h3>
+                  <p className="wmm-section-desc">
+                    Securely transfer workspace ownership to a teammate or designated administrative account.
+                  </p>
                 </div>
-                <p className="wmm-notice-desc">
-                  Transferring ownership grants full administrative control of this workspace to the recipient.
-                  All projects, tasks, comments, notes, files, and memberships remain intact under the same workspace ID.
-                  Once accepted, you will transition to your chosen role (Admin or Member).
-                </p>
               </div>
 
               {ownershipFeedback && (
                 <div
-                  className={`wmm-feedback-banner ${
-                    ownershipFeedback.type === 'success' ? 'wmm-feedback-success' : 'wmm-feedback-error'
-                  }`}
+                  className={`wmm-feedback-banner ${ownershipFeedback.type === 'success' ? 'wmm-feedback-success' : 'wmm-feedback-error'}`}
                 >
                   {ownershipFeedback.type === 'success' ? <CheckIcon size={16} /> : <AlertCircleIcon size={16} />}
                   <span>{ownershipFeedback.message}</span>
@@ -1740,91 +2008,162 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                 </div>
               )}
 
+              {/* 100% Team & Work Retention Guaranteed Banner */}
+              <div className="wmm-retention-notice">
+                <div className="wmm-retention-icon">
+                  <ShieldIcon size={20} />
+                </div>
+                <div className="wmm-retention-content">
+                  <h4 className="wmm-retention-title">100% Team & Asset Retention Guaranteed</h4>
+                  <p className="wmm-retention-desc">
+                    All workspace members, projects, tasks, comments, notes, files, and settings will remain completely intact. No member will be removed or lose access as part of this transfer.
+                  </p>
+                </div>
+              </div>
+
               {ownershipLoading ? (
                 <div className="wmm-loading-state">
                   <div className="btn-spinner" />
                   <span>Checking ownership transfer status...</span>
                 </div>
               ) : pendingOwnershipTransfer ? (
-                <div className="wmm-pending-transfer-box">
-                  <div className="wmm-pending-header">
-                    <div className="wmm-pending-title">
-                      <UsersIcon size={18} />
-                      <span>Pending Ownership Transfer</span>
-                    </div>
-                    <span className="wmm-audit-badge wmm-audit-badge-ownership">
-                      {pendingOwnershipTransfer.status}
-                    </span>
-                  </div>
+                (() => {
+                  const diffMs = new Date(pendingOwnershipTransfer.expiresAt).getTime() - Date.now();
+                  const diffHours = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60)));
+                  const diffDays = Math.floor(diffHours / 24);
+                  const hoursLeft = diffHours % 24;
+                  const countdownText = diffMs <= 0 ? 'Expired' : `${diffDays}d ${hoursLeft}h remaining`;
 
-                  <div className="wmm-pending-details">
-                    <div>
-                      <div className="wmm-pending-item-label">Transfer Recipient:</div>
-                      <div className="wmm-pending-item-val">
-                        {pendingOwnershipTransfer.targetUser.fullName || pendingOwnershipTransfer.targetUser.username}
-                        {' '}({pendingOwnershipTransfer.targetUser.email})
+                  return (
+                    <div className="wmm-pending-transfer-box">
+                      <div className="wmm-pending-header">
+                        <div className="wmm-pending-title">
+                          <UsersIcon size={18} />
+                          <span>Pending Ownership Transfer</span>
+                        </div>
+                        <span className="wmm-countdown-badge">
+                          <ClockIcon size={12} />
+                          <span>{countdownText}</span>
+                        </span>
                       </div>
-                    </div>
-                    <div>
-                      <div className="wmm-pending-item-label">Requested By:</div>
-                      <div className="wmm-pending-item-val">
-                        {pendingOwnershipTransfer.sourceOwner.fullName || pendingOwnershipTransfer.sourceOwner.username}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="wmm-pending-item-label">Your Post-Transfer Role:</div>
-                      <div className="wmm-pending-item-val">
-                        {pendingOwnershipTransfer.targetRole === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="wmm-pending-item-label">Expires:</div>
-                      <div className="wmm-pending-item-val">
-                        {new Date(pendingOwnershipTransfer.expiresAt).toLocaleDateString()}
-                      </div>
-                    </div>
-                  </div>
 
-                  <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
-                    {isOwner && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        isLoading={isCancellingTransfer}
-                        onClick={handleCancelOwnershipTransfer}
-                      >
-                        Cancel Transfer Request
-                      </Button>
-                    )}
-                    {pendingOwnershipTransfer.targetUserId === user?.id && (
-                      <>
-                        <Button
-                          type="button"
-                          variant="primary"
-                          size="sm"
-                          style={{ backgroundColor: '#10b981', borderColor: '#059669' }}
-                          isLoading={isAcceptingTransfer}
-                          onClick={handleAcceptOwnershipTransfer}
-                        >
-                          Accept Ownership
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          isLoading={isRejectingTransfer}
-                          onClick={handleRejectOwnershipTransfer}
-                        >
-                          Decline
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
+                      {/* Visual Direction Card */}
+                      <div className="wmm-direction-flow-card">
+                        <div className="wmm-direction-party">
+                          <span className="wmm-direction-badge current">Current Owner</span>
+                          <span className="wmm-direction-name">
+                            {pendingOwnershipTransfer.sourceOwner.fullName || pendingOwnershipTransfer.sourceOwner.username}
+                          </span>
+                          <span className="wmm-direction-role">
+                            Becomes: {pendingOwnershipTransfer.targetRole === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}
+                          </span>
+                        </div>
+                        <div className="wmm-direction-arrow-icon">
+                          <ArrowRightIcon size={18} />
+                        </div>
+                        <div className="wmm-direction-party">
+                          <span className="wmm-direction-badge new">New Owner</span>
+                          <span className="wmm-direction-name">
+                            {pendingOwnershipTransfer.targetUser.fullName || pendingOwnershipTransfer.targetUser.username || pendingOwnershipTransfer.targetEmail}
+                          </span>
+                          <span className="wmm-direction-role">Becomes: Primary Workspace Owner</span>
+                        </div>
+                      </div>
+
+                      <div className="wmm-pending-details">
+                        <div>
+                          <div className="wmm-pending-item-label">Transfer Recipient:</div>
+                          <div className="wmm-pending-item-val">
+                            {pendingOwnershipTransfer.targetUser.fullName || pendingOwnershipTransfer.targetUser.username} ({pendingOwnershipTransfer.targetUser.email})
+                          </div>
+                        </div>
+                        <div>
+                          <div className="wmm-pending-item-label">Requested By:</div>
+                          <div className="wmm-pending-item-val">
+                            {pendingOwnershipTransfer.sourceOwner.fullName || pendingOwnershipTransfer.sourceOwner.username}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="wmm-pending-item-label">Your Post-Transfer Role:</div>
+                          <div className="wmm-pending-item-val">
+                            {pendingOwnershipTransfer.targetRole === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="wmm-pending-item-label">Expires:</div>
+                          <div className="wmm-pending-item-val">
+                            {new Date(pendingOwnershipTransfer.expiresAt).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                        {isOwner && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            isLoading={isCancellingTransfer}
+                            onClick={() => setShowCancelTransferModal(true)}
+                          >
+                            Cancel Transfer Request
+                          </Button>
+                        )}
+                        {pendingOwnershipTransfer.targetUserId === user?.id && (
+                          <>
+                            <Button
+                              type="button"
+                              variant="primary"
+                              size="sm"
+                              style={{ backgroundColor: '#10b981', borderColor: '#059669' }}
+                              isLoading={isAcceptingTransfer}
+                              onClick={() => setShowAcceptTransferModal(true)}
+                            >
+                              Review & Accept Ownership
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              isLoading={isRejectingTransfer}
+                              onClick={() => setShowDeclineTransferModal(true)}
+                            >
+                              Decline
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()
               ) : (
                 <form className="wmm-transfer-form" onSubmit={handleInitiateOwnershipTransfer}>
                   <h4 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600 }}>Initiate Transfer Request</h4>
+
+                  {/* Visual Route Flow */}
+                  <div className="wmm-direction-flow-card">
+                    <div className="wmm-direction-party">
+                      <span className="wmm-direction-badge current">Current Owner</span>
+                      <span className="wmm-direction-name">{user?.fullName || user?.username || 'You'}</span>
+                      <span className="wmm-direction-role">
+                        Will become: {resultingRole === 'WORKSPACE_ADMIN' ? 'Workspace Admin' : 'Workspace Member'}
+                      </span>
+                    </div>
+                    <div className="wmm-direction-arrow-icon">
+                      <ArrowRightIcon size={18} />
+                    </div>
+                    <div className="wmm-direction-party">
+                      <span className="wmm-direction-badge new">New Owner</span>
+                      <span className="wmm-direction-name">
+                        {targetRecipientMode === 'member'
+                          ? (members.find((m) => m.userId === targetRecipientUserId)?.user.fullName ||
+                             members.find((m) => m.userId === targetRecipientUserId)?.user.username ||
+                             'Select a Member')
+                          : (targetRecipientEmail.trim() || 'Enter Email')}
+                      </span>
+                      <span className="wmm-direction-role">Will become: Primary Workspace Owner</span>
+                    </div>
+                  </div>
 
                   <div className="wmm-form-group">
                     <label className="wmm-form-label">Transfer Recipient Target</label>
@@ -1850,21 +2189,55 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                     </div>
 
                     {targetRecipientMode === 'member' ? (
-                      <select
-                        className="wmm-form-select"
-                        value={targetRecipientUserId}
-                        onChange={(e) => setTargetRecipientUserId(e.target.value)}
-                        required
-                      >
-                        <option value="">Select a member...</option>
-                        {members
-                          .filter((m) => m.userId !== user?.id)
-                          .map((m) => (
-                            <option key={m.userId} value={m.userId}>
-                              {m.user.fullName || m.user.username} ({m.user.email}) - {m.role === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}
-                            </option>
-                          ))}
-                      </select>
+                      <>
+                        <select
+                          className="wmm-form-select"
+                          value={targetRecipientUserId}
+                          onChange={(e) => setTargetRecipientUserId(e.target.value)}
+                          required
+                        >
+                          <option value="">Select a member...</option>
+                          {members
+                            .filter((m) => m.userId !== user?.id)
+                            .map((m) => (
+                              <option key={m.userId} value={m.userId}>
+                                {m.user.fullName || m.user.username} ({m.user.email}) - {m.role === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}
+                              </option>
+                            ))}
+                        </select>
+
+                        {/* Selected member preview card */}
+                        {(() => {
+                          const selected = members.find((m) => m.userId === targetRecipientUserId);
+                          if (!selected) return null;
+                          const initials = (selected.user.fullName || selected.user.username || 'U')
+                            .slice(0, 2)
+                            .toUpperCase();
+                          return (
+                            <div className="wmm-recipient-preview-card">
+                              <div className="wmm-recipient-avatar">
+                                {selected.user.avatarUrl ? (
+                                  <img src={selected.user.avatarUrl} alt={selected.user.username} />
+                                ) : (
+                                  initials
+                                )}
+                              </div>
+                              <div className="wmm-recipient-meta">
+                                <span className="wmm-recipient-fullname">
+                                  {selected.user.fullName || selected.user.username}
+                                  <span style={{ fontWeight: 400, color: '#a1a1aa', marginLeft: '0.35rem' }}>
+                                    @{selected.user.username}
+                                  </span>
+                                </span>
+                                <span className="wmm-recipient-sub">{selected.user.email}</span>
+                              </div>
+                              <span className="wmm-recipient-role-pill">
+                                Current: {selected.role === 'WORKSPACE_ADMIN' ? 'Admin' : 'Member'}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </>
                     ) : (
                       <input
                         type="email"
@@ -1895,12 +2268,35 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                     </span>
                   </div>
 
+                  {/* Exact Workspace Name Confirmation Guard */}
+                  <div className="wmm-guard-box">
+                    <label className="wmm-guard-label">
+                      Type <strong>{activeWorkspace.name}</strong> to confirm transfer:
+                    </label>
+                    <input
+                      type="text"
+                      className="wmm-form-input"
+                      placeholder={'Type "' + activeWorkspace.name + '" to confirm'}
+                      value={ownershipConfirmationName}
+                      onChange={(e) => setOwnershipConfirmationName(e.target.value)}
+                      disabled={isInitiatingTransfer}
+                    />
+                    <span className="wmm-guard-hint">
+                      Exact name confirmation ensures ownership is only transferred with explicit verification.
+                    </span>
+                  </div>
+
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
                     <Button
                       type="submit"
                       variant="primary"
                       size="sm"
                       isLoading={isInitiatingTransfer}
+                      disabled={
+                        ownershipConfirmationName.trim().toLowerCase() !== activeWorkspace.name.trim().toLowerCase() ||
+                        (targetRecipientMode === 'member' ? !targetRecipientUserId : !targetRecipientEmail.trim()) ||
+                        isInitiatingTransfer
+                      }
                     >
                       Send Transfer Request
                     </Button>
@@ -2178,8 +2574,8 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                   {targetMemberForRole.newRole === 'WORKSPACE_ADMIN'
                     ? 'Workspace Admin'
                     : targetMemberForRole.newRole === 'PROJECT_ADMIN'
-                    ? 'Project Admin'
-                    : 'Workspace Member'}
+                      ? 'Project Admin'
+                      : 'Workspace Member'}
                 </strong>
                 ?
               </p>
@@ -2280,97 +2676,36 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
           </div>
         )}
 
-        {/* Confirmation Overlay: Approve Transfer (Phase 4) */}
-        {transferToApprove && (
-          <div className="wmm-confirm-backdrop">
-            <div className="wmm-confirm-box">
-              <h4 className="wmm-confirm-title">Approve Project Transfer?</h4>
-              <p className="wmm-confirm-desc">
-                Accept project <strong>{transferToApprove.project?.name || transferToApprove.projectName}</strong> from{' '}
-                <strong>{transferToApprove.sourceWorkspace?.name}</strong> into this workspace?
-                <br /><br />
-                All tasks, comments, files, and notes will be transferred as one logical unit. Existing project members not in this workspace will lose project access, and their assigned tasks will be unassigned.
-              </p>
-              <div className="wmm-confirm-actions">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setTransferToApprove(null)}
-                  disabled={isProcessingTransfer}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  style={{ backgroundColor: '#10b981', borderColor: '#059669' }}
-                  isLoading={isProcessingTransfer}
-                  onClick={confirmApproveTransfer}
-                >
-                  Approve & Transfer
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Accept Project Transfer Modal */}
+        <ProjectTransferAcceptModal
+          isOpen={Boolean(selectedTransferForAccept)}
+          transfer={selectedTransferForAccept}
+          onClose={() => setSelectedTransferForAccept(null)}
+          onSuccess={async () => {
+            setSelectedTransferForAccept(null);
+            setTransferFeedback({
+              type: 'success',
+              message: 'Project transfer accepted and completed successfully!',
+            });
+            await loadTransfers();
+            await refreshWorkspaces();
+          }}
+        />
 
-        {/* Confirmation Overlay: Reject Transfer (Phase 4) */}
-        {transferToReject && (
-          <div className="wmm-confirm-backdrop">
-            <div className="wmm-confirm-box">
-              <h4 className="wmm-confirm-title" style={{ color: '#f87171' }}>Reject Project Transfer?</h4>
-              <p className="wmm-confirm-desc">
-                Decline the transfer request for <strong>{transferToReject.project?.name || transferToReject.projectName}</strong>.
-              </p>
-              <div style={{ marginBottom: '1.25rem' }}>
-                <label style={{ fontSize: '0.75rem', color: '#a1a1aa', display: 'block', marginBottom: '0.375rem' }}>
-                  Rejection Reason (optional)
-                </label>
-                <textarea
-                  style={{
-                    width: '100%',
-                    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    borderRadius: '6px',
-                    color: '#ffffff',
-                    padding: '0.5rem',
-                    fontSize: '0.8125rem',
-                    resize: 'vertical',
-                    minHeight: '60px',
-                    boxSizing: 'border-box',
-                  }}
-                  placeholder="e.g. Incompatible workspace, redundant project..."
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  disabled={isProcessingTransfer}
-                />
-              </div>
-              <div className="wmm-confirm-actions">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setTransferToReject(null)}
-                  disabled={isProcessingTransfer}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}
-                  isLoading={isProcessingTransfer}
-                  onClick={confirmRejectTransfer}
-                >
-                  Reject Request
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Decline Project Transfer Modal */}
+        <ProjectTransferDeclineModal
+          isOpen={Boolean(selectedTransferForDecline)}
+          transfer={selectedTransferForDecline}
+          onClose={() => setSelectedTransferForDecline(null)}
+          onSuccess={async () => {
+            setSelectedTransferForDecline(null);
+            setTransferFeedback({
+              type: 'success',
+              message: 'Project transfer request declined.',
+            });
+            await loadTransfers();
+          }}
+        />
 
         {/* Confirmation Overlay: Workspace Soft Deletion (Phase 5B) */}
         {deleteModalOpen && (
@@ -2471,6 +2806,140 @@ export const WorkspaceManageModal: React.FC<WorkspaceManageModalProps> = ({
                   id="wmm-confirm-leave-btn"
                 >
                   Leave Workspace
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        
+        {/* Ownership Transfer Cancel Modal */}
+        {showCancelTransferModal && (
+          <div className="wmm-confirm-overlay" onClick={() => setShowCancelTransferModal(false)}>
+            <div className="wmm-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+              <h4 className="wmm-confirm-title" style={{ color: '#f59e0b' }}>
+                Cancel Ownership Transfer Request
+              </h4>
+              <p className="wmm-confirm-message">
+                Are you sure you want to cancel the pending ownership transfer for <strong>{activeWorkspace.name}</strong>?
+                The recipient will no longer be able to accept ownership.
+              </p>
+              <div className="wmm-confirm-actions">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowCancelTransferModal(false)}
+                  disabled={isCancellingTransfer}
+                >
+                  Keep Request
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}
+                  isLoading={isCancellingTransfer}
+                  onClick={handleCancelOwnershipTransfer}
+                >
+                  Cancel Transfer Request
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Ownership Transfer Accept Modal */}
+        {showAcceptTransferModal && (
+          <div className="wmm-confirm-overlay" onClick={() => setShowAcceptTransferModal(false)}>
+            <div className="wmm-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+              <h4 className="wmm-confirm-title" style={{ color: '#10b981' }}>
+                Accept Workspace Ownership
+              </h4>
+              <div className="wmm-retention-notice" style={{ marginBottom: '1rem' }}>
+                <div className="wmm-retention-icon">
+                  <ShieldIcon size={18} />
+                </div>
+                <div className="wmm-retention-content">
+                  <h4 className="wmm-retention-title">100% Team & Asset Retention</h4>
+                  <p className="wmm-retention-desc">
+                    All workspace members, projects, tasks, and configurations remain completely intact. You will become primary owner with full administrative authority.
+                  </p>
+                </div>
+              </div>
+              <p className="wmm-confirm-message">
+                You are accepting primary ownership of workspace <strong>{activeWorkspace.name}</strong> from{' '}
+                <strong>{pendingOwnershipTransfer?.sourceOwner?.fullName || pendingOwnershipTransfer?.sourceOwner?.username || 'the previous owner'}</strong>.
+              </p>
+              <div className="wmm-confirm-actions">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAcceptTransferModal(false)}
+                  disabled={isAcceptingTransfer}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  style={{ backgroundColor: '#10b981', borderColor: '#059669' }}
+                  isLoading={isAcceptingTransfer}
+                  onClick={handleAcceptOwnershipTransfer}
+                >
+                  I Accept Workspace Ownership
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Ownership Transfer Decline Modal */}
+        {showDeclineTransferModal && (
+          <div className="wmm-confirm-overlay" onClick={() => setShowDeclineTransferModal(false)}>
+            <div className="wmm-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+              <h4 className="wmm-confirm-title" style={{ color: '#ef4444' }}>
+                Decline Workspace Ownership Transfer
+              </h4>
+              <p className="wmm-confirm-message">
+                Are you sure you want to decline primary ownership of workspace <strong>{activeWorkspace.name}</strong>?
+                The current owner will remain the primary owner.
+              </p>
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ fontSize: '0.75rem', color: '#a1a1aa', display: 'block', marginBottom: '0.375rem' }}>
+                  Reason for declining (optional):
+                </label>
+                <textarea
+                  className="wmm-form-input"
+                  rows={3}
+                  placeholder="e.g. Please assign to another team lead..."
+                  value={ownershipDeclineReason}
+                  onChange={(e) => setOwnershipDeclineReason(e.target.value)}
+                  disabled={isRejectingTransfer}
+                  style={{ resize: 'vertical' }}
+                />
+              </div>
+              <div className="wmm-confirm-actions">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowDeclineTransferModal(false)}
+                  disabled={isRejectingTransfer}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  style={{ backgroundColor: '#dc2626', borderColor: '#b91c1c' }}
+                  isLoading={isRejectingTransfer}
+                  onClick={handleRejectOwnershipTransfer}
+                >
+                  Decline Transfer
                 </Button>
               </div>
             </div>

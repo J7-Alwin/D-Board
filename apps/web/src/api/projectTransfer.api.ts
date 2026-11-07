@@ -50,9 +50,24 @@ export interface ProjectTransfer {
     id: string;
     name: string;
     key: string | null;
+    description?: string;
+    members?: Array<{
+      id: string;
+      userId: string;
+      role: string;
+      user: {
+        id: string;
+        fullName: string;
+        username: string;
+        email: string;
+        avatarUrl?: string | null;
+      };
+    }>;
   };
   sourceWorkspaceId: string;
   destinationWorkspaceId: string;
+  recipientEmail?: string | null;
+  destinationWorkspaceName?: string | null;
   sourceWorkspace?: {
     id: string;
     name: string;
@@ -62,6 +77,7 @@ export interface ProjectTransfer {
     id: string;
     name: string;
     ownerId?: string;
+    members?: Array<{ userId: string; role: string }>;
   };
   targetWorkspace?: {
     id: string;
@@ -105,6 +121,35 @@ export interface WorkspacePendingTransfers {
   outgoing: ProjectTransfer[];
 }
 
+export interface RequestProjectTransferPayload {
+  destinationWorkspaceId?: string;
+  destinationUserEmail?: string;
+  destinationWorkspaceName?: string;
+}
+
+export interface ApproveProjectTransferPayload {
+  memberAction: 'INVITE_ALL' | 'DECIDE_LATER' | 'REMOVE_ALL';
+  sharedMemberDecisions?: Record<string, 'KEEP' | 'REMOVE'>;
+  newProjectKey?: string | null;
+}
+
+export interface DeferredMembersResult {
+  hasDeferredMembers: boolean;
+  deferredMembers: Array<{
+    userId: string;
+    role: string;
+    user: {
+      id: string;
+      fullName: string;
+      username: string;
+      email: string;
+      avatarUrl?: string | null;
+    };
+  }>;
+  sourceWorkspaceName: string | null;
+  transferId?: string;
+}
+
 export const projectTransferApi = {
   /**
    * Get eligibility and destination workspace options for transferring a project.
@@ -115,18 +160,17 @@ export const projectTransferApi = {
 
   /**
    * Request transfer of project to a target workspace.
-   * If source and destination have the same owner, transfer completes immediately.
-   * Otherwise, creates a pending request requiring destination approval.
    */
   async requestTransfer(
     projectId: string,
-    destinationWorkspaceId: string
+    payload: RequestProjectTransferPayload | string
   ): Promise<ApiResponse<{ executedImmediately: boolean; transfer: ProjectTransfer; message: string }>> {
+    const body = typeof payload === 'string' ? { destinationWorkspaceId: payload } : payload;
     return apiClient<ApiResponse<{ executedImmediately: boolean; transfer: ProjectTransfer; message: string }>>(
       `/projects/${projectId}/transfer`,
       {
         method: 'POST',
-        body: JSON.stringify({ destinationWorkspaceId }),
+        body: JSON.stringify(body),
       }
     );
   },
@@ -139,7 +183,14 @@ export const projectTransferApi = {
   },
 
   /**
-   * List incoming and outgoing pending transfers for a workspace.
+   * List incoming and outgoing pending transfers for the current user across workspaces.
+   */
+  async getUserPendingTransfers(): Promise<ApiResponse<WorkspacePendingTransfers>> {
+    return apiClient<ApiResponse<WorkspacePendingTransfers>>('/transfers/pending');
+  },
+
+  /**
+   * List incoming and outgoing pending transfers for a specific workspace.
    */
   async getWorkspacePendingTransfers(
     workspaceId: string
@@ -158,43 +209,68 @@ export const projectTransferApi = {
    * Approve a cross-owner transfer request (destination owner/admin).
    */
   async approveTransfer(
-    transferId: string
-  ): Promise<ApiResponse<{ success: boolean; message: string; transfer: ProjectTransfer }>> {
-    return apiClient<ApiResponse<{ success: boolean; message: string; transfer: ProjectTransfer }>>(
-      `/transfers/${transferId}/approve`,
-      {
-        method: 'POST',
-      }
-    );
-  },
+      transferId: string,
+      payload ?: ApproveProjectTransferPayload
+    ): Promise < ApiResponse < { success: boolean; message: string; newProjectId?: string; transfer?: ProjectTransfer } >> {
+      return apiClient<ApiResponse<{ success: boolean; message: string; newProjectId?: string; transfer?: ProjectTransfer }>>(
+        `/transfers/${transferId}/approve`,
+        {
+          method: 'POST',
+          body: payload ? JSON.stringify(payload) : JSON.stringify({}),
+        }
+      );
+    },
 
-  /**
-   * Reject a cross-owner transfer request (destination owner/admin).
-   */
-  async rejectTransfer(
-    transferId: string,
-    rejectionReason?: string
-  ): Promise<ApiResponse<{ success: boolean; message: string; transfer: ProjectTransfer }>> {
-    return apiClient<ApiResponse<{ success: boolean; message: string; transfer: ProjectTransfer }>>(
-      `/transfers/${transferId}/reject`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ rejectionReason }),
-      }
-    );
-  },
+      /**
+       * Reject a cross-owner transfer request (destination owner/admin).
+       */
+      async rejectTransfer(
+        transferId: string,
+    reason ?: string
+      ): Promise < ApiResponse < { success: boolean; message: string; transfer: ProjectTransfer } >> {
+        return apiClient<ApiResponse<{ success: boolean; message: string; transfer: ProjectTransfer }>>(
+          `/transfers/${transferId}/reject`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+          }
+        );
+      },
 
-  /**
-   * Cancel an outgoing transfer request (initiator or source workspace authority).
-   */
-  async cancelTransfer(
-    transferId: string
-  ): Promise<ApiResponse<{ success: boolean; message: string; transfer: ProjectTransfer }>> {
-    return apiClient<ApiResponse<{ success: boolean; message: string; transfer: ProjectTransfer }>>(
-      `/transfers/${transferId}/cancel`,
-      {
-        method: 'POST',
-      }
-    );
-  },
+        /**
+         * Cancel an outgoing transfer request (initiator or source workspace authority).
+         */
+        async cancelTransfer(
+          transferId: string
+        ): Promise < ApiResponse < { success: boolean; message: string; transfer: ProjectTransfer } >> {
+          return apiClient<ApiResponse<{ success: boolean; message: string; transfer: ProjectTransfer }>>(
+            `/transfers/${transferId}/cancel`,
+            {
+              method: 'POST',
+            }
+          );
+        },
+
+          /**
+           * Get deferred previous members for a transferred project.
+           */
+          async getDeferredMembers(projectId: string): Promise < ApiResponse < DeferredMembersResult >> {
+            return apiClient<ApiResponse<DeferredMembersResult>>(`/projects/${projectId}/transfers/deferred-members`);
+          },
+
+            /**
+             * Resolve deferred previous members (Invite or Dismiss).
+             */
+            async resolveDeferredMembers(
+              projectId: string,
+              input: { action: 'INVITE' | 'DISMISS'; userIds?: string[] }
+            ): Promise < ApiResponse < { success: boolean } >> {
+              return apiClient<ApiResponse<{ success: boolean }>>(
+                `/projects/${projectId}/transfers/deferred-members/resolve`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify(input),
+                }
+              );
+            },
 };

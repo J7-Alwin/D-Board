@@ -1,13 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import '@testing-library/jest-dom/vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { WorkspaceSettingsPage } from '../pages/app/WorkspaceSettingsPage';
 import * as WorkspaceContextModule from '../context/WorkspaceContext';
 import * as AuthContextModule from '../context/AuthContext';
 import * as RouterModule from '../router/Router';
 import { workspacesApi } from '../api/workspaces.api';
 import { projectTransferApi } from '../api/projectTransfer.api';
+import { projectsApi } from '../api/projects.api';
 
 describe('WorkspaceSettingsPage Component Tests', () => {
+  afterEach(() => {
+    cleanup();
+  });
   const mockNavigate = vi.fn();
   const mockRefreshWorkspaces = vi.fn();
   const mockRefreshDeletedWorkspaces = vi.fn();
@@ -57,7 +62,7 @@ describe('WorkspaceSettingsPage Component Tests', () => {
     memberCount: 1,
     projectCount: 1,
     maxMembers: 1,
-    adminPermissions: null,
+    adminPermissions: undefined,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     owner: { id: 'user-owner', fullName: 'Alex Dev', username: 'alexdev', avatarUrl: null },
@@ -114,7 +119,6 @@ describe('WorkspaceSettingsPage Component Tests', () => {
       login: vi.fn(),
       register: vi.fn(),
       logout: vi.fn(),
-      updateUser: vi.fn(),
     });
 
     vi.spyOn(WorkspaceContextModule, 'useWorkspace').mockReturnValue({
@@ -127,11 +131,13 @@ describe('WorkspaceSettingsPage Component Tests', () => {
       createWorkspace: vi.fn(),
       refreshWorkspaces: mockRefreshWorkspaces,
       refreshDeletedWorkspaces: mockRefreshDeletedWorkspaces,
+      deletedWorkspaces: [],
+      recoverWorkspace: vi.fn(),
     });
 
     vi.spyOn(workspacesApi, 'getMembers').mockResolvedValue({
       success: true,
-      data: { members: mockMembers as any, total: 2 },
+      data: { members: mockMembers as any, total: 2, page: 1, limit: 10, totalPages: 1 },
     });
 
     vi.spyOn(workspacesApi, 'getInvitations').mockResolvedValue({
@@ -212,6 +218,8 @@ describe('WorkspaceSettingsPage Component Tests', () => {
       createWorkspace: vi.fn(),
       refreshWorkspaces: mockRefreshWorkspaces,
       refreshDeletedWorkspaces: mockRefreshDeletedWorkspaces,
+      deletedWorkspaces: [],
+      recoverWorkspace: vi.fn(),
     });
 
     render(<WorkspaceSettingsPage />);
@@ -239,6 +247,8 @@ describe('WorkspaceSettingsPage Component Tests', () => {
       createWorkspace: vi.fn(),
       refreshWorkspaces: mockRefreshWorkspaces,
       refreshDeletedWorkspaces: mockRefreshDeletedWorkspaces,
+      deletedWorkspaces: [],
+      recoverWorkspace: vi.fn(),
     });
 
     render(<WorkspaceSettingsPage />);
@@ -266,6 +276,8 @@ describe('WorkspaceSettingsPage Component Tests', () => {
       createWorkspace: vi.fn(),
       refreshWorkspaces: mockRefreshWorkspaces,
       refreshDeletedWorkspaces: mockRefreshDeletedWorkspaces,
+      deletedWorkspaces: [],
+      recoverWorkspace: vi.fn(),
     });
 
     render(<WorkspaceSettingsPage />);
@@ -410,6 +422,8 @@ describe('WorkspaceSettingsPage Component Tests', () => {
       createWorkspace: vi.fn(),
       refreshWorkspaces: mockRefreshWorkspaces,
       refreshDeletedWorkspaces: mockRefreshDeletedWorkspaces,
+      deletedWorkspaces: [],
+      recoverWorkspace: vi.fn(),
     });
 
     render(<WorkspaceSettingsPage />);
@@ -441,6 +455,8 @@ describe('WorkspaceSettingsPage Component Tests', () => {
       createWorkspace: vi.fn(),
       refreshWorkspaces: mockRefreshWorkspaces,
       refreshDeletedWorkspaces: mockRefreshDeletedWorkspaces,
+      deletedWorkspaces: [],
+      recoverWorkspace: vi.fn(),
     });
 
     render(<WorkspaceSettingsPage />);
@@ -465,7 +481,7 @@ describe('WorkspaceSettingsPage Component Tests', () => {
 
     vi.spyOn(workspacesApi, 'getMembers').mockImplementation(async () => ({
       success: true,
-      data: { members: currentMembers as any, total: 2 },
+      data: { members: currentMembers as any, total: 2, page: 1, limit: 10, totalPages: 1 },
     }));
 
     const updateMemberRoleSpy = vi.spyOn(workspacesApi, 'updateMemberRole').mockImplementation(async (_wsId, _memberId, newRole) => {
@@ -556,6 +572,8 @@ describe('WorkspaceSettingsPage Component Tests', () => {
       createWorkspace: vi.fn(),
       refreshWorkspaces: mockRefreshWorkspaces,
       refreshDeletedWorkspaces: mockRefreshDeletedWorkspaces,
+      deletedWorkspaces: [],
+      recoverWorkspace: vi.fn(),
     });
 
     render(<WorkspaceSettingsPage />);
@@ -667,5 +685,246 @@ describe('WorkspaceSettingsPage Component Tests', () => {
       'Dave Member',
     ]);
   });
-});
 
+  it('18. renders Transfers tab with sub-tabs matching the project transfer modal', async () => {
+    vi.spyOn(projectTransferApi, 'getWorkspacePendingTransfers').mockResolvedValue({
+      success: true,
+      data: {
+        incoming: [
+          {
+            id: 'tr-incoming-1',
+            projectId: 'proj-1',
+            sourceWorkspaceId: 'ws-src',
+            destinationWorkspaceId: 'ws-team-1',
+            status: 'PENDING',
+            createdAt: new Date().toISOString(),
+            project: { id: 'proj-1', name: 'Alpha Project', key: 'ALP' },
+            sourceWorkspace: { id: 'ws-src', name: 'Source Team' },
+            destinationWorkspace: { id: 'ws-team-1', name: 'Acme Studio' },
+            initiatedBy: { id: 'u-1', fullName: 'Bob Builder', username: 'bob' },
+          } as any,
+        ],
+        outgoing: [],
+      },
+    });
+
+    vi.spyOn(projectsApi, 'getUserProjects').mockResolvedValue({
+      success: true,
+      data: {
+        all: [{ id: 'proj-1', name: 'Alpha Project', key: 'ALP' }] as any,
+        owned: [],
+        joined: [],
+      },
+    });
+
+    window.history.pushState({}, '', '?tab=transfers');
+
+    render(<WorkspaceSettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Transfer Project')).toBeInTheDocument();
+      expect(screen.getByText('Incoming Requests')).toBeInTheDocument();
+      expect(screen.getByText(/Transfer History/)).toBeInTheDocument();
+      expect(screen.getByText('Select Project to Transfer')).toBeInTheDocument();
+      expect(screen.getByText('Source Workspace')).toBeInTheDocument();
+      expect(screen.getByText('Destination Workspace')).toBeInTheDocument();
+    });
+
+    window.history.pushState({}, '', window.location.pathname);
+  });
+
+  it('19. allows switching to Incoming Requests and reviewing transfer cards', async () => {
+    vi.spyOn(projectTransferApi, 'getWorkspacePendingTransfers').mockResolvedValue({
+      success: true,
+      data: {
+        incoming: [
+          {
+            id: 'tr-incoming-1',
+            projectId: 'proj-1',
+            sourceWorkspaceId: 'ws-src',
+            destinationWorkspaceId: 'ws-team-1',
+            status: 'PENDING',
+            createdAt: new Date().toISOString(),
+            project: { id: 'proj-1', name: 'Alpha Project', key: 'ALP' },
+            sourceWorkspace: { id: 'ws-src', name: 'Source Team' },
+            destinationWorkspace: { id: 'ws-team-1', name: 'Acme Studio' },
+            initiatedBy: { id: 'u-1', fullName: 'Bob Builder', username: 'bob' },
+          } as any,
+        ],
+        outgoing: [],
+      },
+    });
+
+    vi.spyOn(projectsApi, 'getUserProjects').mockResolvedValue({
+      success: true,
+      data: {
+        all: [{ id: 'proj-1', name: 'Alpha Project', key: 'ALP' }] as any,
+        owned: [],
+        joined: [],
+      },
+    });
+
+    window.history.pushState({}, '', '?tab=transfers');
+
+    render(<WorkspaceSettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Incoming Requests')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Incoming Requests'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Alpha Project')).toBeInTheDocument();
+      expect(screen.getByText('Review & Accept')).toBeInTheDocument();
+      expect(screen.getByText('Decline')).toBeInTheDocument();
+    });
+
+    window.history.pushState({}, '', window.location.pathname);
+  });
+  it('20. renders Ownership Transfer tab with 100% Team Retention guarantee and exact name confirmation guard', async () => {
+    vi.spyOn(WorkspaceContextModule, 'useWorkspace').mockReturnValue({
+      workspaces: { owned: [mockTeamWorkspace], joined: [] },
+      activeWorkspace: mockTeamWorkspace,
+      activeRole: 'OWNER',
+      isLoading: false,
+      error: null,
+      setActiveWorkspaceId: vi.fn(),
+      createWorkspace: vi.fn(),
+      refreshWorkspaces: mockRefreshWorkspaces,
+      refreshDeletedWorkspaces: mockRefreshDeletedWorkspaces,
+      deletedWorkspaces: [],
+      recoverWorkspace: vi.fn(),
+    });
+
+    render(<WorkspaceSettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Ownership/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: /Ownership/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Workspace Ownership Transfer')).toBeInTheDocument();
+      expect(screen.getByText('100% Team & Work Retention Guaranteed')).toBeInTheDocument();
+      expect(screen.getByText('Transfer Recipient')).toBeInTheDocument();
+      expect(screen.getByText('Your Resulting Role After Transfer')).toBeInTheDocument();
+      expect(screen.getByText(/to confirm transfer/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Type "Acme Studio" to confirm')).toBeInTheDocument();
+    });
+
+    const submitBtn = screen.getByRole('button', { name: /Initiate Ownership Transfer/i });
+    expect(submitBtn).toBeDisabled();
+  });
+
+  it('21. enables Initiate Ownership Transfer button only when exact workspace name is typed', async () => {
+    vi.spyOn(WorkspaceContextModule, 'useWorkspace').mockReturnValue({
+      workspaces: { owned: [mockTeamWorkspace], joined: [] },
+      activeWorkspace: mockTeamWorkspace,
+      activeRole: 'OWNER',
+      isLoading: false,
+      error: null,
+      setActiveWorkspaceId: vi.fn(),
+      createWorkspace: vi.fn(),
+      refreshWorkspaces: mockRefreshWorkspaces,
+      refreshDeletedWorkspaces: mockRefreshDeletedWorkspaces,
+      deletedWorkspaces: [],
+      recoverWorkspace: vi.fn(),
+    });
+
+    const initiateSpy = vi.spyOn(workspacesApi, 'initiateOwnershipTransfer').mockResolvedValue({
+      success: true,
+      data: {
+        transfer: {
+          id: 'tr-1',
+          workspaceId: 'ws-team-1',
+          sourceOwnerId: 'user-owner',
+          targetUserId: 'user-member',
+          targetRole: 'WORKSPACE_ADMIN',
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          createdAt: new Date().toISOString(),
+          sourceOwner: { id: 'user-owner', fullName: 'Alice Owner', username: 'alice', email: 'alice@example.com', avatarUrl: null },
+          targetUser: { id: 'user-member', fullName: 'Charlie Collaborator', username: 'charlie', email: 'charlie@example.com', avatarUrl: null },
+        },
+      },
+    });
+
+    render(<WorkspaceSettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Ownership/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: /Ownership/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Workspace Ownership Transfer')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Select a member...')).toBeInTheDocument();
+    });
+
+    // Select existing member
+    const memberSelect = screen.getByDisplayValue('Select a member...');
+    fireEvent.change(memberSelect, { target: { value: 'user-member' } });
+
+    const confirmInput = screen.getByPlaceholderText('Type "Acme Studio" to confirm');
+    const submitBtn = screen.getByRole('button', { name: /Initiate Ownership Transfer/i });
+
+    // Wrong name
+    fireEvent.change(confirmInput, { target: { value: 'Wrong Name' } });
+    expect(submitBtn).toBeDisabled();
+
+    // Exact name
+    fireEvent.change(confirmInput, { target: { value: 'Acme Studio' } });
+    expect(submitBtn).not.toBeDisabled();
+
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(initiateSpy).toHaveBeenCalledWith('ws-team-1', expect.objectContaining({
+        targetUserId: 'user-member',
+        resultingRole: 'WORKSPACE_ADMIN',
+        confirmationName: 'Acme Studio',
+      }));
+    });
+  });
+
+  it('22. displays pending ownership transfer with countdown badge and triggers cancel modal', async () => {
+    vi.spyOn(workspacesApi, 'getPendingOwnershipTransfer').mockResolvedValue({
+      success: true,
+      data: {
+        transfer: {
+          id: 'tr-pending-1',
+          workspaceId: 'ws-team-1',
+          sourceOwnerId: 'user-owner',
+          targetUserId: 'user-member-2',
+          targetRole: 'WORKSPACE_ADMIN',
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString(),
+          createdAt: new Date().toISOString(),
+          sourceOwner: { id: 'user-owner', fullName: 'Alice Owner', username: 'alice', email: 'alice@example.com', avatarUrl: null },
+          targetUser: { id: 'user-member-2', fullName: 'Bob Member', username: 'bob', email: 'bob@example.com', avatarUrl: null },
+        },
+      },
+    });
+
+    window.history.pushState({}, '', '?tab=ownership');
+
+    render(<WorkspaceSettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Ownership Transfer in Progress')).toBeInTheDocument();
+      expect(screen.getByText(/remaining/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Cancel Transfer Request/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Cancel Transfer Request/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Are you sure you want to cancel the pending ownership transfer/i)).toBeInTheDocument();
+    });
+
+    window.history.pushState({}, '', window.location.pathname);
+  });
+});

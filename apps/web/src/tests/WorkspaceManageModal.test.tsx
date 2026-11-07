@@ -1,12 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import '@testing-library/jest-dom';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import '@testing-library/jest-dom/vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { WorkspaceManageModal } from '../components/workspace/WorkspaceManageModal';
 import * as WorkspaceContextModule from '../context/WorkspaceContext';
 import * as AuthContextModule from '../context/AuthContext';
 import { workspacesApi } from '../api/workspaces.api';
+import { projectTransferApi } from '../api/projectTransfer.api';
+import { projectsApi } from '../api/projects.api';
 
 describe('WorkspaceManageModal Component Tests', () => {
+  afterEach(() => {
+    cleanup();
+  });
   const mockRefreshWorkspaces = vi.fn();
   const mockRefreshDeletedWorkspaces = vi.fn();
   const mockRecoverWorkspace = vi.fn();
@@ -390,6 +395,95 @@ describe('WorkspaceManageModal Component Tests', () => {
     await waitFor(() => {
       expect(screen.getByText('Personal Workspace Protected')).toBeInTheDocument();
       expect(screen.getByText(/cannot be deleted/i)).toBeInTheDocument();
+    });
+  });
+
+  it('renders Transfers tab with sub-tabs matching the transfer modal', async () => {
+    vi.spyOn(projectTransferApi, 'getWorkspacePendingTransfers').mockResolvedValue({
+      success: true,
+      data: {
+        incoming: [
+          {
+            id: 'tr-incoming-1',
+            projectId: 'proj-1',
+            sourceWorkspaceId: 'ws-src',
+            destinationWorkspaceId: 'ws-team-1',
+            status: 'PENDING',
+            createdAt: new Date().toISOString(),
+            project: { id: 'proj-1', name: 'Alpha Project', key: 'ALP' },
+            sourceWorkspace: { id: 'ws-src', name: 'Source Team' },
+            destinationWorkspace: { id: 'ws-team-1', name: 'Acme Studio' },
+            initiatedBy: { id: 'u-1', fullName: 'Bob Builder', username: 'bob' },
+          } as any,
+        ],
+        outgoing: [],
+      },
+    });
+
+    vi.spyOn(projectsApi, 'getUserProjects').mockResolvedValue({
+      success: true,
+      data: {
+        all: [{ id: 'proj-1', name: 'Alpha Project', key: 'ALP' }] as any,
+        owned: [],
+        joined: [],
+      },
+    });
+
+    render(<WorkspaceManageModal isOpen={true} onClose={vi.fn()} initialTab="transfers" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Transfer Project')).toBeInTheDocument();
+      expect(screen.getByText('Incoming Requests')).toBeInTheDocument();
+      expect(screen.getByText(/Transfer History/)).toBeInTheDocument();
+      expect(screen.getByText('Select Project to Transfer')).toBeInTheDocument();
+      expect(screen.getByText('Source Workspace')).toBeInTheDocument();
+      expect(screen.getByText('Destination Workspace')).toBeInTheDocument();
+    });
+  });
+
+  it('allows switching to Incoming Requests and displaying transfer cards', async () => {
+    vi.spyOn(projectTransferApi, 'getWorkspacePendingTransfers').mockResolvedValue({
+      success: true,
+      data: {
+        incoming: [
+          {
+            id: 'tr-incoming-1',
+            projectId: 'proj-1',
+            sourceWorkspaceId: 'ws-src',
+            destinationWorkspaceId: 'ws-team-1',
+            status: 'PENDING',
+            createdAt: new Date().toISOString(),
+            project: { id: 'proj-1', name: 'Alpha Project', key: 'ALP' },
+            sourceWorkspace: { id: 'ws-src', name: 'Source Team' },
+            destinationWorkspace: { id: 'ws-team-1', name: 'Acme Studio' },
+            initiatedBy: { id: 'u-1', fullName: 'Bob Builder', username: 'bob' },
+          } as any,
+        ],
+        outgoing: [],
+      },
+    });
+
+    vi.spyOn(projectsApi, 'getUserProjects').mockResolvedValue({
+      success: true,
+      data: {
+        all: [{ id: 'proj-1', name: 'Alpha Project', key: 'ALP' }] as any,
+        owned: [],
+        joined: [],
+      },
+    });
+
+    render(<WorkspaceManageModal isOpen={true} onClose={vi.fn()} initialTab="transfers" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Incoming Requests')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Incoming Requests'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Alpha Project')).toBeInTheDocument();
+      expect(screen.getByText('Review & Accept')).toBeInTheDocument();
+      expect(screen.getByText('Decline')).toBeInTheDocument();
     });
   });
 });

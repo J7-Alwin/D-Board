@@ -154,40 +154,41 @@ describe('MyWorkPage Component Tests', () => {
     expect(screen.queryByText('Blocked items')).not.toBeInTheDocument();
   });
 
-  it('2. renames Blocked tab to Canceled with count', async () => {
-    renderWithProviders();
+    it('2. renames Blocked column to Canceled with count', async () => {
+      renderWithProviders();
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Canceled \(1\)/i })).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Canceled' })).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('heading', { name: 'Blocked' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Blocked')).not.toBeInTheDocument();
     });
 
-    expect(screen.queryByRole('button', { name: /Blocked/i })).not.toBeInTheDocument();
-  });
+      it('3. displays Canceled column for work items with BLOCKED status', async () => {
+        renderWithProviders();
 
-  it('3. displays Canceled tag for work items with BLOCKED status', async () => {
-    renderWithProviders();
+        await waitFor(() => {
+          expect(screen.getByRole('heading', { name: 'Canceled' })).toBeInTheDocument();
+        });
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Canceled \(1\)/i })).toBeInTheDocument();
+        const itemTitles = screen.getAllByText('Canceled feature work');
+        expect(itemTitles.length).toBeGreaterThan(0);
+
+        // The column and filter should display "Canceled"
+        const canceledElements = screen.getAllByText('Canceled');
+        expect(canceledElements.length).toBeGreaterThan(0);
+      });
+
+      it('4. scopes data requests to the active workspace ID', async () => {
+        renderWithProviders(mockWorkspace);
+
+        await waitFor(() => {
+          expect(projectsApi.getUserProjects).toHaveBeenCalledWith('ws-123');
+          expect(myWorkApi.getMyWork).toHaveBeenCalledWith(
+            expect.objectContaining({ tab: 'my-work' }),
+            'ws-123'
+          );
+        });
+      });
     });
-
-    const itemTitles = screen.getAllByText('Canceled feature work');
-    expect(itemTitles.length).toBeGreaterThan(0);
-
-    // The status pill for BLOCKED work item should display "Canceled"
-    const canceledBadges = screen.getAllByText('Canceled');
-    expect(canceledBadges.length).toBeGreaterThan(0);
-  });
-
-  it('4. scopes data requests to the active workspace ID', async () => {
-    renderWithProviders(mockWorkspace);
-
-    await waitFor(() => {
-      expect(projectsApi.getUserProjects).toHaveBeenCalledWith('ws-123');
-      expect(myWorkApi.getMyWork).toHaveBeenCalledWith(
-        expect.objectContaining({ tab: 'my-work' }),
-        'ws-123'
-      );
-    });
-  });
-});

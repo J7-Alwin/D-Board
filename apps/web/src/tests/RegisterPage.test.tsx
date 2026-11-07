@@ -27,139 +27,151 @@ vi.mock('../router/Router', () => ({
   ),
 }));
 
-describe('RegisterPage Component Tests', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('should render registration form with inputs and terms checkbox', () => {
-    render(<RegisterPage />);
-
-    expect(screen.getByPlaceholderText(/e\.g\. Alex Henderson/i)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/e\.g\. alex_dev/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /create account/i })).toBeInTheDocument();
-  });
-
-  it('should transition to verification-pending UI after successful registration and not immediately redirect', async () => {
-    mockRegister.mockResolvedValueOnce(undefined);
-    render(<RegisterPage />);
-
-    fireEvent.change(screen.getByPlaceholderText(/e\.g\. Alex Henderson/i), { target: { value: 'Alex Henderson' } });
-    fireEvent.change(screen.getByPlaceholderText(/e\.g\. alex_dev/i), { target: { value: 'alex_dev' } });
-    fireEvent.change(screen.getByPlaceholderText(/name@company\.com/i), { target: { value: 'alex@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText(/minimum 15 characters/i), { target: { value: 'Password123!Secure' } });
-    fireEvent.change(screen.getByPlaceholderText(/re-enter your password/i), { target: { value: 'Password123!Secure' } });
-
-    // Check terms
-    const termsCheckbox = screen.getByRole('checkbox');
-    fireEvent.click(termsCheckbox);
-
-    const submitBtn = screen.getByRole('button', { name: /create account/i });
-    fireEvent.click(submitBtn);
-
-    await waitFor(() => {
-      expect(mockRegister).toHaveBeenCalledTimes(1);
+  describe('RegisterPage Component Tests (Pre-Registration OTP Flow)', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
     });
 
-    // Verify verification-pending screen appears
-    expect(await screen.findByText('Account created')).toBeInTheDocument();
-    expect(screen.getByText('Check your inbox')).toBeInTheDocument();
-    expect(screen.getByText('alex@example.com')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /open email \/ check inbox/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /resend verification email/i })).toBeInTheDocument();
+      it('1. should render registration form with inputs, terms checkbox, and inline Verify button', () => {
+        render(<RegisterPage />);
 
-    // Verify user is NOT immediately navigated to /app/dashboard
-    expect(mockNavigate).not.toHaveBeenCalledWith('/app/dashboard');
-  });
+        expect(screen.getByPlaceholderText(/e\.g\. Alex Henderson/i)).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/e\.g\. alex_dev/i)).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/name@company\.com/i)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^verify$/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /create account/i })).toBeInTheDocument();
+      });
 
-  it('should allow requesting a resend of verification email from pending screen', async () => {
-    mockRegister.mockResolvedValueOnce(undefined);
-    const resendSpy = vi.spyOn(authApi, 'resendVerification').mockResolvedValueOnce({
-      success: true,
-      message: 'Dispatched',
-    });
+        it('2. should extend gap between email & password and display OTP input when Verify is clicked', async () => {
+          const sendOtpSpy = vi.spyOn(authApi, 'sendRegistrationOtp').mockResolvedValueOnce({
+            success: true,
+            message: 'Verification code sent to your email',
+          });
 
-    render(<RegisterPage />);
+          render(<RegisterPage />);
 
-    fireEvent.change(screen.getByPlaceholderText(/e\.g\. Alex Henderson/i), { target: { value: 'Alex Henderson' } });
-    fireEvent.change(screen.getByPlaceholderText(/e\.g\. alex_dev/i), { target: { value: 'alex_dev' } });
-    fireEvent.change(screen.getByPlaceholderText(/name@company\.com/i), { target: { value: 'alex@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText(/minimum 15 characters/i), { target: { value: 'Password123!Secure' } });
-    fireEvent.change(screen.getByPlaceholderText(/re-enter your password/i), { target: { value: 'Password123!Secure' } });
-    fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+          const emailInput = screen.getByPlaceholderText(/name@company\.com/i);
+          fireEvent.change(emailInput, { target: { value: 'alex@example.com' } });
 
-    const resendBtn = await screen.findByRole('button', { name: /resend verification email/i });
-    fireEvent.click(resendBtn);
+          const verifyBtn = screen.getByRole('button', { name: /^verify$/i });
+          fireEvent.click(verifyBtn);
 
-    await waitFor(() => {
-      expect(resendSpy).toHaveBeenCalledWith('alex@example.com');
-      expect(screen.getByText(/A new verification email has been dispatched/i)).toBeInTheDocument();
-    });
-  });
+          await waitFor(() => {
+            expect(sendOtpSpy).toHaveBeenCalledWith('alex@example.com');
+          });
 
-  it('should display error message, populate field error, reset loading state, and keep form usable on registration failure', async () => {
-    const apiError = Object.assign(new Error('Email address is already registered'), {
-      data: {
-        errors: {
-          email: ['This email address is already registered'],
-        },
-      },
-    });
-    mockRegister.mockRejectedValueOnce(apiError);
+          // The gap opens and displays the OTP card
+          expect(await screen.findByText('Enter 6-digit code')).toBeInTheDocument();
+          expect(screen.getByPlaceholderText(/• • • • • •/i)).toBeInTheDocument();
+          expect(screen.getByRole('button', { name: /verify code/i })).toBeInTheDocument();
+          expect(screen.getByText(/Didn't receive code\?/i)).toBeInTheDocument();
+        });
 
-    render(<RegisterPage />);
+          it('3. should block form submission and prompt user to verify email if unverified', async () => {
+            render(<RegisterPage />);
 
-    fireEvent.change(screen.getByPlaceholderText(/e\.g\. Alex Henderson/i), { target: { value: 'Alex Henderson' } });
-    fireEvent.change(screen.getByPlaceholderText(/e\.g\. alex_dev/i), { target: { value: 'alex_dev' } });
-    fireEvent.change(screen.getByPlaceholderText(/name@company\.com/i), { target: { value: 'duplicate@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText(/minimum 15 characters/i), { target: { value: 'Password123!Secure' } });
-    fireEvent.change(screen.getByPlaceholderText(/re-enter your password/i), { target: { value: 'Password123!Secure' } });
-    fireEvent.click(screen.getByRole('checkbox'));
+            fireEvent.change(screen.getByPlaceholderText(/e\.g\. Alex Henderson/i), { target: { value: 'Alex Henderson' } });
+            fireEvent.change(screen.getByPlaceholderText(/e\.g\. alex_dev/i), { target: { value: 'alex_dev' } });
+            fireEvent.change(screen.getByPlaceholderText(/name@company\.com/i), { target: { value: 'alex@example.com' } });
+            fireEvent.change(screen.getByPlaceholderText(/minimum 15 characters/i), { target: { value: 'Password123!Secure' } });
+            fireEvent.change(screen.getByPlaceholderText(/re-enter your password/i), { target: { value: 'Password123!Secure' } });
+            fireEvent.click(screen.getByRole('checkbox'));
 
-    const submitBtn = screen.getByRole('button', { name: /create account/i });
-    fireEvent.click(submitBtn);
+            const submitBtn = screen.getByRole('button', { name: /create account/i });
+            fireEvent.click(submitBtn);
 
-    // Verify error is displayed on UI in both general banner and field error
-    expect(await screen.findByText('Email address is already registered')).toBeInTheDocument();
-    expect(screen.getByText('This email address is already registered')).toBeInTheDocument();
+            // Register should not be called
+            expect(mockRegister).not.toHaveBeenCalled();
+            expect(await screen.findByText(/Please verify your email address before creating an account/i)).toBeInTheDocument();
+          });
 
-    // Verify loading has reset and button is not disabled
-    expect(submitBtn).not.toBeDisabled();
+              it('4. should show error when invalid OTP is entered', async () => {
+              vi.spyOn(authApi, 'sendRegistrationOtp').mockResolvedValueOnce({
+                success: true,
+                message: 'Verification code sent',
+              });
 
-    // Verify inputs remain interactive
-    const emailInput = screen.getByPlaceholderText(/name@company\.com/i);
-    expect(emailInput).not.toBeDisabled();
-    fireEvent.change(emailInput, { target: { value: 'new_unique@example.com' } });
-    expect(emailInput).toHaveValue('new_unique@example.com');
-  });
+              const verifyOtpSpy = vi.spyOn(authApi, 'verifyRegistrationOtp').mockRejectedValueOnce(
+                new Error('Invalid verification code. 4 attempts remaining.')
+              );
 
-  it('should transition to account created screen when email delivery failed without reporting false registration failure', async () => {
-    mockRegister.mockResolvedValueOnce({
-      success: true,
-      message: 'Account created successfully, but we could not deliver the verification email. You can request a new one from the verification screen.',
-      data: {
-        user: { id: 'u1', username: 'alex_dev', email: 'alex@example.com' },
-        emailDeliveryStatus: 'failed',
-      },
-    });
+              render(<RegisterPage />);
 
-    render(<RegisterPage />);
+              fireEvent.change(screen.getByPlaceholderText(/name@company\.com/i), { target: { value: 'alex@example.com' } });
+              fireEvent.click(screen.getByRole('button', { name: /^verify$/i }));
 
-    fireEvent.change(screen.getByPlaceholderText(/e\.g\. Alex Henderson/i), { target: { value: 'Alex Henderson' } });
-    fireEvent.change(screen.getByPlaceholderText(/e\.g\. alex_dev/i), { target: { value: 'alex_dev' } });
-    fireEvent.change(screen.getByPlaceholderText(/name@company\.com/i), { target: { value: 'alex@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText(/minimum 15 characters/i), { target: { value: 'Password123!Secure' } });
-    fireEvent.change(screen.getByPlaceholderText(/re-enter your password/i), { target: { value: 'Password123!Secure' } });
-    fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+              const otpInput = await screen.findByPlaceholderText(/• • • • • •/i);
+              fireEvent.change(otpInput, { target: { value: '123456' } });
 
-    // User should see Account created screen (NOT a registration failure)
-    expect(await screen.findByText('Account created')).toBeInTheDocument();
-    expect(screen.getByText('alex@example.com')).toBeInTheDocument();
+              const verifyCodeBtn = screen.getByRole('button', { name: /verify code/i });
+              fireEvent.click(verifyCodeBtn);
 
-    // User should see actionable delivery failure note and resend button
-    expect(screen.getByText(/could not deliver your verification email automatically/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /resend verification email/i })).toBeInTheDocument();
-  });
-});
+              await waitFor(() => {
+                expect(verifyOtpSpy).toHaveBeenCalledWith('alex@example.com', '123456');
+              });
+
+              expect(await screen.findByText(/Invalid verification code. 4 attempts remaining./i)).toBeInTheDocument();
+            });
+
+            it('5. should successfully verify OTP, display Verified badge, and allow creating account with direct redirect to dashboard', async () => {
+              vi.spyOn(authApi, 'sendRegistrationOtp').mockResolvedValueOnce({
+                success: true,
+                message: 'Verification code sent',
+              });
+
+              vi.spyOn(authApi, 'verifyRegistrationOtp').mockResolvedValueOnce({
+                success: true,
+                message: 'Email address verified successfully',
+                verificationToken: 'valid.jwt.proof.token',
+              } as any);
+
+              mockRegister.mockResolvedValueOnce({
+                success: true,
+                data: { user: { id: 'u1', email: 'alex@example.com', username: 'alex_dev', isEmailVerified: true } },
+              });
+
+              render(<RegisterPage />);
+
+              fireEvent.change(screen.getByPlaceholderText(/e\.g\. Alex Henderson/i), { target: { value: 'Alex Henderson' } });
+              fireEvent.change(screen.getByPlaceholderText(/e\.g\. alex_dev/i), { target: { value: 'alex_dev' } });
+              fireEvent.change(screen.getByPlaceholderText(/name@company\.com/i), { target: { value: 'alex@example.com' } });
+
+              // Step 1: Send OTP
+              fireEvent.click(screen.getByRole('button', { name: /^verify$/i }));
+
+              // Step 2: Enter valid OTP
+              const otpInput = await screen.findByPlaceholderText(/• • • • • •/i);
+              fireEvent.change(otpInput, { target: { value: '654321' } });
+              fireEvent.click(screen.getByRole('button', { name: /verify code/i }));
+
+              // Step 3: Verified badge appears and email verified banner appears
+              expect(await screen.findByText('Verified')).toBeInTheDocument();
+              expect(screen.getByText(/Email address verified. You can now set your password and create your account./i)).toBeInTheDocument();
+
+              // Step 4: Enter passwords & accept terms
+              fireEvent.change(screen.getByPlaceholderText(/minimum 15 characters/i), { target: { value: 'Password123!Secure' } });
+              fireEvent.change(screen.getByPlaceholderText(/re-enter your password/i), { target: { value: 'Password123!Secure' } });
+              fireEvent.click(screen.getByRole('checkbox'));
+
+              // Step 5: Click Create account
+              fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+
+              await waitFor(() => {
+                expect(mockRegister).toHaveBeenCalledTimes(1);
+                expect(mockRegister).toHaveBeenCalledWith(
+                  expect.objectContaining({
+                    fullName: 'Alex Henderson',
+                    username: 'alex_dev',
+                    email: 'alex@example.com',
+                    verificationToken: 'valid.jwt.proof.token',
+                    termsAccepted: true,
+                  })
+                );
+              });
+
+              // Step 6: Directly redirects to dashboard!
+              await waitFor(() => {
+                expect(mockNavigate).toHaveBeenCalledWith('/app/dashboard');
+              });
+            });
+          });

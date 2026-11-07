@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, Link } from '../../router/Router';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { projectsApi, type Project, type ProjectCompletionStatusResponse } from '../../api/projects.api';
+import { projectsApi, type Project, type ProjectCompletionStatusResponse, type ProjectMember } from '../../api/projects.api';
+import { workspacesApi, type WorkspaceMemberItem } from '../../api/workspaces.api';
 import { workApi, type WorkItem, type WorkStats } from '../../api/work.api';
 import { activityApi, type ActivityItem } from '../../api/activity.api';
 import { CreateWorkItemModal } from '../../components/workspace/CreateWorkItemModal';
@@ -26,6 +27,10 @@ import {
   CalendarIcon,
   FileTextIcon,
   SettingsIcon,
+  ShieldIcon,
+  CheckIcon,
+  EditIcon,
+  TagIcon,
 } from '../../components/ui/Icons';
 import { Button } from '../../components/ui/Button';
 
@@ -71,6 +76,8 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
   const [isCompleting, setIsCompleting] = useState(false);
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
   const [completionReasonModalOpen, setCompletionReasonModalOpen] = useState(false);
+  const [completionModalMode, setCompletionModalMode] = useState<'direct' | 'request'>('direct');
+  const [autoResolveOpenTasks, setAutoResolveOpenTasks] = useState(true);
   const [completionReason, setCompletionReason] = useState('');
   const [completionError, setCompletionError] = useState<string | null>(null);
   const [completionSuccess, setCompletionSuccess] = useState<string | null>(null);
@@ -94,6 +101,82 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
     isWsLeader ||
     project?.userRole === 'PROJECT_ADMIN' ||
     (project?.createdById && user?.id && project.createdById === user.id)
+  );
+
+  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMemberItem[]>([]);
+
+  const wsMembersMap = useMemo(() => {
+    const map = new Map<string, { role: string; isOwner?: boolean }>();
+
+    // 1. Seed from project.workspace?.members if present
+    const rawWsMembers = (project as any)?.workspace?.members;
+    if (Array.isArray(rawWsMembers)) {
+      rawWsMembers.forEach((wm: any) => {
+        if (wm?.userId) {
+          map.set(wm.userId, { role: wm.role });
+        }
+      });
+    }
+
+    // 2. Overlay from workspaceMembers loaded via API
+    workspaceMembers.forEach((wm) => {
+      const uId = wm.userId || wm.user?.id;
+      if (uId) {
+        map.set(uId, { role: wm.role, isOwner: wm.isOwner });
+      }
+    });
+
+    return map;
+  }, [project, workspaceMembers]);
+
+  const getMemberRoleTag = useCallback(
+      (m: ProjectMember): { label: string; badgeClass: string } => {
+        const memberUserId = m.userId || m.user?.id;
+
+        // 1. Workspace Owner or Project Creator -> OWNER
+        const wsOwnerId = activeWorkspace?.ownerId || (project as any)?.workspace?.ownerId;
+        const wsMemberInfo = memberUserId ? wsMembersMap.get(memberUserId) : undefined;
+        const isOwnerUser = Boolean(
+          (wsOwnerId && memberUserId === wsOwnerId) ||
+          (isWsOwner && memberUserId === user?.id) ||
+          (project?.createdById && memberUserId === project.createdById) ||
+          (m as any).isCreator ||
+          (m as any).isOwner ||
+          wsMemberInfo?.role === 'OWNER' ||
+          wsMemberInfo?.isOwner
+        );
+
+        if (isOwnerUser) {
+          return {
+            label: 'OWNER',
+            badgeClass: 'po-member-role-badge-owner',
+          };
+        }
+
+        // 2. Project Admin or Workspace Admin -> ADMIN
+        const isWsAdminUser = Boolean(
+          wsMemberInfo?.role === 'WORKSPACE_ADMIN' ||
+          (isWsAdmin && memberUserId === user?.id) ||
+          (project as any)?.workspace?.members?.some(
+            (wm: any) => wm?.userId === memberUserId && wm.role === 'WORKSPACE_ADMIN'
+          )
+        );
+        const isAdminRole = m.role === 'PROJECT_ADMIN' || isWsAdminUser;
+
+        if (isAdminRole) {
+          return {
+            label: 'ADMIN',
+            badgeClass: 'po-member-role-badge-admin',
+          };
+      }
+
+      // 3. Otherwise -> MEMBER
+      return {
+        label: 'MEMBER',
+        badgeClass: 'po-member-role-badge-member',
+      };
+    },
+    [project, activeWorkspace, isWsOwner, isWsAdmin, user, wsMembersMap]
   );
 
   const canDirectlyComplete = useMemo(() => {
@@ -126,6 +209,11 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
 
   const pendingRequest = completionStatus?.pendingRequest;
   const isCompleted = project?.status === 'COMPLETED';
+
+  const totalTasksCount = workItems.length;
+  const completedTasksCount = workItems.filter((i) => i.status === 'COMPLETED').length;
+  const openTasksCount = totalTasksCount - completedTasksCount;
+  const completionPercent = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 100;
 
   const handleOpenSettings = () => {
     if (onOpenSettingsModal) {
@@ -294,27 +382,35 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
 
     try {
       const needsProject = forceProjectRefresh || (!propProject && !project);
-      const [projRes, workRes, actRes, compRes] = await Promise.all([
+      const targetWsId = activeWorkspace?.id || (propProject as any)?.workspaceId || (project as any)?.workspaceId;
+      const [projRes, workRes, actRes, compRes, wsMembersRes] = await Promise.all([
         needsProject ? projectsApi.getProjectById(projectId, activeWorkspace?.id) : Promise.resolve(null),
         workApi.getProjectWorkItems(projectId),
-        activityApi.getProjectActivities(projectId, { limit: 8 }),
+        activityApi.getProjectActivities(projectId, { limit: 8 }).catch((err) => {
+          console.warn('Activity feed unavailable:', err);
+          return null;
+        }),
         typeof projectsApi.getCompletionStatus === 'function'
           ? projectsApi.getCompletionStatus(projectId, activeWorkspace?.id).catch(() => null)
           : Promise.resolve(null),
+        targetWsId ? workspacesApi.getMembers(targetWsId, { limit: 100 }).catch(() => null) : Promise.resolve(null),
       ]);
 
       if (projRes && projRes.success && projRes.data?.project) {
         setProject(projRes.data.project);
       }
-      if (workRes.success && workRes.data) {
+      if (workRes && workRes.success && workRes.data) {
         setWorkItems(workRes.data.workItems);
         setStats(workRes.data.stats);
       }
-      if (actRes.success && actRes.data) {
+      if (actRes && actRes.success && actRes.data) {
         setRecentActivities(actRes.data.activities);
       }
       if (compRes && compRes.success && compRes.data) {
         setCompletionStatus(compRes.data);
+      }
+      if (wsMembersRes && wsMembersRes.success && wsMembersRes.data?.members) {
+        setWorkspaceMembers(wsMembersRes.data.members);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load project');
@@ -341,14 +437,22 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
     loadData();
   };
 
-  const handleDirectComplete = async () => {
+  const handleDirectComplete = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!project) return;
     setIsCompleting(true);
     setCompletionError(null);
     setCompletionSuccess(null);
     try {
-      const res = await projectsApi.completeProject(project.id, undefined, activeWorkspace?.id);
+      const res = await projectsApi.completeProject(
+        project.id,
+        completionReason.trim() || undefined,
+        activeWorkspace?.id,
+        openTasksCount > 0 ? autoResolveOpenTasks : false
+      );
       if (res.success) {
+        setCompletionReasonModalOpen(false);
+        setCompletionReason('');
         setCompletionSuccess('Project marked as completed successfully and moved to the Completed section.');
         await loadData(true);
       }
@@ -366,7 +470,12 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
     setCompletionError(null);
     setCompletionSuccess(null);
     try {
-      const res = await projectsApi.completeProject(project.id, completionReason, activeWorkspace?.id);
+      const res = await projectsApi.completeProject(
+        project.id,
+        completionReason.trim() || undefined,
+        activeWorkspace?.id,
+        openTasksCount > 0 ? autoResolveOpenTasks : false
+      );
       if (res.success) {
         setCompletionReasonModalOpen(false);
         setCompletionReason('');
@@ -500,70 +609,134 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
         <div className="project-overview-main-col">
           {/* 1. 4 Metric Cards Row */}
           <div className="po-metrics-row-grid">
-            {/* Total Work Items */}
+            {/* Total Tasks */}
             <div className="po-metric-card">
-              <div className="po-metric-header-row">
+              <div className="po-metric-content-row">
                 <div className="po-metric-icon-box purple">
                   <LayersIcon size={18} />
                 </div>
-                <div className="po-metric-main-num">{stats?.total ?? workItems.length}</div>
-                <div className="po-metric-sparkline-box purple">
-                  <svg width="22" height="18" viewBox="0 0 22 18" fill="none">
-                    <rect x="2" y="10" width="3" height="8" rx="1.5" fill="#A855F7" />
-                    <rect x="8" y="5" width="3" height="13" rx="1.5" fill="#A855F7" />
-                    <rect x="14" y="2" width="3" height="16" rx="1.5" fill="#A855F7" />
-                  </svg>
+                <div className="po-metric-value-col">
+                  <div className="po-metric-main-num">{stats?.total ?? workItems.length}</div>
+                  <span className="po-metric-title-label">Total Tasks</span>
+                </div>
+                <div className="po-metric-extra-right">
+                  <div className="po-metric-sparkline-box purple">
+                    <svg width="22" height="18" viewBox="0 0 22 18" fill="none">
+                      <rect x="2" y="10" width="3" height="8" rx="1.5" fill="#A855F7" />
+                      <rect x="8" y="5" width="3" height="13" rx="1.5" fill="#A855F7" />
+                      <rect x="14" y="2" width="3" height="16" rx="1.5" fill="#A855F7" />
+                    </svg>
+                  </div>
                 </div>
               </div>
-              <span className="po-metric-title-label">Total Tasks</span>
+              <div className="po-metric-wave-wrap" aria-hidden="true">
+                <svg viewBox="0 0 200 45" preserveAspectRatio="none" className="po-metric-wave-svg">
+                  <path
+                    d="M0 38 C50 32, 100 44, 145 28 C170 18, 188 22, 200 25 L200 45 L0 45 Z"
+                    fill="#FAF5FF"
+                  />
+                  <path
+                    d="M0 42 C60 38, 110 44, 155 34 C175 28, 190 32, 200 33 L200 45 L0 45 Z"
+                    fill="#F3E8FF"
+                  />
+                </svg>
+              </div>
             </div>
 
             {/* In Progress */}
             <div className="po-metric-card">
-              <div className="po-metric-header-row">
-                <div className="po-metric-icon-box green">
+              <div className="po-metric-content-row">
+                <div className="po-metric-icon-box amber">
                   <ClockIcon size={18} />
                 </div>
-                <div className="po-metric-main-num">{stats?.inProgress ?? 0}</div>
-                <div className="po-metric-sparkline-box green">
-                  <svg width="34" height="16" viewBox="0 0 34 16" fill="none">
-                    <path
-                      d="M2 14C8 14 12 4 18 8C24 12 28 2 32 3"
-                      stroke="#16A34A"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+                <div className="po-metric-value-col">
+                  <div className="po-metric-main-num">{stats?.inProgress ?? 0}</div>
+                  <span className="po-metric-title-label">In Progress</span>
+                </div>
+                <div className="po-metric-extra-right">
+                  <div className="po-metric-sparkline-box amber">
+                    <svg width="34" height="16" viewBox="0 0 34 16" fill="none">
+                      <path
+                        d="M2 14C8 14 12 4 18 8C24 12 28 2 32 3"
+                        stroke="#D97706"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </div>
                 </div>
               </div>
-              <span className="po-metric-title-label">In Progress</span>
+              <div className="po-metric-wave-wrap" aria-hidden="true">
+                <svg viewBox="0 0 200 45" preserveAspectRatio="none" className="po-metric-wave-svg">
+                  <path
+                    d="M0 38 C50 32, 100 44, 145 28 C170 18, 188 22, 200 25 L200 45 L0 45 Z"
+                    fill="#FFFBEB"
+                  />
+                  <path
+                    d="M0 42 C60 38, 110 44, 155 34 C175 28, 190 32, 200 33 L200 45 L0 45 Z"
+                    fill="#FEF3C7"
+                  />
+                </svg>
+              </div>
             </div>
 
             {/* Completed */}
             <div className="po-metric-card">
-              <div className="po-metric-header-row">
+              <div className="po-metric-content-row">
                 <div className="po-metric-icon-box blue">
                   <CheckSquareIcon size={18} />
                 </div>
-                <div className="po-metric-main-num">{stats?.completed ?? 0}</div>
-                <div className="po-metric-pct-badge">
-                  {stats?.completionPercentage ?? (stats?.total ? Math.round((stats.completed / stats.total) * 100) : 0)}%
+                <div className="po-metric-value-col">
+                  <div className="po-metric-main-num">{stats?.completed ?? 0}</div>
+                  <span className="po-metric-title-label">Completed</span>
+                </div>
+                <div className="po-metric-extra-right">
+                  <div className="po-metric-pct-badge">
+                    {stats?.completionPercentage ?? (stats?.total ? Math.round((stats.completed / stats.total) * 100) : 0)}%
+                  </div>
                 </div>
               </div>
-              <span className="po-metric-title-label">Completed</span>
+              <div className="po-metric-wave-wrap" aria-hidden="true">
+                <svg viewBox="0 0 200 45" preserveAspectRatio="none" className="po-metric-wave-svg">
+                  <path
+                    d="M0 38 C50 32, 100 44, 145 28 C170 18, 188 22, 200 25 L200 45 L0 45 Z"
+                    fill="#F0F9FF"
+                  />
+                  <path
+                    d="M0 42 C60 38, 110 44, 155 34 C175 28, 190 32, 200 33 L200 45 L0 45 Z"
+                    fill="#E0F2FE"
+                  />
+                </svg>
+              </div>
             </div>
 
             {/* Overdue */}
             <div className="po-metric-card">
-              <div className="po-metric-header-row">
+              <div className="po-metric-content-row">
                 <div className="po-metric-icon-box red">
                   <AlertCircleIcon size={18} />
                 </div>
-                <div className="po-metric-main-num red">{stats?.overdue ?? 0}</div>
-                <div className="po-metric-arrow-red">↗</div>
+                <div className="po-metric-value-col">
+                  <div className="po-metric-main-num red">{stats?.overdue ?? 0}</div>
+                  <span className="po-metric-title-label">Overdue</span>
+                </div>
+                <div className="po-metric-extra-right">
+                  <div className="po-metric-arrow-red">↗</div>
+                </div>
               </div>
-              <span className="po-metric-title-label red">Overdue</span>
+              <div className="po-metric-wave-wrap" aria-hidden="true">
+                <svg viewBox="0 0 200 45" preserveAspectRatio="none" className="po-metric-wave-svg">
+                  <path
+                    d="M0 38 C50 32, 100 44, 145 28 C170 18, 188 22, 200 25 L200 45 L0 45 Z"
+                    fill="#FFF1F2"
+                  />
+                  <path
+                    d="M0 42 C60 38, 110 44, 155 34 C175 28, 190 32, 200 33 L200 45 L0 45 Z"
+                    fill="#FFE4E6"
+                  />
+                </svg>
+              </div>
             </div>
           </div>
 
@@ -587,51 +760,51 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                 </div>
               ) : (
                 displayItems.slice(0, 5).map((item, idx) => (
-                <div
-                  key={item.id}
-                  className="po-work-item-row"
-                  onClick={() => setSelectedWorkItemId(item.id)}
-                >
-                  {/* Drag Handle */}
-                  <span className="po-drag-dots">⠿</span>
-
-                  {/* Type Badge */}
-                  {renderWorkItemTypeBadge(item.type)}
-
-                  {/* Content Column */}
-                  <div className="po-work-item-info-col">
-                    <h4 className="po-work-item-title">{item.title}</h4>
-                    <span className="po-work-item-metadata">
-                      #{(item as any).key || (project.key ? `${project.key}-${idx + 1}` : `TASK-${idx + 1}`)} • Opened {formatTimeAgo(item.createdAt)} by {item.createdBy?.fullName || item.createdBy?.username || 'Team member'}
-                    </span>
-                  </div>
-
-                  {/* Status Pill */}
-                  {renderWorkItemStatusBadge(item.status)}
-
-                  {/* Assignee Avatar */}
-                  <div className="po-work-item-assignee-avatar">
-                    {item.assignedTo?.avatarUrl ? (
-                      <img src={item.assignedTo.avatarUrl} alt="" className="po-assignee-img" />
-                    ) : (
-                      <span>{(item.assignedTo?.fullName || item.assignedTo?.username || 'a')[0].toLowerCase()}</span>
-                    )}
-                  </div>
-
-                  {/* Action Menu */}
-                  <button
-                    type="button"
-                    className="po-work-item-more-dots-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedWorkItemId(item.id);
-                    }}
-                    title="Item options"
+                  <div
+                    key={item.id}
+                    className="po-work-item-row"
+                    onClick={() => setSelectedWorkItemId(item.id)}
                   >
-                    •••
-                  </button>
-                </div>
-              ))
+                    {/* Drag Handle */}
+                    <span className="po-drag-dots">⠿</span>
+
+                    {/* Type Badge */}
+                    {renderWorkItemTypeBadge(item.type)}
+
+                    {/* Content Column */}
+                    <div className="po-work-item-info-col">
+                      <h4 className="po-work-item-title">{item.title}</h4>
+                      <span className="po-work-item-metadata">
+                        #{(item as any).key || (project.key ? `${project.key}-${idx + 1}` : `TASK-${idx + 1}`)} • Opened {formatTimeAgo(item.createdAt)} by {item.createdBy?.fullName || item.createdBy?.username || 'Team member'}
+                      </span>
+                    </div>
+
+                    {/* Status Pill */}
+                    {renderWorkItemStatusBadge(item.status)}
+
+                    {/* Assignee Avatar */}
+                    <div className="po-work-item-assignee-avatar">
+                      {item.assignedTo?.avatarUrl ? (
+                        <img src={item.assignedTo.avatarUrl} alt="" className="po-assignee-img" />
+                      ) : (
+                        <span>{(item.assignedTo?.fullName || item.assignedTo?.username || 'a')[0].toLowerCase()}</span>
+                      )}
+                    </div>
+
+                    {/* Action Menu */}
+                    <button
+                      type="button"
+                      className="po-work-item-more-dots-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedWorkItemId(item.id);
+                      }}
+                      title="Item options"
+                    >
+                      •••
+                    </button>
+                  </div>
+                ))
               )}
             </div>
           </div>
@@ -640,10 +813,12 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
           <div className="po-bottom-split-cards-row">
             {/* Project Description Card */}
             <div className="po-clean-card po-description-card">
-              <div className="po-card-head-row">
+              <div className="po-card-head-row po-desc-card-head">
                 <div className="po-card-title-flex">
-                  <FileTextIcon size={16} className="po-card-header-icon" />
-                  <h3 className="po-card-title-text">Project Description</h3>
+                  <div className="po-desc-icon-squircle">
+                    <FileTextIcon size={20} />
+                  </div>
+                  <h3 className="po-card-title-text po-desc-card-title">Project Description</h3>
                 </div>
                 <button
                   type="button"
@@ -651,28 +826,42 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                   onClick={handleOpenSettings}
                   title="Edit Project Details"
                 >
-                  <span>✏ Edit</span>
+                  <EditIcon size={15} />
+                  <span>Edit</span>
                 </button>
               </div>
+
+              <div className="po-desc-divider" />
 
               <div className="po-card-content-body">
                 <p className="po-desc-paragraph">
                   {project.description || 'No project description provided.'}
                 </p>
 
-                <div className="po-desc-meta-pills-row">
-                  <div className="po-desc-meta-item">
-                    <span className="po-desc-meta-label">Category</span>
+                <div className="po-desc-meta-split-row">
+                  {/* Category Column */}
+                  <div className="po-desc-meta-col">
+                    <div className="po-desc-meta-header-row">
+                      <TagIcon size={15} className="po-desc-meta-header-icon" />
+                      <span className="po-desc-meta-header-title">Category</span>
+                    </div>
                     <div className="po-desc-meta-pill cat-pill-accent">
-                      <ApplicationCategoryIcon category={project.category} size={14} className="po-meta-icon" />
+                      <ApplicationCategoryIcon category={project.category} size={15} className="po-meta-icon" />
                       <span>{project.category || 'General'}</span>
                     </div>
                   </div>
 
-                  <div className="po-desc-meta-item">
-                    <span className="po-desc-meta-label">Target End Date</span>
+                  {/* Vertical Divider Line */}
+                  <div className="po-desc-meta-divider-line" />
+
+                  {/* Target End Date Column */}
+                  <div className="po-desc-meta-col">
+                    <div className="po-desc-meta-header-row">
+                      <CalendarIcon size={15} className="po-desc-meta-header-icon" />
+                      <span className="po-desc-meta-header-title">Target End Date</span>
+                    </div>
                     <div className="po-desc-meta-pill date-pill-accent">
-                      <CalendarIcon size={14} className="po-meta-icon" />
+                      <CalendarIcon size={15} className="po-meta-icon" />
                       <span>
                         {project.endDate
                           ? new Date(project.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -686,14 +875,35 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
 
             {/* Quick Actions Card */}
             <div className="po-clean-card po-quick-actions-card">
-              <div className="po-card-head-row">
+              <div className="po-card-head-row po-qa-card-head">
                 <div className="po-card-title-flex">
-                  <CircleDotIcon size={16} className="po-card-header-icon" />
-                  <h3 className="po-card-title-text">Quick Actions</h3>
+                  <div className="po-desc-icon-squircle po-qa-squircle">
+                    <CircleDotIcon size={20} />
+                  </div>
+                  <h3 className="po-card-title-text po-desc-card-title">Quick Actions</h3>
                 </div>
+                <span
+                  className={`proj-status-pill status-${(project.status || 'ACTIVE').toLowerCase()}`}
+                  style={
+                    project.status === 'ARCHIVED'
+                      ? { background: '#FEF3C7', color: '#B45309', border: '1px solid #FCD34D' }
+                      : undefined
+                  }
+                >
+                  {project.status === 'COMPLETED'
+                    ? 'Completed'
+                    : project.status === 'ARCHIVED'
+                      ? 'Archived'
+                      : pendingRequest
+                        ? 'Request Pending'
+                        : 'Active'}
+                </span>
               </div>
 
-              <div className="po-card-content-body">
+              <div className="po-desc-divider" />
+
+              <div className="po-card-content-body po-qa-card-body">
+                {/* 4 Square Action Buttons */}
                 <div className="po-quick-actions-4grid">
                   <button
                     type="button"
@@ -742,236 +952,136 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
                   </button>
                 </div>
 
-                <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginTop: 'auto', paddingTop: '0.35rem' }}>
-                  Quickly manage tasks, collaborators, kanban board, and project settings.
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 6. Complete Project Section Card (Moved below Project Description & Quick Actions) */}
-          <div className="po-clean-card po-completion-main-card">
-            <div className="po-card-head-row">
-              <div className="po-card-title-flex">
-                <CheckSquareIcon size={17} className="po-card-header-icon" />
-                <h3 className="po-card-title-text">Complete Project</h3>
-              </div>
-              <span
-                className={`proj-status-pill status-${(project.status || 'ACTIVE').toLowerCase()}`}
-                style={
-                  project.status === 'ARCHIVED'
-                    ? { background: '#FEF3C7', color: '#B45309', border: '1px solid #FCD34D' }
-                    : undefined
-                }
-              >
-                {project.status === 'COMPLETED'
-                  ? 'Completed'
-                  : project.status === 'ARCHIVED'
-                  ? 'Archived'
-                  : pendingRequest
-                  ? 'Request Pending'
-                  : 'Active'}
-              </span>
-            </div>
-
-            <div className="po-card-content-body">
-              {completionSuccess && (
-                <div style={{ padding: '0.55rem 0.85rem', background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '8px', color: '#065F46', fontSize: '0.8125rem' }}>
-                  {completionSuccess}
-                </div>
-              )}
-              {completionError && (
-                <div style={{ padding: '0.55rem 0.85rem', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', color: '#991B1B', fontSize: '0.8125rem' }}>
-                  {completionError}
-                </div>
-              )}
-
-              {isCompleted ? (
-                /* Project is already COMPLETED */
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '0.85rem 1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                    <CheckCircleIcon size={20} style={{ color: '#059669', flexShrink: 0 }} />
-                    <div>
-                      <div style={{ color: '#166534', fontWeight: 600, fontSize: '0.875rem' }}>
-                        This project is marked as Completed
-                      </div>
-                      <div style={{ color: '#4B5563', fontSize: '0.75rem', marginTop: '0.15rem' }}>
-                        All tasks and deliverables are archived as completed. Project is in the Completed section.
-                      </div>
+                {/* Inline Complete Project Section */}
+                <div className="po-qa-complete-section">
+                  {completionSuccess && (
+                    <div className="po-qa-alert po-qa-alert-success">
+                      {completionSuccess}
                     </div>
-                  </div>
-                  {(isWsLeader || isProjectAdmin) && (
-                    <button
-                      type="button"
-                      style={{
-                        padding: '0.45rem 0.9rem',
-                        fontSize: '0.8125rem',
-                        fontWeight: 600,
-                        borderRadius: '6px',
-                        border: '1px solid #CBD5E1',
-                        background: '#FFFFFF',
-                        color: '#334155',
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                      }}
-                      disabled={isCompleting}
-                      onClick={handleReactivate}
-                    >
-                      {isCompleting ? 'Reactivating...' : 'Reopen / Mark as Active'}
-                    </button>
                   )}
-                </div>
-              ) : pendingRequest ? (
-                /* Completion Request is PENDING */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <div style={{ background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '8px', padding: '0.85rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#B45309', fontWeight: 700, fontSize: '0.84375rem' }}>
-                        <ClockIcon size={15} />
-                        <span>Completion Request Pending Review</span>
-                      </div>
-                      <div style={{ fontSize: '0.78125rem', color: '#64748B', marginTop: '0.2rem' }}>
-                        Requested by <strong>{pendingRequest.requestedByName}</strong> • {new Date(pendingRequest.requestedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                      {pendingRequest.reason && (
-                        <div style={{ marginTop: '0.35rem', fontSize: '0.8125rem', fontStyle: 'italic', color: '#475569' }}>
-                          &quot;{pendingRequest.reason}&quot;
+                  {completionError && (
+                    <div className="po-qa-alert po-qa-alert-error">
+                      {completionError}
+                    </div>
+                  )}
+
+                  {isCompleted ? (
+                    <div className="po-qa-complete-box box-completed">
+                      <div className="po-qa-complete-status-info">
+                        <CheckCircleIcon size={18} className="po-qa-status-icon success" />
+                        <div>
+                          <div className="po-qa-status-title">Project Completed</div>
+                          <div className="po-qa-status-desc">All deliverables preserved in read-only mode.</div>
                         </div>
+                      </div>
+                      {(isWsLeader || isProjectAdmin) && (
+                        <button
+                          type="button"
+                          className="po-qa-reopen-btn"
+                          disabled={isCompleting}
+                          onClick={handleReactivate}
+                        >
+                          {isCompleting ? 'Reactivating...' : 'Reopen Project'}
+                        </button>
                       )}
                     </div>
-
-                    {isWsLeader ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <button
-                          type="button"
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.35rem',
-                            padding: '0.5rem 0.85rem',
-                            fontSize: '0.8125rem',
-                            fontWeight: 600,
-                            borderRadius: '6px',
-                            border: 'none',
-                            background: '#059669',
-                            color: '#FFFFFF',
-                            cursor: 'pointer',
-                          }}
-                          disabled={isCompleting}
-                          onClick={() => handleApproveRequest(pendingRequest.id)}
-                        >
-                          <CheckSquareIcon size={14} />
-                          <span>{isCompleting ? 'Approving...' : 'Approve & Complete'}</span>
-                        </button>
-                        <button
-                          type="button"
-                          style={{
-                            padding: '0.5rem 0.85rem',
-                            fontSize: '0.8125rem',
-                            fontWeight: 600,
-                            borderRadius: '6px',
-                            border: '1px solid #CBD5E1',
-                            background: '#FFFFFF',
-                            color: '#DC2626',
-                            cursor: 'pointer',
-                          }}
-                          disabled={isCompleting}
-                          onClick={() => handleDeclineRequest(pendingRequest.id)}
-                        >
-                          Decline
-                        </button>
+                  ) : pendingRequest ? (
+                    <div className="po-qa-complete-box box-pending">
+                      <div className="po-qa-complete-status-info">
+                        <ClockIcon size={18} className="po-qa-status-icon pending" />
+                        <div>
+                          <div className="po-qa-status-title">Completion Request Pending</div>
+                          <div className="po-qa-status-desc">
+                            Requested by <strong>{pendingRequest.requestedByName}</strong>
+                          </div>
+                          {pendingRequest.reason && (
+                            <div className="po-qa-pending-reason">&quot;{pendingRequest.reason}&quot;</div>
+                          )}
+                        </div>
                       </div>
-                    ) : (
-                      (pendingRequest.requestedById === user?.id || isProjectAdmin) && (
-                        <button
-                          type="button"
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: '#DC2626',
-                            fontSize: '0.78125rem',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            textDecoration: 'underline',
-                          }}
-                          onClick={() => handleCancelRequest(pendingRequest.id)}
-                        >
-                          Cancel Request
-                        </button>
-                      )
-                    )}
-                  </div>
-                </div>
-              ) : (
-                /* Project is ACTIVE with NO pending request */
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-                  <div style={{ maxWidth: '620px' }}>
-                    <p style={{ margin: 0, fontSize: '0.84375rem', color: '#475569', lineHeight: '1.45' }}>
-                      Mark this project as finished when all milestones, tasks, and deliverables are complete.
-                    </p>
-                    <span style={{ fontSize: '0.71875rem', color: '#94A3B8', marginTop: '0.25rem', display: 'block' }}>
-                      {isWsLeader
-                        ? (isWsOwner
+                      {isWsLeader ? (
+                        <div className="po-qa-status-actions">
+                          <button
+                            type="button"
+                            className="po-qa-approve-btn"
+                            disabled={isCompleting}
+                            onClick={() => handleApproveRequest(pendingRequest.id)}
+                          >
+                            <CheckSquareIcon size={14} />
+                            <span>{isCompleting ? 'Approving...' : 'Approve'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="po-qa-decline-btn"
+                            disabled={isCompleting}
+                            onClick={() => handleDeclineRequest(pendingRequest.id)}
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      ) : (
+                        (pendingRequest.requestedById === user?.id || isProjectAdmin) && (
+                          <button
+                            type="button"
+                            className="po-qa-cancel-req-btn"
+                            onClick={() => handleCancelRequest(pendingRequest.id)}
+                          >
+                            Cancel Request
+                          </button>
+                        )
+                      )}
+                    </div>
+                  ) : (
+                    <div className="po-qa-active-complete-box">
+                      <div className="po-qa-active-complete-text">
+                        <div className="po-qa-active-complete-title-row">
+                          <CheckSquareIcon size={14} className="po-qa-complete-icon" />
+                          <span className="po-qa-active-complete-title">Complete Project</span>
+                        </div>
+                        <p className="po-qa-active-complete-desc">
+                          {isWsOwner
                             ? 'As workspace owner, your action immediately moves this project to the Completed section.'
-                            : 'As workspace administrator, your action immediately moves this project to the Completed section.')
-                        : isProjectAdmin
-                        ? 'Sends a completion request to Workspace Owner and Workspace Admin for approval.'
-                        : 'Only Project Administrators or Workspace Administrators can complete this project.'}
-                    </span>
-                  </div>
+                            : isWsAdmin
+                              ? 'As workspace administrator, your action immediately moves this project to the Completed section.'
+                              : isProjectAdmin
+                                ? 'As project admin, your request will be routed to workspace leaders for approval.'
+                                : 'Submit a completion request for workspace leaders to finalize.'}
+                        </p>
+                      </div>
 
-                  <div>
-                    {canDirectlyComplete ? (
-                      <button
-                        type="button"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.5rem',
-                          padding: '0.6rem 1.15rem',
-                          background: '#059669',
-                          color: '#FFFFFF',
-                          border: 'none',
-                          borderRadius: '8px',
-                          fontSize: '0.84375rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                          whiteSpace: 'nowrap',
-                        }}
-                        disabled={isCompleting}
-                        onClick={handleDirectComplete}
-                      >
-                        <CheckSquareIcon size={15} />
-                        <span>{isCompleting ? 'Completing...' : 'Mark Project as Complete'}</span>
-                      </button>
-                    ) : canRequestComplete ? (
-                      <button
-                        type="button"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.5rem',
-                          padding: '0.6rem 1.15rem',
-                          background: '#0F172A',
-                          color: '#FFFFFF',
-                          border: 'none',
-                          borderRadius: '8px',
-                          fontSize: '0.84375rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                        }}
-                        disabled={isCompleting}
-                        onClick={() => setCompletionReasonModalOpen(true)}
-                      >
-                        <CheckSquareIcon size={15} />
-                        <span>Request Project Completion</span>
-                      </button>
-                    ) : null}
-                  </div>
+                      <div className="po-qa-active-complete-action">
+                        {canDirectlyComplete ? (
+                          <button
+                            type="button"
+                            className="po-qa-complete-btn"
+                            disabled={isCompleting}
+                            onClick={() => {
+                              setCompletionModalMode('direct');
+                              setCompletionReasonModalOpen(true);
+                            }}
+                          >
+                            <CheckSquareIcon size={15} />
+                            <span>{isCompleting ? 'Completing...' : 'Mark Project as Complete'}</span>
+                          </button>
+                        ) : canRequestComplete ? (
+                          <button
+                            type="button"
+                            className="po-qa-request-btn"
+                            disabled={isCompleting}
+                            onClick={() => {
+                              setCompletionModalMode('request');
+                              setCompletionReasonModalOpen(true);
+                            }}
+                          >
+                            <CheckSquareIcon size={15} />
+                            <span>Request Project Completion</span>
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           </div>
 
@@ -1083,31 +1193,34 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
             <div className="po-card-content-body">
               <div className="po-team-members-vertical-list">
                 {project.members && project.members.length > 0 ? (
-                  project.members.map((m) => (
-                    <div key={m.id} className="po-member-list-item">
-                      <div className="po-member-avatar-box">
-                        {m.user?.avatarUrl ? (
-                          <img src={m.user.avatarUrl} alt="" className="po-member-avatar-img" />
-                        ) : (
-                          <div className="po-member-circle-avatar member-avatar-circle">
-                            {(m.user?.fullName || m.user?.username || 'U')[0].toUpperCase()}
-                          </div>
-                        )}
+                  project.members.map((m) => {
+                    const roleTag = getMemberRoleTag(m);
+                    return (
+                      <div key={m.id} className="po-member-list-item">
+                        <div className="po-member-avatar-box">
+                          {m.user?.avatarUrl ? (
+                            <img src={m.user.avatarUrl} alt="" className="po-member-avatar-img" />
+                          ) : (
+                            <div className="po-member-circle-avatar member-avatar-circle">
+                              {(m.user?.fullName || m.user?.username || 'U')[0].toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+                        <div className="po-member-names-col">
+                          <span className="po-member-display-name">
+                            {m.user?.fullName || m.user?.username || 'Team Member'}
+                          </span>
+                          <span className="po-member-username">@{m.user?.username || 'user'}</span>
+                        </div>
+                        <div className="po-member-role-group">
+                          <span className={roleTag.badgeClass}>
+                            {roleTag.label}
+                          </span>
+                          <span className="po-member-active-green-dot" />
+                        </div>
                       </div>
-                      <div className="po-member-names-col">
-                        <span className="po-member-display-name">
-                          {m.user?.fullName || m.user?.username || 'Team Member'}
-                        </span>
-                        <span className="po-member-username">@{m.user?.username || 'user'}</span>
-                      </div>
-                      <div className="po-member-role-group">
-                        <span className={m.role === 'PROJECT_ADMIN' ? 'po-member-role-badge-dark' : 'po-member-role-badge-member'}>
-                          {m.role === 'PROJECT_ADMIN' ? 'ADMIN' : 'MEMBER'}
-                        </span>
-                        <span className="po-member-active-green-dot" />
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div style={{ padding: '16px', textAlign: 'center', color: '#94A3B8', fontSize: '13px' }}>
                     No members yet.
@@ -1227,98 +1340,243 @@ export const ProjectOverviewPage: React.FC<ProjectOverviewPageProps> = ({
         onClose={() => setLearnMoreOpen(false)}
       />
 
-      {/* Request Project Completion Modal */}
+      {/* Complete Project / Request Project Completion Modal */}
       <Modal
         isOpen={completionReasonModalOpen}
-        onClose={() => !isSubmittingRequest && setCompletionReasonModalOpen(false)}
-        title="Request Project Completion"
+        onClose={() => !isSubmittingRequest && !isCompleting && setCompletionReasonModalOpen(false)}
         maxWidth="md"
+        className="po-completion-modal"
       >
-        <form onSubmit={handleRequestComplete} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '0.5rem 0' }}>
-          <div
-            style={{
-              backgroundColor: '#EFF6FF',
-              border: '1px solid #BFDBFE',
-              borderRadius: '8px',
-              padding: '0.85rem',
-              color: '#1E40AF',
-              fontSize: '0.84375rem',
-              lineHeight: '1.45',
-            }}
-          >
-            <strong>Project Completion Review:</strong> As a Project Admin, your request to mark <strong>{project?.name}</strong> as completed will be sent to the Workspace Owner and Workspace Admin for approval.
+        <form
+          onSubmit={completionModalMode === 'direct' ? handleDirectComplete : handleRequestComplete}
+          className="po-cm-container"
+        >
+          {/* Header matching Image 1: Left badge + Title/Subtitle + Right Illustration */}
+          <div className="po-cm-header">
+            <div className="po-cm-header-badge">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="3" y="3" width="18" height="18" rx="5" stroke="#1E40AF" strokeWidth="2" fill="none" />
+                <path d="M8.5 12.5L11 15L16 9.5" stroke="#1E40AF" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <div className="po-cm-header-meta">
+              <h2 className="po-cm-title">
+                {completionModalMode === 'direct' ? 'Mark Project as Complete' : 'Request Project Completion'}
+              </h2>
+              <p className="po-cm-subtitle">
+                {completionModalMode === 'direct'
+                  ? 'Finalize “' + (project?.name || 'Project') + '” and preserve deliverables in read-only mode.'
+                  : 'Submit a completion request for “' + (project?.name || 'Project') + '” for workspace leadership review.'}
+              </p>
+            </div>
+            <div className="po-cm-illustration-wrap" aria-hidden="true">
+              <svg width="124" height="74" viewBox="0 0 124 74" fill="none" xmlns="http://www.w3.org/2000/svg">
+                {/* Soft backdrop clouds */}
+                <ellipse cx="68" cy="40" rx="36" ry="24" fill="#EEF4FF" />
+                <ellipse cx="94" cy="36" rx="22" ry="18" fill="#F0F5FF" />
+                <ellipse cx="48" cy="46" rx="20" ry="14" fill="#F0F5FF" />
+
+                {/* Tilted Checklist Document Sheet */}
+                <g transform="rotate(6 66 32)">
+                  <rect x="42" y="4" width="46" height="54" rx="7" fill="#FFFFFF" stroke="#DCE7FD" strokeWidth="1.5" />
+
+                  {/* Item 1 */}
+                  <rect x="48" y="14" width="9" height="9" rx="2.5" fill="#EFF6FF" stroke="#3B82F6" strokeWidth="1.2" />
+                  <path d="M50.5 18.5L52 20L55 16.5" stroke="#2563EB" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                  <rect x="61" y="16.5" width="21" height="4" rx="2" fill="#DBEAFE" />
+
+                  {/* Item 2 */}
+                  <rect x="48" y="27" width="9" height="9" rx="2.5" fill="#EFF6FF" stroke="#3B82F6" strokeWidth="1.2" />
+                  <path d="M50.5 31.5L52 33L55 29.5" stroke="#2563EB" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                  <rect x="61" y="29.5" width="16" height="4" rx="2" fill="#DBEAFE" />
+
+                  {/* Item 3 placeholder lines */}
+                  <rect x="48" y="40" width="18" height="3" rx="1.5" fill="#EFF6FF" />
+                </g>
+
+                {/* Blue Award Rosette / Medal on sheet's bottom-right */}
+                <g transform="translate(86, 38)">
+                  {/* Ribbon tails */}
+                  <path d="M7 16L4 27L10 24L16 27L13 16" fill="#2563EB" />
+                  <path d="M10 16L13 28L17 25L21 28L18 16" fill="#1D4ED8" />
+                  {/* Rosette medallion */}
+                  <circle cx="12" cy="11" r="10" fill="#3B82F6" stroke="#2563EB" strokeWidth="1" />
+                  <circle cx="12" cy="11" r="7.5" fill="#2563EB" />
+                  {/* Star in medal */}
+                  <path d="M12 6.5L13.3 9.3L16.2 9.7L14.1 11.6L14.7 14.5L12 13L9.3 14.5L9.9 11.6L7.8 9.7L10.7 9.3L12 6.5Z" fill="#FFFFFF" />
+                </g>
+              </svg>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-            <label
-              htmlFor="completionReason"
-              style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#334155' }}
-            >
-              Completion Notes / Summary (Optional)
-            </label>
+          {/* Deliverables Health Card */}
+          <div className="po-cm-health-card">
+            <div className="po-cm-health-header">
+              <div className="po-cm-health-title-flex">
+                <LayersIcon size={16} className="po-cm-health-icon" />
+                <span className="po-cm-health-title">Deliverables Health</span>
+              </div>
+              <span className={'po-cm-health-pill ' + (completionPercent === 100 ? 'pill-done' : 'pill-pending')}>
+                <CheckCircleIcon size={13} />
+                <span>{completionPercent}% Completed</span>
+              </span>
+            </div>
+            <div className="po-cm-progress-track">
+              <div className="po-cm-progress-fill" style={{ width: completionPercent + '%' }} />
+            </div>
+            <div className="po-cm-stats-grid">
+              <div className="po-cm-stat-box">
+                <div className="po-cm-stat-icon-wrap icon-tasks">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="4" y="4" width="16" height="16" rx="4" />
+                    <path d="M9 12l2 2 4-4" />
+                  </svg>
+                </div>
+                <div className="po-cm-stat-meta">
+                  <span className="po-cm-stat-num">{totalTasksCount}</span>
+                  <span className="po-cm-stat-label">Total Tasks</span>
+                </div>
+              </div>
+              <div className="po-cm-stat-box">
+                <div className="po-cm-stat-icon-wrap icon-completed">
+                  <CheckIcon size={16} strokeWidth={2.5} />
+                </div>
+                <div className="po-cm-stat-meta">
+                  <span className="po-cm-stat-num">{completedTasksCount}</span>
+                  <span className="po-cm-stat-label">Completed</span>
+                </div>
+              </div>
+              <div className="po-cm-stat-box">
+                <div className="po-cm-stat-icon-wrap icon-remaining">
+                  <CircleDotIcon size={16} />
+                </div>
+                <div className="po-cm-stat-meta">
+                  <span className={'po-cm-stat-num ' + (openTasksCount > 0 ? 'num-amber' : '')}>{openTasksCount}</span>
+                  <span className="po-cm-stat-label">Remaining Open</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Deliverables Status Notice */}
+          {openTasksCount > 0 ? (
+            <div className="po-cm-alert-box alert-amber">
+              <AlertCircleIcon size={20} className="po-cm-alert-icon" />
+              <div className="po-cm-alert-body">
+                <div className="po-cm-alert-heading">
+                  {openTasksCount} unfinished task{openTasksCount > 1 ? 's' : ''} remaining
+                </div>
+                <p className="po-cm-alert-desc">
+                  {completionModalMode === 'direct'
+                    ? 'There are still active tasks in To Do, In Progress, or In Review.'
+                    : 'Workspace leadership will review open tasks as part of this completion request.'}
+                </p>
+                {completionModalMode === 'direct' && (
+                  <label className="po-cm-resolve-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={autoResolveOpenTasks}
+                      onChange={(e) => setAutoResolveOpenTasks(e.target.checked)}
+                      className="po-cm-checkbox"
+                    />
+                    <span>Automatically mark all {openTasksCount} remaining task{openTasksCount > 1 ? 's' : ''} as Completed</span>
+                  </label>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="po-cm-alert-box alert-finished">
+              <CheckCircleIcon size={20} className="po-cm-alert-icon" />
+              <div className="po-cm-alert-body">
+                <div className="po-cm-alert-heading">All deliverables finished (100%)</div>
+                <p className="po-cm-alert-desc">
+                  Every task on this project has been resolved. You are ready to close and archive deliverables.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Notes Field */}
+          <div className="po-cm-field-group">
+            <div className="po-cm-field-header">
+              <FileTextIcon size={16} className="po-cm-field-icon" />
+              <label htmlFor="completionReason" className="po-cm-field-label">
+                {completionModalMode === 'direct'
+                  ? 'Completion Summary & Release Notes (Optional)'
+                  : 'Completion Notes for Leadership (Recommended)'}
+              </label>
+            </div>
             <textarea
               id="completionReason"
-              rows={4}
+              rows={3}
               value={completionReason}
               onChange={(e) => setCompletionReason(e.target.value)}
-              placeholder="Summarize key deliverables, milestones completed, or notes for workspace administrators..."
-              style={{
-                width: '100%',
-                padding: '0.625rem 0.75rem',
-                borderRadius: '8px',
-                border: '1px solid #CBD5E1',
-                fontSize: '0.875rem',
-                fontFamily: 'inherit',
-                color: '#0F172A',
-                resize: 'vertical',
-                boxSizing: 'border-box',
-              }}
+              placeholder={
+                completionModalMode === 'direct'
+                  ? 'Summarize accomplishments, final deliverables, or sign-off notes...'
+                  : 'Describe key deliverables, milestones completed, and notes for workspace administrators...'
+              }
+              className="po-cm-textarea"
             />
           </div>
 
+          {/* Read-Only Safeguard Notice */}
+          <div className="po-cm-safeguard-card">
+            <ShieldIcon size={18} className="po-cm-safeguard-icon" />
+            <span>
+              <strong>Read-Only Protection:</strong> Completing this project locks all tasks, milestones, and boards to preserve the historical record. Workspace Owners or Admins can reactivate at any time.
+            </span>
+          </div>
+
           {completionError && (
-            <div style={{ color: '#DC2626', fontSize: '0.8125rem' }}>
+            <div style={{ color: '#DC2626', fontSize: '0.8125rem', marginTop: '-0.25rem' }}>
               {completionError}
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+          {/* Footer Actions */}
+          <div className="po-cm-footer">
             <button
               type="button"
+              className="po-cm-btn-cancel"
               onClick={() => setCompletionReasonModalOpen(false)}
-              disabled={isSubmittingRequest}
-              style={{
-                padding: '0.5rem 1rem',
-                borderRadius: '6px',
-                border: '1px solid #CBD5E1',
-                background: '#FFFFFF',
-                color: '#475569',
-                fontSize: '0.875rem',
-                cursor: 'pointer',
-              }}
+              disabled={isCompleting || isSubmittingRequest}
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={isSubmittingRequest}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.5rem 1.25rem',
-                borderRadius: '6px',
-                border: 'none',
-                background: '#0F172A',
-                color: '#FFFFFF',
-                fontSize: '0.875rem',
-                fontWeight: 600,
-                cursor: isSubmittingRequest ? 'not-allowed' : 'pointer',
-              }}
-            >
-              <CheckSquareIcon size={14} />
-              <span>{isSubmittingRequest ? 'Submitting...' : 'Submit Request'}</span>
-            </button>
+            {completionModalMode === 'direct' ? (
+              <button
+                type="submit"
+                className="po-cm-btn-submit"
+                disabled={isCompleting}
+              >
+                <CheckSquareIcon size={16} />
+                <span>{isCompleting ? 'Finalizing Project...' : 'Confirm & Complete Project'}</span>
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="po-cm-btn-submit"
+                disabled={isSubmittingRequest}
+              >
+                <CheckSquareIcon size={16} />
+                <span>{isSubmittingRequest ? 'Submitting...' : 'Submit Completion Request'}</span>
+              </button>
+            )}
+          </div>
+
+          {/* Decorative bottom waves matching screenshot */}
+          <div className="po-cm-bottom-waves" aria-hidden="true">
+            <svg viewBox="0 0 600 70" preserveAspectRatio="none" className="po-cm-waves-svg">
+              <path
+                d="M0 45 C150 15, 300 65, 450 35 C520 20, 570 30, 600 38 L600 70 L0 70 Z"
+                fill="rgba(224, 231, 255, 0.45)"
+              />
+              <path
+                d="M0 55 C120 35, 260 68, 420 48 C510 38, 560 50, 600 52 L600 70 L0 70 Z"
+                fill="rgba(238, 242, 255, 0.75)"
+              />
+            </svg>
           </div>
         </form>
       </Modal>

@@ -468,6 +468,7 @@ export class WorkspaceController {
         workspaceId,
         req.user.userId,
         input.token,
+        input.reason,
         { ipAddress: req.ip, userAgent: req.get('user-agent') }
       );
 

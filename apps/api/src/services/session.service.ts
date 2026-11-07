@@ -35,9 +35,9 @@ export class SessionService {
     const rawSessionToken = generateSecureToken(32);
     const sessionTokenHash = hashToken(rawSessionToken);
 
-    const lifetimeMs = options.rememberMe !== false
-      ? 7 * 24 * 60 * 60 * 1000  // 7 days
-      : 24 * 60 * 60 * 1000;      // 24 hours
+    const lifetimeMs = options.rememberMe
+      ? 30 * 24 * 60 * 60 * 1000  // 30 days
+      : 24 * 60 * 60 * 1000;       // 24 hours
 
     const expiresAt = new Date(Date.now() + lifetimeMs);
 

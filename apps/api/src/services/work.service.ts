@@ -34,8 +34,8 @@ export class WorkService {
   async createWorkItem(projectId: string, userId: string, data: CreateWorkItemInput) {
     const { project } = await this.verifyProjectMember(projectId, userId);
 
-    if (project.status === 'ARCHIVED') {
-      throw new AppError('Cannot create work items in an archived project', 400);
+    if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+      throw new AppError(`Cannot create work items in a ${project.status.toLowerCase()} project`, 400);
     }
 
     const rawAssigneeIds = data.assigneeIds || (data.assignedToId ? [data.assignedToId] : []);
@@ -398,8 +398,8 @@ export class WorkService {
   ) {
     const { isAdmin, project } = await this.verifyProjectMember(projectId, userId);
 
-    if (project.status === 'ARCHIVED') {
-      throw new AppError('Cannot modify work items in an archived project', 400);
+    if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+      throw new AppError(`Cannot modify work items in a ${project.status.toLowerCase()} project`, 400);
     }
 
     const existing = await prisma.workItem.findUnique({
@@ -676,8 +676,8 @@ export class WorkService {
   async deleteWorkItem(projectId: string, workItemId: string, userId: string) {
     const { isAdmin, project } = await this.verifyProjectMember(projectId, userId);
 
-    if (project.status === 'ARCHIVED') {
-      throw new AppError('Cannot delete work items in an archived project', 400);
+    if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+      throw new AppError(`Cannot delete work items in a ${project.status.toLowerCase()} project`, 400);
     }
 
     const existing = await prisma.workItem.findUnique({
@@ -1051,7 +1051,10 @@ export class WorkService {
    * Assignee starts their work on a task (TODO -> IN_PROGRESS when all start)
    */
   async startTask(projectId: string, workItemId: string, userId: string, startPaused: boolean = false) {
-      await this.verifyProjectMember(projectId, userId);
+      const { project } = await this.verifyProjectMember(projectId, userId);
+      if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+        throw new AppError(`Cannot start work in a ${project.status.toLowerCase()} project`, 400);
+      }
       const existing = await prisma.workItem.findUnique({
         where: { id: workItemId },
         include: { assignees: true },
@@ -1193,7 +1196,10 @@ export class WorkService {
    * Assignee resumes a paused timer
    */
   async resumeTimer(projectId: string, workItemId: string, userId: string) {
-      await this.verifyProjectMember(projectId, userId);
+      const { project } = await this.verifyProjectMember(projectId, userId);
+      if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+        throw new AppError(`Cannot resume timer in a ${project.status.toLowerCase()} project`, 400);
+      }
       const assignee = await prisma.workItemAssignee.findFirst({
         where: { workItemId, userId },
       });
@@ -1231,7 +1237,10 @@ export class WorkService {
    * Assignee marks their work as done
    */
   async completeWork(projectId: string, workItemId: string, userId: string) {
-      await this.verifyProjectMember(projectId, userId);
+      const { project } = await this.verifyProjectMember(projectId, userId);
+      if (project.status === 'ARCHIVED' || project.status === 'COMPLETED') {
+        throw new AppError(`Cannot complete work in a ${project.status.toLowerCase()} project`, 400);
+      }
       const existing = await prisma.workItem.findUnique({
         where: { id: workItemId },
         include: { assignees: true },

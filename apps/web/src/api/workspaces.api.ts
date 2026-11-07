@@ -344,7 +344,7 @@ export const workspacesApi = {
 
   async requestOwnershipTransfer(
     workspaceId: string,
-    input: { targetUserId?: string; targetEmail?: string; targetRole: WorkspaceRole }
+    input: { targetUserId?: string; targetEmail?: string; targetRole: WorkspaceRole; confirmationName?: string }
   ): Promise<ApiResponse<{ transfer: OwnershipTransferItem }>> {
     return apiClient(`/workspaces/${workspaceId}/ownership-transfer/request`, {
       method: 'POST',
@@ -354,7 +354,7 @@ export const workspacesApi = {
 
   async initiateOwnershipTransfer(
     workspaceId: string,
-    input: { targetUserId?: string; targetEmail?: string; targetRole: WorkspaceRole }
+    input: { targetUserId?: string; targetEmail?: string; targetRole: WorkspaceRole; confirmationName?: string }
   ): Promise<ApiResponse<{ transfer: OwnershipTransferItem }>> {
     return this.requestOwnershipTransfer(workspaceId, input);
   },
@@ -373,11 +373,12 @@ export const workspacesApi = {
 
   async rejectOwnershipTransfer(
     workspaceId: string,
-    token?: string
+    token?: string,
+    reason?: string
   ): Promise<ApiResponse<{ success: boolean; message: string }>> {
     return apiClient(`/workspaces/${workspaceId}/ownership-transfer/reject`, {
       method: 'POST',
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, reason }),
     });
   },
 

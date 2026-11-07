@@ -251,7 +251,7 @@ export class ProjectService {
               invitedById: userId,
               role: inv.role || 'PROJECT_MEMBER',
               message: inv.message || undefined,
-              status: 'PENDING',
+        status: 'PENDING',
               expiresAt,
             },
           });
@@ -1063,7 +1063,7 @@ export class ProjectService {
    * - Workspace Owner / Workspace Admin: directly sets status to COMPLETED (approves any pending request).
    * - Project Admin: creates/updates a completion request awaiting Workspace Owner/Admin approval.
    */
-  async completeProject(projectId: string, userId: string, reason?: string, explicitWorkspaceId?: string) {
+  async completeProject(projectId: string, userId: string, reason?: string, explicitWorkspaceId?: string, autoResolveOpenTasks?: boolean) {
     const { project, isWsOwner, isWsAdmin, isAdmin } = await this.verifyProjectAccess(projectId, userId, explicitWorkspaceId);
 
     if (project.status === 'COMPLETED') {
@@ -1088,6 +1088,17 @@ export class ProjectService {
     if (canDirectlyComplete) {
       // Direct completion by Workspace Owner or Workspace Admin
       const updated = await prisma.$transaction(async (tx) => {
+        if (autoResolveOpenTasks) {
+          await tx.workItem.updateMany({
+            where: {
+              projectId,
+              status: { not: 'COMPLETED' },
+            },
+            data: {
+              status: 'COMPLETED',
+            },
+          });
+        }
         const p = await tx.project.update({
           where: { id: projectId },
           data: {
@@ -1182,6 +1193,7 @@ export class ProjectService {
         requestedByAvatar: requester?.avatarUrl || null,
         reason: reason?.trim() || null,
         requestedAt: new Date().toISOString(),
+        autoResolveOpenTasks: Boolean(autoResolveOpenTasks),
         status: 'PENDING',
       };
 
@@ -1344,6 +1356,17 @@ export class ProjectService {
     }
 
     // Update project status to COMPLETED
+    if (targetReq.autoResolveOpenTasks) {
+      await prisma.workItem.updateMany({
+        where: {
+          projectId: targetReq.projectId,
+          status: { not: 'COMPLETED' },
+        },
+        data: {
+          status: 'COMPLETED',
+        },
+      });
+    }
     await prisma.project.update({
       where: { id: targetReq.projectId },
       data: { status: 'COMPLETED' },

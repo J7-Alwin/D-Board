@@ -6,6 +6,8 @@ import { passwordResetRateLimiter, emailVerificationRateLimiter } from '../middl
 import {
   registerSchema,
   loginSchema,
+  sendRegistrationOtpSchema,
+  verifyRegistrationOtpSchema,
   forgotPasswordSchema,
   verifyOtpSchema,
   resetPasswordSchema,
@@ -17,6 +19,8 @@ import {
 const router = Router();
 
 // Public auth endpoints
+router.post('/send-registration-otp', emailVerificationRateLimiter, validateBody(sendRegistrationOtpSchema), authController.sendRegistrationOtp);
+router.post('/verify-registration-otp', emailVerificationRateLimiter, validateBody(verifyRegistrationOtpSchema), authController.verifyRegistrationOtp);
 router.post('/register', validateBody(registerSchema), authController.register);
 router.post('/login', validateBody(loginSchema), authController.login);
 router.post('/forgot-password', passwordResetRateLimiter, validateBody(forgotPasswordSchema), authController.forgotPassword);

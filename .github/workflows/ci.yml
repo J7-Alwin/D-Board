@@ -82,7 +82,15 @@ jobs:
       - name: Deploy Database Schema
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/d_board?schema=public
-        run: npx prisma db push --schema=apps/api/prisma/schema.prisma --accept-data-loss
+        run: |
+          npx prisma db push --schema=apps/api/prisma/schema.prisma --accept-data-loss
+          node -e "
+            const pg = require('pg');
+            const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+            pool.query('CREATE UNIQUE INDEX IF NOT EXISTS \"ProjectTransfer_unique_pending_project_idx\" ON \"ProjectTransfer\"(\"projectId\") WHERE status = \'PENDING\';')
+              .then(() => { console.log('Partial unique index applied successfully'); pool.end(); })
+              .catch(err => { console.error(err); process.exit(1); });
+          "
 
       - name: Run Backend Unit & Integration Tests (Vitest)
         env:

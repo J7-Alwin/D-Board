@@ -69,7 +69,7 @@ app.use(
         scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
         imgSrc: ["'self'", "data:", "blob:", "https:"],
-        connectSrc: ["'self'", ...allowedOrigins],
+        connectSrc: ["'self'", ...allowedOrigins, ...allowedOrigins.map((o) => o.replace(/^http/i, 'ws'))],
         fontSrc: ["'self'", "https:", "data:"],
         objectSrc: ["'none'"],
         mediaSrc: ["'self'"],

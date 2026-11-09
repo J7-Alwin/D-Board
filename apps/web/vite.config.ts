@@ -75,6 +75,26 @@ function configureProxy(proxy: any) {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom')) {
+              return 'vendor-react';
+            }
+            if (id.includes('socket.io-client')) {
+              return 'vendor-socket';
+            }
+            if (id.includes('dompurify') || id.includes('jszip')) {
+              return 'vendor-utils';
+            }
+          }
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1200,
+  },
   server: {
     port: 5173,
     proxy: {

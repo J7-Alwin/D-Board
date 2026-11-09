@@ -63,7 +63,7 @@ if (process.env.DATABASE_CA_CERT) {
     }
 }
 
-const isRemoteOrSsl = 
+const isRemoteOrSsl =
     process.env.DATABASE_SSL === 'true' ||
     connectionString.includes('sslmode=require') ||
     connectionString.includes('supabase.co') ||
@@ -80,11 +80,19 @@ const sslConfig = isRemoteOrSsl
 const pool = new pg.Pool({
     connectionString,
     ssl: sslConfig,
-    max: parseInt(process.env.DB_POOL_MAX || '5', 10),
-    idleTimeoutMillis: 10000,
-    connectionTimeoutMillis: 10000,
+    max: parseInt(process.env.DB_POOL_MAX || '10', 10),
+    idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT_MS || '30000', 10),
+    connectionTimeoutMillis: parseInt(process.env.DB_CONN_TIMEOUT_MS || '30000', 10),
     keepAlive: true,
     keepAliveInitialDelayMillis: 10000,
+});
+
+// Capture idle client errors to prevent unhandled exceptions when remote Supabase pooler terminates an idle connection
+pool.on('error', (err: any) => {
+    const msg = err?.message || String(err);
+    if (!msg.includes('closed') && !msg.includes('terminated')) {
+        console.warn('[pg-pool] Idle client warning:', msg);
+    }
 });
 
 const adapter = new PrismaPg(pool);
@@ -92,8 +100,8 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({
     adapter,
     transactionOptions: {
-      maxWait: 10000,
-      timeout: 25000,
+        maxWait: 10000,
+        timeout: 25000,
     },
 });
 

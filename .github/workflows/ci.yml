@@ -82,7 +82,7 @@ jobs:
       - name: Deploy Database Schema
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/d_board?schema=public
-        run: npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
+        run: npx prisma db push --schema=apps/api/prisma/schema.prisma --accept-data-loss
 
       - name: Run Backend Unit & Integration Tests (Vitest)
         env:
